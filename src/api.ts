@@ -20,7 +20,7 @@ export interface ChartResponse { metric: string; from: string; to: string; granu
 export interface AuditRow { id: string; source: "line" | "web" | "system" | "migration"; actorType: string; actorId: string | null; action: string; entityType: string; entityId: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null; changedFields: string[]; reason: string | null; requestId: string; createdAt: string }
 export interface DataHealthCheck { code: string; count: number; label: string }
 export interface DataHealth { warnings: string[]; checks?: DataHealthCheck[]; checkedAt: string }
-export interface FinanceData { totals: Record<string, number>; investors: Array<Record<string, unknown>>; farms: Array<Record<string, unknown>>; distributions: Array<Record<string, unknown>>; allocations: Array<Record<string, unknown>> }
+export interface FinanceData { totals: Record<string, number>; investors: Array<Record<string, unknown>>; farms: Array<Record<string, unknown>>; distributions: Array<Record<string, unknown>>; allocations: Array<Record<string, unknown>>; farmInvestorEquity: Array<Record<string, unknown>> }
 export interface Alias { id: string; farmId: string; farmName: string; alias: string; normalizedAlias: string; aliasType: string; status: string; confirmationCount: number; lastConfirmedAt: string | null; createdAt: string; updatedAt: string }
 
 export function queryString(values: Record<string, string | number | null | undefined>): string {
