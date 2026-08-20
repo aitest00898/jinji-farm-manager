@@ -1,5 +1,39 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { API_BASE, ApiClient, queryString } from "./api";
+import { NAV_GROUPS, NAV_ITEMS } from "./navigation";
+
+describe("mobile navigation information architecture", () => {
+  it("gives every page a concise Traditional Chinese label and explanation", () => {
+    expect(NAV_ITEMS.map(({ label, description }) => `${label}（${description}）`)).toEqual([
+      "總覽（今日重點）",
+      "雞場（場區管理）",
+      "飼養者（人員管理）",
+      "雞舍（舍別管理）",
+      "批次（入雛與出雞）",
+      "營運紀錄（死亡／淘汰／飼料等）",
+      "財務（盈虧與收支）",
+      "股權（投資人與持股）",
+      "趨勢分析（數據圖表）",
+      "提醒（出雞提醒）",
+      "名稱解析（別名／錯字／同音）",
+      "變更紀錄（修改追蹤）",
+      "資料健康（異常檢查）",
+      "組織（協會資料）",
+      "設定（系統設定）",
+    ]);
+    expect(NAV_ITEMS.every((item) => item.pageDescription.length > 0)).toBe(true);
+  });
+
+  it("groups all routes exactly once without changing route keys", () => {
+    expect(NAV_GROUPS.map((group) => group.label)).toEqual(["日常營運", "財務管理", "分析與稽核", "系統管理"]);
+    expect(new Set(NAV_ITEMS.map((item) => item.key)).size).toBe(NAV_ITEMS.length);
+    expect(NAV_ITEMS.every((item) => NAV_GROUPS.some((group) => group.key === item.group))).toBe(true);
+  });
+
+  it("assigns a distinct semantic icon to every navigation item", () => {
+    expect(new Set(NAV_ITEMS.map((item) => item.icon)).size).toBe(NAV_ITEMS.length);
+  });
+});
 
 describe("Web management safety contract", () => {
   it("uses the existing Worker API by default", () => {
