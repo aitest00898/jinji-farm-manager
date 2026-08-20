@@ -182,11 +182,18 @@ tr:last-child td { border-bottom: 0; }
 .timeline-item strong, .timeline-item span, .timeline-item small { display: block; }
 .timeline-item span { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .timeline-item small { color: #9a8c7e; font-size: 11px; margin-top: 5px; }
-.quick-prompts { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0; }
-.quick-prompts button { min-height: 40px; border: 1px solid #e3d6c8; background: #fffaf5; color: #795b3b; padding: 8px 11px; border-radius: 99px; font-size: 12px; }
-.ai-question-form { display: flex; gap: 12px; align-items: end; }
-.ai-question-form label { display: grid; gap: 6px; color: #77695a; font-size: 12px; flex: 1; }
-.ai-question-form textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid #ddd2c5; border-radius: 7px; padding: 10px; font-size: 16px; }
+.quick-prompts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.quick-prompts button { min-height: 42px; border: 1px solid #e3d6c8; background: #fffaf5; color: #795b3b; padding: 9px 12px; border-radius: 99px; font-size: 13px; cursor: pointer; }
+.ai-question-block, .ai-result-block { display: grid; gap: 5px; }
+.ai-question-form { display: grid; gap: 12px; margin-top: 18px; }
+.ai-question-form label { display: grid; gap: 7px; color: #77695a; font-size: 13px; }
+.ai-question-form textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid #d9cbbd; border-radius: 10px; padding: 12px; font-size: 16px; line-height: 1.55; background: #fffdfa; }
+.ai-question-form textarea:focus { outline: 3px solid #ead8bf; border-color: #b8844e; }
+.ai-workspace-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ai-workspace-heading h2 { margin: 0; font-size: clamp(22px, 3vw, 30px); }
+.ai-sheet .panel-title h2 { margin: 0; }
+.ai-sheet-form { margin-top: 16px; }
+.ai-sheet .ai-result-block { margin-top: 22px; }
 .analysis-report { margin-top: 18px; line-height: 1.7; }
 .analysis-report h4 { margin: 18px 0 5px; color: #6c4f35; }
 .analysis-report ul { margin: 6px 0; padding-left: 21px; }
