@@ -44,6 +44,9 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/houses")) return fulfill(route, { houses: [house] });
     if (path.endsWith("/api/flocks")) return fulfill(route, { flocks: [flock] });
     if (path.endsWith("/api/operational-events")) return fulfill(route, { events: [operationalEvent], nextCursor: null });
+    if (path.endsWith("/api/abnormal-events")) return fulfill(route, { abnormalEvents: [], nextCursor: null });
+    if (path.endsWith("/api/weather")) return fulfill(route, { weather: [] });
+    if (path.endsWith("/api/timeline")) return fulfill(route, { timeline: [], nextCursor: null });
     if (path.endsWith("/api/finance")) return fulfill(route, { totals: { allocated: 0, expense: 0, net: 0 }, investors: [], farms: [], distributions: [], allocations: [], farmInvestorEquity: [] });
     if (path.endsWith("/api/farm-aliases")) return fulfill(route, { aliases: [] });
     if (path.endsWith("/api/data-health")) return fulfill(route, { warnings: [], checks: [], checkedAt: "2026-08-20T00:00:00Z" });
