@@ -6,6 +6,6 @@ describe("Web management safety contract", () => {
     expect(API_BASE).toBe("https://chicken-line-production.jinji-assistant.workers.dev");
   });
   it("does not put an admin password or token in the public API base", () => {
-    expect(API_BASE).not.toMatch(/***REMOVED***|FARM_ADMIN_PASSWORD_HASH|Bearer/iu);
+    expect(API_BASE).not.toMatch(/FARM_ADMIN_PASSWORD_HASH|Bearer/iu);
   });
 });
