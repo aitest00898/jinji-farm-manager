@@ -187,6 +187,8 @@ function Metric({ title, value, detail, tone = "neutral" }: { title: string; val
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -195,7 +197,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current || !focusable?.length) return;
@@ -214,7 +216,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
       document.removeEventListener("keydown", handleKeyDown);
       previous?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1}>

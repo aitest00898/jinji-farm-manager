@@ -260,6 +260,16 @@ test.describe("保留訊息管理介面", () => {
     await expect(page.getByText("已查看待決定", { exact: true })).toBeVisible();
   });
 
+  test("重新驗證管理權限時可連續輸入密碼", async ({ page }) => {
+    await page.getByRole("button", { name: "我已查看", exact: true }).click();
+    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
+    const password = authorization.getByLabel("管理密碼");
+    await password.click();
+    await page.keyboard.type("test-only-fixture", { delay: 15 });
+    await expect(password).toHaveValue("test-only-fixture");
+    await expect(password).toBeFocused();
+  });
+
   test("確認不用處理後會移出未完成並出現在已結案歷史", async ({ page }) => {
     await page.getByRole("button", { name: /查看未完成訊息/ }).click();
     await page.getByRole("button", { name: "查看／處理", exact: true }).click();
