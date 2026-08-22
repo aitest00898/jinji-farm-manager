@@ -216,7 +216,7 @@ export class ApiClient {
   updateFlock(id: string, body: Record<string, unknown>) { return this.request<{ flock: Flock }>(`/api/flocks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
   events(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ events: OperationalEvent[]; nextCursor: string | null }>(`/api/operational-events${queryString(params)}`); }
   createEvent(body: Record<string, unknown>) { return this.request("/api/operational-events", { method: "POST", body: JSON.stringify(body) }); }
-  reverseEvent(id: string, reason: string) { return this.request(`/api/operational-events/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason }) }); }
+  reverseEvent(id: string, reason?: string) { return this.request(`/api/operational-events/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
   correctEvent(id: string, body: Record<string, unknown>) { return this.request(`/api/operational-events/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }); }
   finance() { return this.request<FinanceData>("/api/finance"); }
   chart(metric: string, filters: Record<string, string | number | null | undefined> = {}) { return this.request<ChartResponse>(`/api/charts/${encodeURIComponent(metric)}${queryString(filters)}`); }
@@ -225,7 +225,7 @@ export class ApiClient {
   dataHealth() { return this.request<DataHealth>("/api/data-health"); }
   abnormalEvents(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ abnormalEvents: AbnormalEvent[]; nextCursor: string | null }>(`/api/abnormal-events${queryString(params)}`); }
   createAbnormalEvent(body: Record<string, unknown>) { return this.request<{ created: boolean; id: string; rawText: string }>("/api/abnormal-events", { method: "POST", body: JSON.stringify(body) }); }
-  reverseAbnormalEvent(id: string, reason: string) { return this.request(`/api/abnormal-events/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason }) }); }
+  reverseAbnormalEvent(id: string, reason?: string) { return this.request(`/api/abnormal-events/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
   correctAbnormalEvent(id: string, body: Record<string, unknown>) { return this.request(`/api/abnormal-events/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }); }
   weather(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ weather: WeatherDaily[] }>(`/api/weather${queryString(params)}`); }
   timeline(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ timeline: TimelineItem[]; nextCursor: string | null }>(`/api/timeline${queryString(params)}`); }
@@ -241,6 +241,6 @@ export class ApiClient {
   recoverUnfinished() { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>("/api/reliability/recover", { method: "POST", body: "{}" }); }
   acknowledgeRetained() { return this.request<{ ok: boolean; message: string; acknowledged: number }>("/api/reliability/acknowledge", { method: "POST", body: "{}" }); }
   recoverRetained(eventId: string) { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/recover`, { method: "POST", body: "{}" }); }
-  resolveRetained(eventId: string, action: "manual_resolve" | "force_close", reason: string, note?: string, confirm = false) { return this.request<{ ok: boolean; changed: boolean; message: string }>(`/api/reliability/events/${encodeURIComponent(eventId)}/resolve`, { method: "POST", body: JSON.stringify({ action, reason, note, confirm }) }); }
+  resolveRetained(eventId: string, action: "manual_resolve" | "force_close", reason?: string, note?: string, confirm = false) { return this.request<{ ok: boolean; changed: boolean; message: string }>(`/api/reliability/events/${encodeURIComponent(eventId)}/resolve`, { method: "POST", body: JSON.stringify({ action, reason: reason?.trim() || null, note: note?.trim() || null, confirm }) }); }
   recordRetained(eventId: string, body: Record<string, unknown>) { return this.request<{ ok: boolean; changed: boolean; message: string; record: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/record`, { method: "POST", body: JSON.stringify(body) }); }
 }

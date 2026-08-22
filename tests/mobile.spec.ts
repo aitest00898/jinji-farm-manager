@@ -274,7 +274,6 @@ test.describe("保留訊息管理介面", () => {
     const detail = page.getByRole("dialog");
     await detail.getByRole("button", { name: "確認不用處理", exact: true }).click();
     const resolution = page.getByRole("dialog").filter({ hasText: "訊息短編號" });
-    await resolution.locator("textarea").first().fill("確認不需要建立正式紀錄");
     await resolution.getByRole("button", { name: "確認不用處理", exact: true }).click();
     await expect(page.getByText("已結案。", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("目前沒有未完成訊息。", { exact: true })).toBeVisible();
@@ -282,19 +281,21 @@ test.describe("保留訊息管理介面", () => {
     await expect(page.getByText("確認不用處理", { exact: true })).toBeVisible();
   });
 
-  test("強制結案需要原因與第二次確認", async ({ page }) => {
+  test("強制結案只需一次簡單確認且原因可留白", async ({ page }) => {
     await page.getByRole("button", { name: /查看未完成訊息/ }).click();
     await page.getByRole("button", { name: "查看／處理", exact: true }).click();
     const detail = page.getByRole("dialog");
     await detail.locator("summary").filter({ hasText: "其他處理方式" }).click();
     await detail.getByRole("button", { name: "強制結案", exact: true }).click();
-    const forceDialog = page.getByRole("dialog").filter({ hasText: "強制結案" });
-    await expect(forceDialog.getByRole("checkbox", { name: /我已確認/ })).toBeVisible();
-    await forceDialog.getByRole("button", { name: "確認強制結案", exact: true }).click();
-    await expect(forceDialog).toContainText("請填寫原因");
-    await forceDialog.locator("textarea").first().fill("原始內容已遺失，確認不再追查");
-    await forceDialog.getByRole("button", { name: "確認強制結案", exact: true }).click();
-    await expect(forceDialog).toContainText("請再次確認");
+    const forceDialog = page.getByRole("dialog").filter({ hasText: "確定要將這筆訊息結案嗎" });
+    await expect(forceDialog).toContainText("結案後不會再列在未完成訊息，但處理紀錄仍會保留");
+    await expect(forceDialog.getByRole("checkbox")).toHaveCount(0);
+    await expect(forceDialog.locator("textarea")).toHaveCount(0);
+    await forceDialog.getByRole("button", { name: "確定結案", exact: true }).click();
+    await expect(forceDialog).toHaveCount(0);
+    await expect(page.getByText("目前沒有未完成訊息。", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /查看已結案訊息/ }).click();
+    await expect(page.getByText("強制結案", { exact: true })).toBeVisible();
   });
 });
 

@@ -259,7 +259,6 @@ function ReasonModal({ title, quantityValue, correction, onSubmit, onClose }: { 
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!reason.trim()) { setError("修改原因必填。"); return; }
     if (correction && (!nextQuantity || Number(nextQuantity) <= 0)) { setError("修正數量必須大於 0。"); return; }
     setBusy(true);
     setError("");
@@ -267,7 +266,7 @@ function ReasonModal({ title, quantityValue, correction, onSubmit, onClose }: { 
   }
   return <Modal title={title} onClose={onClose}><form onSubmit={submit}>
     {correction && <label>修正數量<input type="number" min="0.01" step="0.01" value={nextQuantity} onChange={(event) => setNextQuantity(event.target.value)} /></label>}
-    <label>修改原因<span className="required">必填</span><textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：現場回報誤登死亡數" /></label>
+    <label>修改原因（可選）<textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} placeholder="可以不填" /></label>
     <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? "送出中…" : "確認送出"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
   </form></Modal>;
 }
@@ -520,24 +519,18 @@ type RetainedResolutionAction = "manual_resolve" | "force_close";
 function RetainedResolutionModal({ event, action, onClose, onSubmit }: { event: ReliabilityEvent; action: RetainedResolutionAction; onClose: () => void; onSubmit: (reason: string, note: string, confirm: boolean) => Promise<boolean> }) {
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
-  const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const force = action === "force_close";
   async function submit(eventValue: FormEvent) {
     eventValue.preventDefault();
-    if (!reason.trim()) { setError("請填寫原因。"); return; }
-    if (force && !confirm) { setError("請再次確認後才能強制結案。"); return; }
     setBusy(true); setError("");
-    try { if (await onSubmit(reason.trim(), note.trim(), confirm)) onClose(); } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); } finally { setBusy(false); }
+    try { if (await onSubmit(force ? "" : reason.trim(), force ? "" : note.trim(), force)) onClose(); } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); } finally { setBusy(false); }
   }
   return <Modal title={force ? "強制結案" : "確認不用處理"} onClose={onClose}><form onSubmit={submit}>
     <p className="muted">訊息短編號：{event.eventIdShort}</p>
-    {force && <div className="notice">這筆訊息結案後，系統不會再自動處理，但處理紀錄仍會保留。</div>}
-    <label>原因<span className="required">必填</span><textarea autoFocus value={reason} onChange={(change) => setReason(change.target.value)} placeholder={force ? "例如：確認為測試或重複訊息" : "例如：確認不需要建立正式紀錄"} /></label>
-    <label>補充說明（可選）<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label>
-    {force && <label className="checkbox-label"><input type="checkbox" checked={confirm} onChange={(change) => setConfirm(change.target.checked)} />我已確認這筆訊息不再自動處理</label>}
-    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className={force ? "danger-action" : "primary"} disabled={busy}>{busy ? "送出中…" : force ? "確認強制結案" : "確認不用處理"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
+    {force ? <div className="notice">確定要將這筆訊息結案嗎？<br />結案後不會再列在未完成訊息，但處理紀錄仍會保留。</div> : <><label>原因（可選）<textarea autoFocus value={reason} onChange={(change) => setReason(change.target.value)} placeholder="可以不填" /></label><label>補充說明（可選）<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label></>}
+    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className={force ? "danger-action" : "primary"} disabled={busy}>{busy ? "送出中…" : force ? "確定結案" : "確認不用處理"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
   </form></Modal>;
 }
 
@@ -558,10 +551,10 @@ function RetainedRecordModal({ event, farms, houses, flocks, onClose, onSubmit }
   const abnormal = intent === "abnormal";
   async function submit(eventValue: FormEvent) {
     eventValue.preventDefault();
-    if (!farmId || !eventDate || !reason.trim() || (abnormal ? !note.trim() : !quantityValue)) { setError(abnormal ? "請填寫雞場、事件內容、日期與原因。" : "請填寫雞場、事件類型、數量、日期與原因。"); return; }
+    if (!farmId || !eventDate || (abnormal ? !note.trim() : !quantityValue)) { setError(abnormal ? "請填寫雞場、事件內容與日期。" : "請填寫雞場、事件類型、數量與日期。"); return; }
     setBusy(true); setError("");
     try {
-      if (await onSubmit({ farmId, houseId: houseId || null, flockId: flockId || null, intent, quantity: abnormal ? null : Number(quantityValue), unit: abnormal ? null : unit, eventDate, note: note.trim() || null, reason: reason.trim() })) onClose();
+      if (await onSubmit({ farmId, houseId: houseId || null, flockId: flockId || null, intent, quantity: abnormal ? null : Number(quantityValue), unit: abnormal ? null : unit, eventDate, note: note.trim() || null, reason: reason.trim() || null })) onClose();
     } catch (err) { setError(err instanceof Error ? err.message : "補登失敗。"); } finally { setBusy(false); }
   }
   return <Modal title="補登資料" onClose={onClose}><form onSubmit={submit}>
@@ -573,7 +566,7 @@ function RetainedRecordModal({ event, farms, houses, flocks, onClose, onSubmit }
     {!abnormal && <><label>數量<span className="required">必填</span><input type="number" min="0.01" step="0.01" value={quantityValue} onChange={(change) => setQuantityValue(change.target.value)} /></label><label>單位<select value={unit} onChange={(change) => setUnit(change.target.value)}><option value="隻">隻</option><option value="kg">kg</option><option value="L">L</option><option value="件">件</option></select></label></>}
     <label>發生日期<span className="required">必填</span><input type="date" value={eventDate} onChange={(change) => setEventDate(change.target.value)} /></label>
     <label>{abnormal ? "事件內容" : "備註"}{abnormal && <span className="required">必填</span>}<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label>
-    <label>補登原因<span className="required">必填</span><textarea value={reason} onChange={(change) => setReason(change.target.value)} placeholder="例如：依現場紀錄補登" /></label>
+    <label>補登原因（可選）<textarea value={reason} onChange={(change) => setReason(change.target.value)} placeholder="可以不填" /></label>
     <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? "送出中…" : "確認補登"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
   </form></Modal>;
 }
@@ -701,11 +694,11 @@ function AbnormalCorrectionModal({ event, onSubmit, onClose }: { event: Abnormal
   const [busy, setBusy] = useState(false);
   async function submit(eventValue: FormEvent) {
     eventValue.preventDefault();
-    if (!rawText.trim() || !reason.trim()) { setError("修正內容與原因皆必填。"); return; }
+    if (!rawText.trim()) { setError("請輸入修正後的內容。"); return; }
     setBusy(true); setError("");
     try { await onSubmit(rawText.trim(), reason.trim()); } catch (err) { setError(err instanceof Error ? err.message : "修正失敗。"); } finally { setBusy(false); }
   }
-  return <Modal title="修正異常紀錄" onClose={onClose}><form onSubmit={submit}><label>原始紀錄<textarea value={event.rawText} readOnly /></label><label>修正後內容<textarea autoFocus value={rawText} onChange={(change) => setRawText(change.target.value)} /></label><label>修改原因<span className="required">必填</span><textarea value={reason} onChange={(change) => setReason(change.target.value)} placeholder="例如：現場回報原文誤植" /></label><div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? "送出中…" : "確認修正"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}</form></Modal>;
+  return <Modal title="修正異常紀錄" onClose={onClose}><form onSubmit={submit}><label>原始紀錄<textarea value={event.rawText} readOnly /></label><label>修正後內容<textarea autoFocus value={rawText} onChange={(change) => setRawText(change.target.value)} /></label><label>修改原因（可選）<textarea value={reason} onChange={(change) => setReason(change.target.value)} placeholder="可以不填" /></label><div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? "送出中…" : "確認修正"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}</form></Modal>;
 }
 
 function AbnormalView({ initialContext, abnormalEvents, timeline, weather, farms, houses, onCreate, onReverse, onCorrect, onLoadMore, hasMore }: { initialContext: { farmId: string; houseId?: string; flockId?: string } | null; abnormalEvents: AbnormalEvent[]; timeline: TimelineItem[]; weather: WeatherDaily[]; farms: Farm[]; houses: House[]; onCreate: (body: Record<string, unknown>) => MutationResult; onReverse: (id: string, reason: string) => MutationResult; onCorrect: (id: string, body: Record<string, unknown>) => MutationResult; onLoadMore: () => Promise<void>; hasMore: boolean }) {

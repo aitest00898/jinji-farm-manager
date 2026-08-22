@@ -20,6 +20,8 @@ npm run dev
 
 - session token 只保存在目前頁面的記憶體，不寫入 localStorage、cookie 或檔案。
 - 結構性新增、封存與主檔操作沿用登入後的管理 session，並經既有驗證、業務規則與 Audit；不會每次操作再次要求密碼。
+- 登入後的修正、反轉、保留訊息處理與補登不再重複要求密碼；原因欄位可留白，空白原因仍會留下完整變更紀錄。
+- 強制結案只使用一次白話確認，不要求再次驗證或填寫原因。
 - Worker 以同一個 `FARM_ADMIN_PASSWORD_HASH` verifier 驗證，不在前端保存明文密碼。
 - 營運修正使用 reversal/correction ledger，不直接覆寫歷史數量。
 - Production Finance API 只聚合 `environment = 'production'`。

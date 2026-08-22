@@ -83,11 +83,13 @@ describe("Web management safety contract", () => {
     client.setToken("a".repeat(43));
     await client.reverseEvent("event-1", "現場回報誤登");
     await client.correctEvent("event-1", { quantity: 3, reason: "現場回報修正" });
+    await client.resolveRetained("retained-1", "force_close");
     const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
     const bodies = calls.map(([, init]) => JSON.parse(String(init?.body)));
     expect(bodies).toEqual([
       { reason: "現場回報誤登" },
       { quantity: 3, reason: "現場回報修正" },
+      { action: "force_close", reason: null, note: null, confirm: false },
     ]);
     expect(calls.map(([input]) => String(input)).some((url) => url.includes("/api/web/auth/authorize"))).toBe(false);
   });
