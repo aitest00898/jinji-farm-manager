@@ -7,27 +7,33 @@ describe("mobile navigation information architecture", () => {
     expect(NAV_ITEMS.map(({ label, description }) => `${label}（${description}）`)).toEqual([
       "總覽（今日重點）",
       "雞場（場區管理）",
-      "飼養者（人員管理）",
-      "雞舍（舍別管理）",
       "批次（入雛與出雞）",
       "營運紀錄（死亡／淘汰／飼料等）",
       "異常紀錄（只記發生了什麼）",
+      "趨勢分析（數據圖表）",
+      "提醒（出雞提醒）",
+      "AI 助理（詢答與分析）",
+      "待確認資料（待確認營運資訊）",
+      "組織（協會資料）",
+      "飼養者（人員管理）",
+      "雞舍（舍別管理）",
       "財務（盈虧與收支）",
       "股權（投資人與持股）",
-      "趨勢分析（數據圖表）",
-      "AI 助理（詢答與分析）",
-      "提醒（出雞提醒）",
       "名稱解析（別名／錯字／同音）",
       "變更紀錄（修改追蹤）",
-      "資料健康（異常檢查）",
-      "組織（協會資料）",
-      "設定（系統設定）",
+      "資料檢查（資料異常檢查）",
+      "系統狀態（訊息處理狀態）",
+      "訊息診斷（尚未整理與問題訊息）",
+      "待確認資料診斷（來源與不一致原因）",
+      "測試工具（測試雞場資料）",
+      "系統設定（服務設定摘要）",
+      "技術資訊（進階技術資料）",
     ]);
     expect(NAV_ITEMS.every((item) => item.pageDescription.length > 0)).toBe(true);
   });
 
   it("groups all routes exactly once without changing route keys", () => {
-    expect(NAV_GROUPS.map((group) => group.label)).toEqual(["日常營運", "財務管理", "分析與稽核", "系統管理"]);
+    expect(NAV_GROUPS.map((group) => group.label)).toEqual(["一般場務", "資料管理", "系統維護"]);
     expect(new Set(NAV_ITEMS.map((item) => item.key)).size).toBe(NAV_ITEMS.length);
     expect(NAV_ITEMS.every((item) => NAV_GROUPS.some((group) => group.key === item.group))).toBe(true);
   });
@@ -96,6 +102,33 @@ describe("Web management safety contract", () => {
       `${API_BASE}/api/farm-aliases`,
       `${API_BASE}/api/data-health`,
     ]);
+  });
+
+  it("maps management parity pages to dedicated read-only and protected endpoints", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: {}, events: [], rows: [], candidates: [], farms: [], houses: [], flocks: [], queue: {}, schedules: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    await client.systemStatus();
+    await client.reliabilityEvents();
+    await client.ambientPreview();
+    await client.pendingCandidates();
+    await client.testTools();
+    await client.technicalInfo();
+    await client.recoverUnfinished();
+    await client.acknowledgeRetained();
+    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
+    expect(calls.map(([input]) => String(input))).toEqual([
+      `${API_BASE}/api/system-status`,
+      `${API_BASE}/api/reliability/events`,
+      `${API_BASE}/api/ambient/preview`,
+      `${API_BASE}/api/pending-candidates`,
+      `${API_BASE}/api/test-tools`,
+      `${API_BASE}/api/technical-info`,
+      `${API_BASE}/api/reliability/recover`,
+      `${API_BASE}/api/reliability/acknowledge`,
+    ]);
+    expect(calls[6][1]?.method).toBe("POST");
+    expect(calls[7][1]?.method).toBe("POST");
   });
 
   afterEach(() => vi.unstubAllGlobals());

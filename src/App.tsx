@@ -4,6 +4,7 @@ import {
   type Alias,
   type AbnormalEvent,
   type AnalysisResult,
+  type AmbientPreview,
   type AuditRow,
   type Caretaker,
   type ChartResponse,
@@ -14,6 +15,11 @@ import {
   type Flock,
   type House,
   type OperationalEvent,
+  type PendingCandidate,
+  type ReliabilityEvent,
+  type SystemStatus,
+  type TechnicalInfo,
+  type TestToolsData,
   type TimelineItem,
   type WeatherDaily,
 } from "./api";
@@ -43,8 +49,14 @@ function LineIcon({ name, className = "nav-icon" }: { name: NavIconName; classNa
     case "reminders": glyph = <><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 7H3s3 0 3-7" /><path d="M10 20h4M10 3h4" /></>; break;
     case "aliases": glyph = <><circle cx="10" cy="10" r="6" /><path d="m14.5 14.5 5 5M7 8h6M7 11h4" /></>; break;
     case "audit": glyph = <><path d="M4 7v5h5" /><path d="M5.5 17a8 8 0 1 0-.8-9" /><path d="M12 7v5l3 2" /></>; break;
+    case "pending": glyph = <><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></>; break;
+    case "system": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="M12 8v4l2 2" /></>; break;
+    case "diagnostics": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h10M7 13h6M7 16h3" /><circle cx="17" cy="16" r="2" /></>; break;
+    case "pendingDiagnostics": glyph = <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h4" /><path d="m15 15 2 2 3-4" /></>; break;
+    case "testTools": glyph = <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3" /><path d="M8 15h8" /></>; break;
     case "health": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>; break;
     case "settings": glyph = <><circle cx="12" cy="12" r="3" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /><circle cx="12" cy="12" r="7" /></>; break;
+    case "technical": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h2m3 0h2m3 0h2M7 13h2m3 0h2m3 0h2M7 17h2m3 0h2" /></>; break;
     case "logout": glyph = <><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></>; break;
   }
   return <svg className={className} data-icon={name} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{glyph}</svg>;
@@ -92,7 +104,7 @@ function eventLabel(intent: string): string {
 }
 
 function sourceLabel(source: string): string {
-  return ({ line: "LINE", web: "WEB", system: "SYSTEM", migration: "MIGRATION" } as Record<string, string>)[source] ?? source;
+  return ({ line: "LINE", web: "網頁", system: "系統", migration: "資料更新" } as Record<string, string>)[source] ?? source;
 }
 
 function fieldLabel(field: string): string {
@@ -121,6 +133,17 @@ function isoDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return date.toISOString().slice(0, 10);
+}
+
+function taipeiTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+}
+
+function reconciliationLabel(value: string): string {
+  return ({ not_recorded: "尚未找到正式紀錄", possibly_recorded: "可能已記錄", already_recorded: "可能重複" } as Record<string, string>)[value] ?? value;
 }
 
 function routeFromHash(): NavKey {
@@ -301,6 +324,15 @@ export default function App() {
   const [finance, setFinance] = useState<FinanceData | null>(null);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [reliabilityEvents, setReliabilityEvents] = useState<ReliabilityEvent[]>([]);
+  const [ambientPreview, setAmbientPreview] = useState<AmbientPreview | null>(null);
+  const [pendingCandidates, setPendingCandidates] = useState<PendingCandidate[]>([]);
+  const [pendingCandidateInvalidCount, setPendingCandidateInvalidCount] = useState(0);
+  const [pendingCandidatePage, setPendingCandidatePage] = useState(0);
+  const [pendingCandidateTotalPages, setPendingCandidateTotalPages] = useState(1);
+  const [testTools, setTestTools] = useState<TestToolsData | null>(null);
+  const [technicalInfo, setTechnicalInfo] = useState<TechnicalInfo | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [abnormalEvents, setAbnormalEvents] = useState<AbnormalEvent[]>([]);
@@ -336,10 +368,10 @@ export default function App() {
   async function loadAll() {
     setBusy(true); setError("");
     try {
-      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData] = await Promise.all([
-        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }),
+      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, testData, technicalData] = await Promise.all([
+        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.testTools(), api.technicalInfo(),
       ]);
-      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline);
+      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline); setSystemStatus(systemData.status); setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates); setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page); setPendingCandidateTotalPages(pendingData.totalPages); setTestTools(testData); setTechnicalInfo(technicalData);
     } catch (err) { if ((err as { status?: number }).status === 401) { api.setToken(null); setAuthenticated(false); } setError(err instanceof Error ? err.message : "資料載入失敗。"); }
     finally { setBusy(false); }
   }
@@ -401,6 +433,7 @@ export default function App() {
   async function loadMoreEvents() { if (!eventsCursor) return; try { const result = await api.events({ limit: 50, cursor: eventsCursor }); setEvents((currentEvents) => [...currentEvents, ...result.events]); setEventsCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "營運紀錄載入失敗。"); } }
   async function loadMoreAudit() { if (!auditCursor) return; try { const result = await api.audit({ cursor: auditCursor }); setAudit((currentAudit) => [...currentAudit, ...result.auditLogs]); setAuditCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "Audit 載入失敗。"); } }
   async function loadMoreAbnormal() { if (!abnormalCursor) return; try { const result = await api.abnormalEvents({ limit: 50, cursor: abnormalCursor }); setAbnormalEvents((currentEvents) => [...currentEvents, ...result.abnormalEvents]); setAbnormalCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "異常紀錄載入失敗。"); } }
+  async function loadPendingPage(pageNumber: number) { try { const result = await api.pendingCandidates({ page: pageNumber }); setPendingCandidates(result.candidates); setPendingCandidateInvalidCount(result.invalidCount); setPendingCandidatePage(result.page); setPendingCandidateTotalPages(result.totalPages); } catch (err) { setError(err instanceof Error ? err.message : "待確認資料載入失敗。"); } }
 
   async function askAi(question: string, force = false) {
     const value = question.trim();
@@ -447,10 +480,16 @@ export default function App() {
       {page === "charts" && <ChartsView chart={chart} loading={chartLoading} farms={farms} houses={houses} flocks={flocks} caretakers={caretakers} metric={chartMetric} setMetric={setChartMetric} range={chartRange} setRange={setChartRange} granularity={chartGranularity} setGranularity={setChartGranularity} farmId={chartFarmId} setFarmId={(value) => { setChartFarmId(value); setChartHouseId(""); setChartFlockId(""); }} houseId={chartHouseId} setHouseId={(value) => { setChartHouseId(value); setChartFlockId(""); }} flockId={chartFlockId} setFlockId={setChartFlockId} environment={chartEnvironment} setEnvironment={setChartEnvironment} caretakerId={chartCaretakerId} setCaretakerId={setChartCaretakerId} />}
       {page === "ai" && <AiView result={aiResult} question={aiQuestion} setQuestion={setAiQuestion} busy={aiBusy} onAsk={() => void askAi(aiQuestion)} />}
       {page === "reminders" && <RemindersView flocks={flocks} />}
+      {page === "pending" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic={false} />}
       {page === "aliases" && <AliasesView aliases={aliases} />}
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
+      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} onRecover={() => void runMutation(() => api.recoverUnfinished(), true)} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), true)} />}
+      {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
+      {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic />}
+      {page === "testTools" && <TestToolsView data={testTools} />}
       {page === "settings" && <SettingsView farms={farms} organization={organization} />}
+      {page === "technical" && <TechnicalInfoView info={technicalInfo} />}
     </main>
     <button className="ai-float-button" aria-label="開啟 AI 助理" onClick={() => setAiOpen(true)}>✦<span>AI</span></button>
     {aiOpen && <AiSheet question={aiQuestion} setQuestion={setAiQuestion} result={aiResult} busy={aiBusy} onClose={() => setAiOpen(false)} onAsk={() => void askAi(aiQuestion)} />}
@@ -463,6 +502,74 @@ function DashboardView({ dashboard, farms, flocks, onNavigate }: { dashboard: Da
   const activeFlocks = flocks.filter((flock) => flock.status === "active").slice(0, 8);
   const activeFarms = farms.filter((farm) => farm.active);
   return <section className="page"><div className="hero"><div><span className="hero-kicker">截至 {dashboard.asOf}</span><h2>今天，讓每一筆雞場資料都清楚可追溯。</h2><p>營運資料由 LINE 與 Web 共用；正式財務統計自動排除測試場。</p></div><button className="primary" onClick={() => onNavigate("events")}>記錄營運事件 ＋</button></div><div className="metric-grid"><Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} /><Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} /><Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} /><Metric title="歷史淨收入" value={`NT${money(dashboard.finance.net)}`} detail="僅正式雞場財務" /></div><div className="two-col"><section className="panel"><PanelTitle title="雞場概覽" action="查看全部" onClick={() => onNavigate("farms")} />{activeFarms.length ? <div className="farm-list">{activeFarms.map((farm) => <div className="farm-row" key={farm.id}><div className="farm-avatar">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><strong>{farm.name}</strong><span>{farm.siteName || (farm.structureMode === "multi_house" ? "多舍管理" : "全場管理")}</span></div><StatusPill tone={farm.environment === "test" ? "warn" : "good"}>{farm.environment === "test" ? "測試" : "正式"}</StatusPill></div>)}</div> : <EmptyState detail="目前沒有啟用中的雞場。" />}</section><section className="panel"><PanelTitle title="資料健康度" action="檢視健康檢查" onClick={() => onNavigate("health")} />{dashboard.dataHealth.warnings.length ? <div className="warning-list">{dashboard.dataHealth.warnings.map((warning) => <p key={warning}>⚠️ {warning}</p>)}</div> : <div className="healthy"><span>✓</span><div><strong>目前沒有阻塞性警告</strong><p>主檔、批次與財務資料可正常使用。</p></div></div>}<div className="mini-summary"><span>預計 7 日內出雞</span><strong>{dashboard.upcomingShipments} 批</strong></div></section></div><section className="panel"><PanelTitle title="進行中批次" action="管理批次" onClick={() => onNavigate("flocks")} />{!activeFlocks.length && <EmptyState detail="目前沒有進行中的批次；可到批次頁建立入雛資料。" />}<DataTable headers={["批次", "雞場", "入雛日", "日齡", "預計出雞", "狀態"]}>{activeFlocks.map((flock) => <tr key={flock.id}><td><strong>{flock.batchCode}</strong></td><td>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</td><td>{flock.chickInDate}</td><td>{flock.ageDays ?? 0} 日</td><td>{flock.expectedShipmentDate ?? "未設定"}</td><td><StatusPill tone="good">進行中</StatusPill></td></tr>)}</DataTable><div className="mobile-card-list">{activeFlocks.map((flock) => <MobileCard key={flock.id}><div className="mobile-card-head"><strong>{flock.batchCode}</strong><StatusPill tone="good">進行中</StatusPill></div><dl className="mobile-fields"><div><dt>雞場</dt><dd>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</dd></div><div><dt>入雛／日齡</dt><dd>{flock.chickInDate} · {flock.ageDays ?? 0} 日</dd></div><div><dt>預計出雞</dt><dd>{flock.expectedShipmentDate ?? "未設定"}</dd></div></dl></MobileCard>)}</div></section></section>;
+}
+
+function PendingCandidatesView({ candidates, invalidCount, page, totalPages, onPage, diagnostic }: { candidates: PendingCandidate[]; invalidCount: number; page: number; totalPages: number; onPage: (page: number) => Promise<void>; diagnostic: boolean }) {
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">{diagnostic ? "系統維護" : "一般場務"}</span><h2>{diagnostic ? "待確認資料診斷" : "待確認資料"}</h2><p>{diagnostic ? "查看資料狀態、來源與不一致原因；這裡只查看，不會修改資料。" : "查看目前還需要人工確認的營運資訊。"}</p></div></div>
+    <div className="metric-grid"><Metric title="待確認資料" value={candidates.length} detail="尚未完成確認" tone={candidates.length ? "warn" : "good"} /><Metric title="來源訊息" value={candidates.reduce((sum, item) => sum + item.sourceMessageCount, 0)} detail="保留必要來源數量" /><Metric title="資料不一致" value={candidates.reduce((sum, item) => sum + item.entries.filter((entry) => entry.conflict).length, 0)} detail="需要查看原因" tone={candidates.some((item) => item.entries.some((entry) => entry.conflict)) ? "warn" : "good"} /></div>
+    {invalidCount > 0 && <div className="alert">⚠️ 有 {invalidCount} 筆資料格式不足，沒有猜測內容；請到變更紀錄查看處理痕跡。</div>}
+    {candidates.length ? candidates.map((candidate) => <section className="panel" key={candidate.idShort}>
+      <div className="panel-title"><h3>待確認資料 · {candidate.idShort}</h3><StatusPill tone="warn">{candidate.status}</StatusPill></div>
+      <p className="muted">群組 {candidate.groupIdShort} · {candidate.createdTimeTaipei} · 來源 {candidate.sourceMessageCount} 則</p>
+      {candidate.entries.map((entry, index) => <article className="candidate-entry" key={`${candidate.idShort}-${index}`}>
+        <div className="panel-title"><h4>{entry.event}{entry.quantity === null ? "" : ` ${quantity(entry.quantity)}${entry.event === "異常" ? "" : "隻"}`}</h4><StatusPill tone={entry.blocking ? "warn" : "good"}>{entry.state}</StatusPill></div>
+        <p>雞場：{entry.farm}　雞舍：{entry.house}　批次：{entry.batch}</p>
+        {entry.caretakerClues.length > 0 && <p>飼養者線索：{entry.caretakerClues.join("、")}</p>}
+        {entry.conflict && <p className="notice">資料不一致：{entry.conflictText ?? "目前有不同線索，需要查看原因。"}{entry.blocking ? " 目前會影響完成。" : " 目前不影響正式紀錄。"}</p>}
+        <p className="muted">正式紀錄比對：{reconciliationLabel(entry.reconciliation)} · 已保存證據 {entry.evidenceCount} 項</p>
+        {diagnostic && <details><summary>查看來源摘要</summary><p className="muted">來源短編號：{candidate.sourceIdsShort.join("、") || "—"}</p><p className="muted">來源時間：{candidate.sourceTimestamps.map(taipeiTime).join("、") || "—"}</p></details>}
+      </article>)}
+    </section>) : <div className="panel empty">目前沒有待確認資料。</div>}
+    {totalPages > 1 && <div className="page-actions"><button disabled={page <= 0} onClick={() => void onPage(page - 1)}>上一頁</button><span className="muted">第 {page + 1}／{totalPages} 頁</span><button disabled={page >= totalPages - 1} onClick={() => void onPage(page + 1)}>下一頁</button></div>}
+    <div className="notice">正式紀錄、修改或取消仍須經既有安全流程；本頁目前只提供查看。</div>
+  </section>;
+}
+
+function reliabilityStateLabel(value: string): string {
+  return ({ received: "已收到，等待處理", queued: "等待處理", processing: "正在處理", reply_pending: "資料完成，正在回覆", retry_waiting: "正在自動再試", retained: "已保留待處理", reply_completed: "已完成" } as Record<string, string>)[value] ?? "需要查看";
+}
+
+function reliabilityStageLabel(value: string | null): string {
+  return ({ enqueue: "接收後排入處理", processing: "資料處理", reply: "LINE 回覆" } as Record<string, string>)[value ?? ""] ?? "—";
+}
+
+function SystemStatusView({ status, events, onRecover, onAcknowledge }: { status: SystemStatus | null; events: ReliabilityEvent[]; onRecover: () => void; onAcknowledge: () => void }) {
+  const [showEvents, setShowEvents] = useState(false);
+  if (!status) return <Loading />;
+  return <section className="page">
+    <div className={`hero ${status.level === "attention" ? "warning" : ""}`}>
+      <div><span className="hero-kicker">系統目前狀態</span><h2>{status.level === "normal" ? "✅ 系統目前運作正常" : status.level === "slow" ? "⚠️ 目前有些訊息處理比較慢" : `❗ 有 ${Math.max(status.retainedUnacknowledgedCount, status.stalledCount, status.deliveryUncertainCount)} 筆訊息尚未完成`}</h2><p>{status.message}</p></div>
+      <div className="modal-actions">{status.actionableUnfinishedCount > 0 || status.stalledCount > 0 || status.deliveryUncertainCount > 0 ? <button className="primary" onClick={onRecover}>🔄 重新處理未完成訊息</button> : null}{status.retainedUnacknowledgedCount > 0 ? <button onClick={onAcknowledge}>我已查看</button> : null}</div>
+    </div>
+    <div className="metric-grid"><Metric title="待處理訊息" value={status.actionableUnfinishedCount} detail="系統會自動再試" tone={status.actionableUnfinishedCount ? "warn" : "good"} /><Metric title="卡住訊息" value={status.stalledCount} detail="超過處理時間" tone={status.stalledCount ? "warn" : "good"} /><Metric title="已保留待處理" value={status.retainedUnacknowledgedCount} detail={status.retainedUnacknowledgedCount ? "請先查看" : "目前沒有"} tone={status.retainedUnacknowledgedCount ? "warn" : "good"} /><Metric title="最近完成時間" value={status.lastCompletedAt ?? "—"} detail="包含資料處理與回覆" /></div>
+    <section className="panel"><PanelTitle title="各部分狀態" /><DataTable headers={["項目", "目前狀態", "說明"]}><tr><td>接收群組訊息</td><td><StatusPill tone={status.level === "attention" ? "warn" : "good"}>{status.checks.receive}</StatusPill></td><td>已收到的訊息會先保留處理紀錄。</td></tr><tr><td>處理群組訊息</td><td><StatusPill tone={status.checks.process === "正常" ? "good" : "warn"}>{status.checks.process}</StatusPill></td><td>卡住時會自動重新安排處理。</td></tr><tr><td>資料儲存</td><td><StatusPill tone="good">{status.checks.storage}</StatusPill></td><td>正式資料仍由同一份資料庫保存。</td></tr><tr><td>LINE 回覆</td><td><StatusPill tone={status.checks.reply === "正常" ? "good" : "warn"}>{status.checks.reply}</StatusPill></td><td>資料已完成但回覆失敗時，只會重送回覆。</td></tr></DataTable></section>
+    <section className="panel"><PanelTitle title="未完成訊息" action={showEvents ? "收起" : "🔍 查看未完成訊息"} onClick={() => setShowEvents((value) => !value)} />{showEvents ? (events.length ? <DataTable headers={["短編號", "收到時間", "目前狀態", "最近問題", "再試次數"]}>{events.map((event) => <tr key={`${event.eventIdShort}-${event.receivedAt}`}><td><code>{event.eventIdShort}</code></td><td>{taipeiTime(event.receivedAt)}</td><td>{reliabilityStateLabel(event.lifecycleStatus)}</td><td>{event.lastErrorStage ? `${reliabilityStageLabel(event.lastErrorStage)}：發生問題` : "—"}</td><td>{event.queueAttempts + event.processingAttempts + event.replyAttempts}</td></tr>)}</DataTable> : <div className="empty">目前沒有未完成訊息。</div>) : <p className="muted">這裡只列出尚未完成的訊息，不會顯示訊息內容。</p>}</section>
+    <section className="panel"><PanelTitle title="最近問題" /><p>{status.lastProblemAt ? `最近一次問題：${taipeiTime(status.lastProblemAt)}` : "目前沒有最近問題。"}</p><p className="muted">系統會先自動恢復；多次失敗的訊息會保留，管理者可按上方按鈕重新處理。</p></section>
+  </section>;
+}
+
+function MessageDiagnosticsView({ preview, events, onPage }: { preview: AmbientPreview | null; events: ReliabilityEvent[]; onPage?: (page: number) => void }) {
+  if (!preview) return <Loading />;
+  const failureLabel = (value: string | null): string => ({ extract: "資料整理", resolve: "資料比對", reconcile: "資料確認", push: "回覆傳送", expiry_cleanup: "保存期限處理" } as Record<string, string>)[value ?? ""] ?? "發生問題";
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">系統維護</span><h2>訊息診斷</h2><p>查看尚未整理、已過期未完成，以及尚未完成的訊息。這裡只查看，不會跑摘要或修改資料。</p></div></div>
+    <div className="metric-grid"><Metric title="尚待整理訊息" value={preview.total} detail="目前尚未完成整理" tone={preview.total ? "warn" : "good"} /><Metric title="可能與營運有關" value={preview.candidateLikeCount} detail="需要摘要檢查" /><Metric title="待確認資料" value={preview.openCandidateCount} detail="不等於正式紀錄" /><Metric title="已過期但未完成" value={preview.expiredDiagnosticCount} detail="只保留診斷摘要" tone={preview.expiredDiagnosticCount ? "warn" : "good"} /></div>
+    <section className="panel"><div className="panel-title"><h3>尚未整理訊息</h3><span className="muted">第 {preview.page + 1}／{preview.totalPages} 頁</span></div>{preview.truncated && <p className="notice">目前只先載入部分資料；請用下一頁查看其他訊息。</p>}{preview.rows.length ? <DataTable headers={["時間", "群組", "內容", "判定", "保存期限"]}>{preview.rows.map((row) => <tr key={row.idShort}><td>{row.eventTimeTaipei}</td><td>{row.groupIdShort}</td><td>{row.text}</td><td><StatusPill tone={row.candidateLike ? "warn" : "neutral"}>{row.candidateLike ? "可能與營運有關" : "目前判定與營運無關"}</StatusPill></td><td>{taipeiTime(row.expiresAt)}</td></tr>)}</DataTable> : <div className="empty">目前沒有尚未整理的群組訊息。</div>}{preview.totalPages > 1 && <div className="page-actions"><button disabled={preview.page <= 0} onClick={() => onPage?.(preview.page - 1)}>上一頁</button><button disabled={preview.page >= preview.totalPages - 1} onClick={() => onPage?.(preview.page + 1)}>下一頁</button></div>}</section>
+    <section className="panel"><PanelTitle title="已過期但未完成" /><p className="muted">原始訊息仍依保存期限清理；這裡只顯示不含原文的診斷資訊。</p>{preview.expiredDiagnostics.length ? <DataTable headers={["原始時間", "短編號", "判定", "最後問題"]}>{preview.expiredDiagnostics.map((row) => <tr key={`${row.sourceIdShort}-${row.expiredAt}`}><td>{row.eventTimeTaipei}</td><td><code>{row.sourceIdShort}</code></td><td>{row.prefilterResult}</td><td>{row.lastFailureStage ? failureLabel(row.lastFailureStage) : "—"}</td></tr>)}</DataTable> : <div className="empty">目前沒有已過期但未完成的訊息。</div>}</section>
+    <section className="panel"><PanelTitle title="尚未完成訊息" /><p className="muted">這裡只列短編號與處理狀態，不顯示原始內容。</p>{events.length ? <DataTable headers={["短編號", "收到時間", "目前狀態", "最近問題", "再試次數"]}>{events.map((event) => <tr key={`${event.eventIdShort}-${event.receivedAt}`}><td><code>{event.eventIdShort}</code></td><td>{taipeiTime(event.receivedAt)}</td><td>{reliabilityStateLabel(event.lifecycleStatus)}</td><td>{event.lastErrorStage ? reliabilityStageLabel(event.lastErrorStage) : "—"}</td><td>{event.queueAttempts + event.processingAttempts + event.replyAttempts}</td></tr>)}</DataTable> : <div className="empty">目前沒有尚未完成訊息。</div>}</section>
+    <div className="notice">本頁不會呼叫 AI、不會建立待確認資料、不會消耗來源訊息，也不會修改正式資料。</div>
+  </section>;
+}
+
+function TestToolsView({ data }: { data: TestToolsData | null }) {
+  if (!data) return <Loading />;
+  return <section className="page"><div className="hero"><div><span className="hero-kicker">系統維護</span><h2>測試工具</h2><p>{data.warning}</p></div></div><div className="metric-grid"><Metric title="測試雞場" value={data.farms.length} detail="只讀查看" /><Metric title="測試雞舍" value={data.houses.length} detail="只讀查看" /><Metric title="測試批次" value={data.flocks.length} detail="只讀查看" /></div><section className="panel"><PanelTitle title="測試雞場" /><DataTable headers={["雞場", "狀態", "雞舍數", "進行中批次"]}>{data.farms.map((farm) => <tr key={String(farm.id)}><td><strong>{String(farm.name)}</strong></td><td>{Number(farm.active) === 1 ? "啟用" : "封存"}</td><td>{String(farm.houseCount ?? 0)}</td><td>{String(farm.flockCount ?? 0)}</td></tr>)}</DataTable></section><section className="panel"><PanelTitle title="測試雞舍與批次" /><DataTable headers={["雞場／雞舍", "批次", "入雛日期", "初始數量", "狀態"]}>{data.flocks.map((flock) => <tr key={String(flock.id)}><td>{String(flock.farmName)}／{String(flock.houseName)}</td><td>{String(flock.batchCode)}</td><td>{String(flock.chickInDate)}</td><td>{quantity(flock.initialCount)}</td><td>{String(flock.status) === "active" ? "進行中" : String(flock.status)}</td></tr>)}</DataTable></section><div className="notice">測試工具沒有建立、修改或刪除正式營運紀錄的按鈕。</div></section>;
+}
+
+function TechnicalInfoView({ info }: { info: TechnicalInfo | null }) {
+  if (!info) return <Loading />;
+  return <section className="page"><div className="hero"><div><span className="hero-kicker">系統維護</span><h2>技術資訊</h2><p>{info.note}</p></div></div><section className="panel"><PanelTitle title="服務設定" /><div className="setting-row"><span>服務</span><strong>{info.service}</strong></div><div className="setting-row"><span>LINE 帳號</span><strong>{info.accountName}</strong></div><div className="setting-row"><span>對話模式</span><strong>{info.conversationMode}</strong></div><div className="setting-row"><span>對話模型</span><strong>{info.conversationModel}</strong></div><div className="setting-row"><span>背景整理模型</span><strong>{info.ambientModel}</strong></div><div className="setting-row"><span>資料庫版本</span><strong>{info.migration}</strong></div></section><section className="panel"><PanelTitle title="訊息處理設定" /><div className="setting-row"><span>訊息處理</span><strong>{info.queue.name}</strong></div><div className="setting-row"><span>每批最多</span><strong>{info.queue.batchSize} 筆</strong></div><div className="setting-row"><span>等待時間</span><strong>{info.queue.timeoutSeconds} 秒</strong></div><div className="setting-row"><span>最多自動再試</span><strong>{info.queue.maxRetries} 次</strong></div><div className="setting-row"><span>排程</span><strong>{info.schedules.join("、")}</strong></div></section><div className="notice">未顯示密碼、權杖、完整使用者編號、原始訊息或完整處理內容。</div></section>;
 }
 
 function abnormalCategoryLabel(category: string | null): string {
@@ -549,6 +656,6 @@ function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div classNa
 
 function AuditView({ audit, onLoadMore, hasMore }: { audit: AuditRow[]; onLoadMore: () => Promise<void>; hasMore: boolean }) { return <section className="page"><div className="panel"><PanelTitle title="不可覆寫的變更紀錄" /><p className="muted">LINE、WEB、SYSTEM、MIGRATION 來源清楚分開；展開後可查看修改前、修改後與變更欄位。</p>{!audit.length && <EmptyState detail="目前沒有變更紀錄；日後的資料修改會依時間列在這裡。" />}<DataTable headers={["時間", "來源", "操作", "實體", "操作者", "原因", "差異"]}>{audit.map((row) => <tr key={row.id}><td>{row.createdAt}</td><td><StatusPill>{sourceLabel(row.source)}</StatusPill></td><td>{row.action}</td><td>{row.entityType}<br /><small>{row.entityId}</small></td><td>{row.actorType}<br /><small>{row.actorId ?? "—"}</small></td><td>{row.reason ?? "—"}</td><td><AuditDiff row={row} /></td></tr>)}</DataTable><div className="mobile-card-list">{audit.map((row) => <AuditCard key={row.id} row={row} />)}</div>{hasMore && <div className="load-more"><button onClick={() => void onLoadMore()}>載入更多變更紀錄</button></div>}</div></section>; }
 
-function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>chicken-line-production · 共用 D1</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="notice">結構性操作會透過網頁視窗重新驗證管理權限；登入憑證只存在本次頁面記憶體。</div></div></section>; }
+function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。需要管理權限的操作會先重新驗證；管理密碼只在本次操作使用，不會出現在前端、資料庫或回覆。</div></div></section>; }
 
 function EquityView({ finance }: { finance: FinanceData | null }) { if (!finance) return <Loading />; return <section className="page"><div className="panel"><PanelTitle title="投資人與雞場持股" /><p className="muted">顯示正式雞場的實際投資人持股；測試雞場不納入股權與財務歷史。</p>{finance.farmInvestorEquity.length ? <DataTable className="dense-table" headers={["雞場", "投資人", "實際持股", "來源", "生效日"]}>{finance.farmInvestorEquity.map((row) => <tr key={String(row.id)}><td>{String(row.farmName)}</td><td>{String(row.investorName)}</td><td>{(Number(row.equityFraction) * 100).toFixed(4)}%</td><td>{String(row.source ?? "—")}</td><td>{String(row.effectiveDate ?? "—")}</td></tr>)}</DataTable> : <EmptyState detail="目前沒有投資人持股資料。" />}</div></section>; }

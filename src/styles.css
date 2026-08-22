@@ -206,6 +206,9 @@ tr:last-child td { border-bottom: 0; }
 .reminder-row > span { font-size: 22px; }
 .reminder-row small { display: block; color: #958779; margin-top: 4px; }
 .notice { background: #f5eee5; padding: 13px 16px; border-radius: 8px; color: #7a654f; font-size: 12px; line-height: 1.7; margin-top: 18px; }
+.candidate-entry { border: 1px solid #eadfd1; border-radius: 10px; padding: 15px; margin-top: 12px; background: #fffdfa; }
+.candidate-entry h4 { margin: 0; }
+.candidate-entry p { line-height: 1.65; }
 .settings { max-width: 800px; }
 .setting-row { justify-content: space-between; }
 .setting-row span { color: #958779; font-size: 12px; }
