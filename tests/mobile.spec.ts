@@ -43,8 +43,7 @@ async function installMockApi(page: Page): Promise<MockState> {
     const url = new URL(request.url());
     const path = url.pathname;
     if (path.endsWith("/api/web/auth/login")) return fulfill(route, { authenticated: true, token: "test-session", expiresAt: "2099-01-01T00:00:00Z", organization: { id: "org-test", name: "測試組合" } });
-    if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, privileged: true, expiresAt: "2099-01-01T00:00:00Z" });
-    if (path.endsWith("/api/web/auth/authorize")) return fulfill(route, { authorized: true, privilegedExpiresAt: "2099-01-01T00:05:00Z" });
+    if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, expiresAt: "2099-01-01T00:00:00Z" });
     if (path.endsWith("/api/web/auth/logout")) return fulfill(route, { authenticated: false });
     if (path.endsWith("/api/system-status")) return fulfill(route, { status: reliabilityStatusFixture(state) });
     if (path.endsWith("/api/reliability/events")) return fulfill(route, { events: reliabilityEventsFixture(state) });
@@ -253,21 +252,20 @@ test.describe("保留訊息管理介面", () => {
 
   test("我已查看會顯示已查看但尚待決定", async ({ page }) => {
     await page.getByRole("button", { name: "我已查看", exact: true }).click();
-    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
-    await authorization.getByLabel("管理密碼").fill("test-only-fixture");
-    await authorization.getByRole("button", { name: "驗證", exact: true }).click();
     await expect(page.getByText("已查看，但仍有 1 筆需要決定如何處理。", { exact: true })).toBeVisible();
     await expect(page.getByText("已查看待決定", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" })).toHaveCount(0);
   });
 
-  test("重新驗證管理權限時可連續輸入密碼", async ({ page }) => {
+  test("管理編修沿用登入狀態且不會再次要求密碼", async ({ page }) => {
+    const authorizeRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/web/auth/authorize")) authorizeRequests.push(request.url());
+    });
     await page.getByRole("button", { name: "我已查看", exact: true }).click();
-    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
-    const password = authorization.getByLabel("管理密碼");
-    await password.click();
-    await page.keyboard.type("test-only-fixture", { delay: 15 });
-    await expect(password).toHaveValue("test-only-fixture");
-    await expect(password).toBeFocused();
+    await expect(page.getByText("已查看，但仍有 1 筆需要決定如何處理。", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" })).toHaveCount(0);
+    expect(authorizeRequests).toHaveLength(0);
   });
 
   test("確認不用處理後會移出未完成並出現在已結案歷史", async ({ page }) => {
@@ -278,9 +276,6 @@ test.describe("保留訊息管理介面", () => {
     const resolution = page.getByRole("dialog").filter({ hasText: "訊息短編號" });
     await resolution.locator("textarea").first().fill("確認不需要建立正式紀錄");
     await resolution.getByRole("button", { name: "確認不用處理", exact: true }).click();
-    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
-    await authorization.getByLabel("管理密碼").fill("test-only-fixture");
-    await authorization.getByRole("button", { name: "驗證", exact: true }).click();
     await expect(page.getByText("已結案。", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("目前沒有未完成訊息。", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: /查看已結案訊息/ }).click();

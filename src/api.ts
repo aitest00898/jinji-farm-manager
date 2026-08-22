@@ -197,8 +197,7 @@ export class ApiClient {
     return payload as T;
   }
   login(password: string) { return this.request<{ authenticated: boolean; token: string; expiresAt: string; organization: { id: string; name: string } }>("/api/web/auth/login", { method: "POST", body: JSON.stringify({ password }) }); }
-  session() { return this.request<{ authenticated: boolean; privileged?: boolean; expiresAt?: string }>("/api/web/auth/session"); }
-  authorize(password: string) { return this.request<{ authorized: boolean; privilegedExpiresAt: string }>("/api/web/auth/authorize", { method: "POST", body: JSON.stringify({ password }) }); }
+  session() { return this.request<{ authenticated: boolean; expiresAt?: string }>("/api/web/auth/session"); }
   logout() { return this.request<{ authenticated: boolean }>("/api/web/auth/logout", { method: "POST" }); }
   dashboard() { return this.request<Dashboard>("/api/dashboard"); }
   organizations() { return this.request<{ organizations: Array<{ id: string; name: string; active: boolean } | null> }>("/api/organizations"); }

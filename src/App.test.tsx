@@ -76,20 +76,20 @@ describe("Web management safety contract", () => {
     expect(client.hasToken()).toBe(false);
   });
 
-  it("sends fresh authorization and correction reasons as explicit request fields", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ authorized: true, privilegedExpiresAt: "2026-08-20T00:05:00Z" }), { status: 200 }));
+  it("編修沿用登入狀態，不再要求再次輸入管理密碼", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new ApiClient();
-    await client.authorize("test-only-fixture");
+    client.setToken("a".repeat(43));
     await client.reverseEvent("event-1", "現場回報誤登");
     await client.correctEvent("event-1", { quantity: 3, reason: "現場回報修正" });
     const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
     const bodies = calls.map(([, init]) => JSON.parse(String(init?.body)));
     expect(bodies).toEqual([
-      { password: "test-only-fixture" },
       { reason: "現場回報誤登" },
       { quantity: 3, reason: "現場回報修正" },
     ]);
+    expect(calls.map(([input]) => String(input)).some((url) => url.includes("/api/web/auth/authorize"))).toBe(false);
   });
 
   it("keeps read-only aliases and health data on dedicated endpoints", async () => {

@@ -252,20 +252,6 @@ function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
   </section></main>;
 }
 
-function AdminAuthModal({ onSubmit, onClose, error }: { onSubmit: (password: string) => Promise<void>; onClose: () => void; error: string }) {
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try { await onSubmit(password); } finally { setPassword(""); setBusy(false); }
-  }
-  return <Modal title="重新驗證管理權限" onClose={() => { setPassword(""); onClose(); }}>
-    <p className="muted">此結構性操作需要 5 分鐘 fresh authorization。輸入值不會保存。</p>
-    <form onSubmit={submit}><label>管理密碼<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="off" /></label><div className="modal-actions"><button type="button" onClick={() => { setPassword(""); onClose(); }}>取消</button><button className="primary" disabled={!password || busy}>{busy ? "驗證中…" : "驗證"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}</form>
-  </Modal>;
-}
-
 function ReasonModal({ title, quantityValue, correction, onSubmit, onClose }: { title: string; quantityValue?: number; correction?: boolean; onSubmit: (reason: string, nextQuantity?: number) => Promise<void>; onClose: () => void }) {
   const [reason, setReason] = useState("");
   const [nextQuantity, setNextQuantity] = useState(quantityValue === undefined ? "" : String(quantityValue));
@@ -356,9 +342,6 @@ export default function App() {
   const [chartFlockId, setChartFlockId] = useState("");
   const [chartEnvironment, setChartEnvironment] = useState("");
   const [chartCaretakerId, setChartCaretakerId] = useState("");
-  const [authOpen, setAuthOpen] = useState(false);
-  const [authError, setAuthError] = useState("");
-  const authResolver = useRef<((allowed: boolean) => void) | null>(null);
   const navigationSource = useRef<"push" | "history">("push");
   const scrollPositions = useRef<Partial<Record<NavKey, number>>>({});
   const touchStart = useRef<{ x: number; y: number; time: number; ignored: boolean } | null>(null);
@@ -428,10 +411,7 @@ export default function App() {
 
   async function login(password: string) { const result = await api.login(password); api.setToken(result.token); setAuthenticated(true); }
   async function logout() { try { await api.logout(); } finally { api.setToken(null); setAuthenticated(false); } }
-  function requestAuthorization(): Promise<boolean> { return new Promise((resolve) => { authResolver.current = resolve; setAuthError(""); setAuthOpen(true); }); }
-  async function submitAuthorization(password: string) { try { await api.authorize(password); authResolver.current?.(true); authResolver.current = null; setAuthOpen(false); } catch (err) { setAuthError(err instanceof Error ? err.message : "管理權限驗證失敗。"); } }
-  function closeAuthorization() { authResolver.current?.(false); authResolver.current = null; setAuthOpen(false); setAuthError(""); }
-  async function runMutation(work: () => Promise<unknown>, needsAuth = false, successMessage = "已更新共用 D1 資料"): Promise<boolean> { setError(""); if (needsAuth && !(await requestAuthorization())) return false; try { await work(); await loadAll(); setToast(successMessage); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
+  async function runMutation(work: () => Promise<unknown>, successMessage = "已更新共用 D1 資料"): Promise<boolean> { setError(""); try { await work(); await loadAll(); setToast(successMessage); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
   async function loadMoreEvents() { if (!eventsCursor) return; try { const result = await api.events({ limit: 50, cursor: eventsCursor }); setEvents((currentEvents) => [...currentEvents, ...result.events]); setEventsCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "營運紀錄載入失敗。"); } }
   async function loadMoreAudit() { if (!auditCursor) return; try { const result = await api.audit({ cursor: auditCursor }); setAudit((currentAudit) => [...currentAudit, ...result.auditLogs]); setAuditCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "Audit 載入失敗。"); } }
   async function loadMoreAbnormal() { if (!abnormalCursor) return; try { const result = await api.abnormalEvents({ limit: 50, cursor: abnormalCursor }); setAbnormalEvents((currentEvents) => [...currentEvents, ...result.abnormalEvents]); setAbnormalCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "異常紀錄載入失敗。"); } }
@@ -471,10 +451,10 @@ export default function App() {
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert">{error}<button aria-label="關閉錯誤" onClick={() => setError("")}>×</button></div>}
       {page === "dashboard" && <DashboardView dashboard={dashboard} farms={farms} flocks={flocks} onNavigate={navigateTo} />}
       {page === "organization" && <OrganizationView organization={organization} farms={farms} />}
-      {page === "farms" && <FarmsView farms={farms} onCreate={(body) => runMutation(() => api.createFarm(body), true)} onUpdate={(id, body, structural) => runMutation(() => api.updateFarm(id, body), structural)} onRecord={(farmId) => openAbnormalComposer({ farmId })} />}
-      {page === "caretakers" && <CaretakersView caretakers={caretakers} farms={farms} onCreate={(body) => runMutation(() => api.createCaretaker(body), true)} onUpdate={(id, body, structural) => runMutation(() => api.updateCaretaker(id, body), structural)} onAssign={(farmId, body) => runMutation(() => api.assignCaretaker(farmId, body), true)} />}
-      {page === "houses" && <HousesView houses={houses} farms={farms} onCreate={(body) => runMutation(() => api.createHouse(body), true)} onUpdate={(id, body, structural) => runMutation(() => api.updateHouse(id, body), structural)} onRecord={(farmId, houseId) => openAbnormalComposer({ farmId, houseId })} />}
-      {page === "flocks" && <FlocksView flocks={flocks} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createFlock(body), true)} onUpdate={(id, body) => runMutation(() => api.updateFlock(id, body))} onRecord={(farmId, houseId, flockId) => openAbnormalComposer({ farmId, houseId, flockId })} />}
+      {page === "farms" && <FarmsView farms={farms} onCreate={(body) => runMutation(() => api.createFarm(body))} onUpdate={(id, body) => runMutation(() => api.updateFarm(id, body))} onRecord={(farmId) => openAbnormalComposer({ farmId })} />}
+      {page === "caretakers" && <CaretakersView caretakers={caretakers} farms={farms} onCreate={(body) => runMutation(() => api.createCaretaker(body))} onUpdate={(id, body) => runMutation(() => api.updateCaretaker(id, body))} onAssign={(farmId, body) => runMutation(() => api.assignCaretaker(farmId, body))} />}
+      {page === "houses" && <HousesView houses={houses} farms={farms} onCreate={(body) => runMutation(() => api.createHouse(body))} onUpdate={(id, body) => runMutation(() => api.updateHouse(id, body))} onRecord={(farmId, houseId) => openAbnormalComposer({ farmId, houseId })} />}
+      {page === "flocks" && <FlocksView flocks={flocks} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createFlock(body))} onUpdate={(id, body) => runMutation(() => api.updateFlock(id, body))} onRecord={(farmId, houseId, flockId) => openAbnormalComposer({ farmId, houseId, flockId })} />}
       {page === "events" && <EventsView events={events} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctEvent(id, body))} onLoadMore={loadMoreEvents} hasMore={Boolean(eventsCursor)} />}
       {page === "abnormal" && <AbnormalView initialContext={abnormalContext} abnormalEvents={abnormalEvents} timeline={timeline} weather={weather} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createAbnormalEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseAbnormalEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctAbnormalEvent(id, body))} onLoadMore={loadMoreAbnormal} hasMore={Boolean(abnormalCursor)} />}
       {page === "finance" && <FinanceView finance={finance} />}
@@ -486,7 +466,7 @@ export default function App() {
       {page === "aliases" && <AliasesView aliases={aliases} />}
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
-      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onRecover={() => void runMutation(() => api.recoverUnfinished(), true)} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), true, "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), true, "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), true, action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), true, "已補登正式紀錄，這筆訊息已結案。")} />}
+      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
       {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
       {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic />}
       {page === "testTools" && <TestToolsView data={testTools} />}
@@ -495,7 +475,6 @@ export default function App() {
     </main>
     <button className="ai-float-button" aria-label="開啟 AI 助理" onClick={() => setAiOpen(true)}>✦<span>AI</span></button>
     {aiOpen && <AiSheet question={aiQuestion} setQuestion={setAiQuestion} result={aiResult} busy={aiBusy} onClose={() => setAiOpen(false)} onAsk={() => void askAi(aiQuestion)} />}
-    {authOpen && <AdminAuthModal onSubmit={submitAuthorization} onClose={closeAuthorization} error={authError} />}
   </div>;
 }
 
@@ -789,6 +768,6 @@ function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div classNa
 
 function AuditView({ audit, onLoadMore, hasMore }: { audit: AuditRow[]; onLoadMore: () => Promise<void>; hasMore: boolean }) { return <section className="page"><div className="panel"><PanelTitle title="不可覆寫的變更紀錄" /><p className="muted">LINE、WEB、SYSTEM、MIGRATION 來源清楚分開；展開後可查看修改前、修改後與變更欄位。</p>{!audit.length && <EmptyState detail="目前沒有變更紀錄；日後的資料修改會依時間列在這裡。" />}<DataTable headers={["時間", "來源", "操作", "實體", "操作者", "原因", "差異"]}>{audit.map((row) => <tr key={row.id}><td>{row.createdAt}</td><td><StatusPill>{sourceLabel(row.source)}</StatusPill></td><td>{row.action}</td><td>{row.entityType}<br /><small>{row.entityId}</small></td><td>{row.actorType}<br /><small>{row.actorId ?? "—"}</small></td><td>{row.reason ?? "—"}</td><td><AuditDiff row={row} /></td></tr>)}</DataTable><div className="mobile-card-list">{audit.map((row) => <AuditCard key={row.id} row={row} />)}</div>{hasMore && <div className="load-more"><button onClick={() => void onLoadMore()}>載入更多變更紀錄</button></div>}</div></section>; }
 
-function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。需要管理權限的操作會先重新驗證；管理密碼只在本次操作使用，不會出現在前端、資料庫或回覆。</div></div></section>; }
+function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。編修會沿用目前登入狀態，並保留完整變更紀錄供查閱。</div></div></section>; }
 
 function EquityView({ finance }: { finance: FinanceData | null }) { if (!finance) return <Loading />; return <section className="page"><div className="panel"><PanelTitle title="投資人與雞場持股" /><p className="muted">顯示正式雞場的實際投資人持股；測試雞場不納入股權與財務歷史。</p>{finance.farmInvestorEquity.length ? <DataTable className="dense-table" headers={["雞場", "投資人", "實際持股", "來源", "生效日"]}>{finance.farmInvestorEquity.map((row) => <tr key={String(row.id)}><td>{String(row.farmName)}</td><td>{String(row.investorName)}</td><td>{(Number(row.equityFraction) * 100).toFixed(4)}%</td><td>{String(row.source ?? "—")}</td><td>{String(row.effectiveDate ?? "—")}</td></tr>)}</DataTable> : <EmptyState detail="目前沒有投資人持股資料。" />}</div></section>; }
