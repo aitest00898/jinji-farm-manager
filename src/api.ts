@@ -28,6 +28,149 @@ export interface DataHealth { warnings: string[]; checks?: DataHealthCheck[]; ch
 export interface FinanceData { totals: Record<string, number>; investors: Array<Record<string, unknown>>; farms: Array<Record<string, unknown>>; distributions: Array<Record<string, unknown>>; allocations: Array<Record<string, unknown>>; farmInvestorEquity: Array<Record<string, unknown>> }
 export interface Alias { id: string; farmId: string; farmName: string; alias: string; normalizedAlias: string; aliasType: string; status: string; confirmationCount: number; lastConfirmedAt: string | null; createdAt: string; updatedAt: string }
 
+export interface SystemStatus {
+  level: "normal" | "slow" | "attention";
+  label: string;
+  message: string;
+  unfinishedCount: number;
+  stalledCount: number;
+  retryingCount: number;
+  retainedCount: number;
+  retainedUnacknowledgedCount: number;
+  retainedAcknowledgedCount: number;
+  retainedOpenCount: number;
+  retainedResolvedCount: number;
+  actionableUnfinishedCount: number;
+  deliveryUncertainCount: number;
+  replyFailureCount: number;
+  lastCompletedAt: string | null;
+  lastProblemAt: string | null;
+  checkedAt: string;
+  checks: { receive: string; process: string; storage: string; reply: string };
+}
+
+export interface ReliabilityEvent {
+  eventId: string;
+  eventIdShort: string;
+  correlationIdShort: string;
+  lifecycleStatus: string;
+  businessStatus: string;
+  replyStatus: string;
+  receivedAt: string;
+  queuedAt: string | null;
+  processingStartedAt: string | null;
+  businessCompletedAt: string | null;
+  replyCompletedAt: string | null;
+  queueAttempts: number;
+  processingAttempts: number;
+  replyAttempts: number;
+  lastErrorStage: string | null;
+  lastErrorClass: string | null;
+  lastErrorAt: string | null;
+  nextRetryAt: string | null;
+  resolutionStatus: string;
+  retainedAcknowledgedAt: string | null;
+  retainedAcknowledgedBy: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  resolutionReason: string | null;
+  resolutionNote: string | null;
+  manualRecordReference: string | null;
+  payloadAvailable: boolean;
+  payloadExpiresAt: string | null;
+}
+
+export interface AmbientPreviewRow {
+  idShort: string;
+  groupIdShort: string;
+  sourceIdShort: string;
+  eventTimestamp: string;
+  eventTimeTaipei: string;
+  expiresAt: string;
+  text: string;
+  candidateLike: boolean;
+}
+
+export interface AmbientExpiredDiagnostic {
+  sourceIdShort: string;
+  originalEventTimestamp: string;
+  eventTimeTaipei: string;
+  expiredAt: string;
+  expiredTimeTaipei: string;
+  prefilterResult: string;
+  lastFailureStage: string | null;
+}
+
+export interface AmbientPreview {
+  cutoffAt: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  candidateLikeCount: number;
+  excludedCount: number;
+  openCandidateCount: number;
+  processed24hCount: number;
+  expiredDiagnosticCount: number;
+  expiredDiagnostics: AmbientExpiredDiagnostic[];
+  rows: AmbientPreviewRow[];
+  truncated: boolean;
+  readOnly: boolean;
+}
+
+export interface PendingCandidateEntry {
+  event: string;
+  quantity: number | null;
+  farm: string;
+  house: string;
+  batch: string;
+  state: string;
+  conflict: boolean;
+  conflictText: string | null;
+  blocking: boolean;
+  caretakerClues: string[];
+  reconciliation: string;
+  evidenceCount: number;
+  sourceTimestamps: string[];
+}
+
+export interface PendingCandidate {
+  idShort: string;
+  groupIdShort: string;
+  status: string;
+  hourBucket: string;
+  createdTimeTaipei: string;
+  expiresAt: string;
+  source: string;
+  sourceMessageCount: number;
+  sourceIdsShort: string[];
+  sourceTimestamps: string[];
+  workflowHistoryAvailable: boolean;
+  entries: PendingCandidateEntry[];
+}
+
+export interface TestToolsData {
+  farms: Array<Record<string, unknown>>;
+  houses: Array<Record<string, unknown>>;
+  flocks: Array<Record<string, unknown>>;
+  warning: string;
+  readOnly: boolean;
+}
+
+export interface TechnicalInfo {
+  service: string;
+  accountName: string;
+  conversationMode: string;
+  conversationModel: string;
+  ambientModel: string;
+  queue: { name: string; batchSize: number; timeoutSeconds: number; maxRetries: number };
+  schedules: string[];
+  migration: string;
+  secretsIncluded: boolean;
+  rawPayloadIncluded: boolean;
+  note: string;
+}
+
 export function queryString(values: Record<string, string | number | null | undefined>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
@@ -90,4 +233,15 @@ export class ApiClient {
   aiAnalyze(question: string, scope?: Record<string, string>, force = false) { return this.request<{ result: AnalysisResult; readOnly: boolean }>("/api/ai/analyze", { method: "POST", body: JSON.stringify({ question, scope, force }) }); }
   aiLiveStatus(scopeType = "organization", scopeId = "organization") { return this.request<{ context: Record<string, unknown>; aiInvoked: boolean }>(`/api/ai/live-status${queryString({ scopeType, scopeId })}`); }
   aiBrief() { return this.request<{ brief: AnalysisResult | null; liveStatus: Record<string, number>; aiInvoked: boolean }>("/api/ai/brief"); }
+  systemStatus() { return this.request<{ status: SystemStatus }>("/api/system-status"); }
+  reliabilityEvents() { return this.request<{ events: ReliabilityEvent[] }>("/api/reliability/events"); }
+  ambientPreview(params: Record<string, string | number | null | undefined> = {}) { return this.request<AmbientPreview>(`/api/ambient/preview${queryString(params)}`); }
+  pendingCandidates(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ page: number; pageSize: number; total: number; totalPages: number; candidates: PendingCandidate[]; invalidCount: number; truncated: boolean; readOnly: boolean }>(`/api/pending-candidates${queryString(params)}`); }
+  testTools() { return this.request<TestToolsData>("/api/test-tools"); }
+  technicalInfo() { return this.request<TechnicalInfo>("/api/technical-info"); }
+  recoverUnfinished() { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>("/api/reliability/recover", { method: "POST", body: "{}" }); }
+  acknowledgeRetained() { return this.request<{ ok: boolean; message: string; acknowledged: number }>("/api/reliability/acknowledge", { method: "POST", body: "{}" }); }
+  recoverRetained(eventId: string) { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/recover`, { method: "POST", body: "{}" }); }
+  resolveRetained(eventId: string, action: "manual_resolve" | "force_close", reason: string, note?: string, confirm = false) { return this.request<{ ok: boolean; changed: boolean; message: string }>(`/api/reliability/events/${encodeURIComponent(eventId)}/resolve`, { method: "POST", body: JSON.stringify({ action, reason, note, confirm }) }); }
+  recordRetained(eventId: string, body: Record<string, unknown>) { return this.request<{ ok: boolean; changed: boolean; message: string; record: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/record`, { method: "POST", body: JSON.stringify(body) }); }
 }

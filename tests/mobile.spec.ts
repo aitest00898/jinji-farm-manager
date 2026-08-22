@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { NAV_GROUPS, NAV_ITEMS } from "../src/navigation";
 
-type MockState = { note: string | null };
+type MockState = { note: string | null; acknowledged: boolean; resolution: "unresolved" | "manually_resolved" | "manually_recorded" | "force_closed" };
 
 const farm = {
   id: "test-farm",
@@ -21,13 +21,23 @@ const house = { id: "test-house", farmId: farm.id, name: "測試1舍", normalize
 const flock = { id: "test-flock", farmId: farm.id, houseId: house.id, batchCode: "TEST-BATCH-001", breed: null, chickInDate: "2026-08-19", initialCount: 1000, expectedShipmentDate: "2026-11-19", actualShipmentDate: null, status: "active", note: null, version: 1, ageDays: 1, shipmentReminder: "upcoming", farmName: farm.name, houseName: house.name };
 const operationalEvent = { id: "event-1", organizationId: "org-test", farmId: farm.id, farmName: farm.name, environment: "test", houseId: house.id, house: house.name, flockId: flock.id, intent: "mortality", quantity: 5, unit: "隻", eventDate: "2026-08-20", note: null, source: "web", sourceEventId: "fixture-event", pendingActionId: null, reversalOfEventId: null, correctionGroupId: null, reversedAt: null, createdAt: "2026-08-20T01:00:00Z" };
 const auditRow = { id: "audit-1", organizationId: "org-test", source: "web", action: "farm_note_updated", entityType: "farm", entityId: farm.id, actorType: "web_admin", actorId: "fixture-user", reason: "行動版測試", before: { note: null }, after: { note: "巡場完成" }, changedFields: ["note"], createdAt: "2026-08-20T01:10:00Z" };
+const retainedBase = { eventId: "event-retained", eventIdShort: "tained01", correlationIdShort: "rel-0001", lifecycleStatus: "retained", businessStatus: "failed", replyStatus: "failed", receivedAt: "2026-08-20T02:00:00Z", queuedAt: "2026-08-20T02:00:01Z", processingStartedAt: "2026-08-20T02:00:02Z", businessCompletedAt: null, replyCompletedAt: null, queueAttempts: 3, processingAttempts: 3, replyAttempts: 0, lastErrorStage: "processing", lastErrorClass: "temporary_failure", lastErrorAt: "2026-08-20T02:01:00Z", nextRetryAt: null, resolutionStatus: "unresolved", retainedAcknowledgedAt: null, retainedAcknowledgedBy: null, resolvedAt: null, resolvedBy: null, resolutionReason: null, resolutionNote: null, manualRecordReference: null, payloadAvailable: false, payloadExpiresAt: "2026-08-20T02:05:00Z" };
+
+function reliabilityStatusFixture(state: MockState) {
+  const unresolved = state.resolution === "unresolved";
+  return { level: unresolved ? "attention" : "normal", label: unresolved ? "需要處理" : "正常", message: unresolved ? "目前有 1 筆訊息尚未完成，需要管理者處理。" : "系統目前運作正常。", unfinishedCount: unresolved ? 1 : 0, stalledCount: 0, retryingCount: 0, retainedCount: 1, retainedUnacknowledgedCount: unresolved && !state.acknowledged ? 1 : 0, retainedAcknowledgedCount: unresolved && state.acknowledged ? 1 : 0, retainedOpenCount: unresolved ? 1 : 0, retainedResolvedCount: unresolved ? 0 : 1, actionableUnfinishedCount: 0, deliveryUncertainCount: 0, replyFailureCount: 0, lastCompletedAt: "2026-08-20T02:00:00Z", lastProblemAt: unresolved ? "2026-08-20T02:01:00Z" : null, checkedAt: "2026-08-20T03:00:00Z", checks: { receive: "需處理", process: "正常", storage: "正常", reply: "正常" } };
+}
+
+function reliabilityEventsFixture(state: MockState) {
+  return [{ ...retainedBase, resolutionStatus: state.resolution, retainedAcknowledgedAt: state.acknowledged ? "2026-08-20T03:00:00Z" : null, retainedAcknowledgedBy: state.acknowledged ? "fixture-admin" : null, resolvedAt: state.resolution === "unresolved" ? null : "2026-08-20T03:10:00Z", resolvedBy: state.resolution === "unresolved" ? null : "fixture-admin", resolutionReason: state.resolution === "unresolved" ? null : "測試結案", resolutionNote: null, manualRecordReference: state.resolution === "manually_recorded" ? "operational:event-2" : null }];
+}
 
 async function fulfill(route: Route, payload: unknown, status = 200) {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
 }
 
 async function installMockApi(page: Page): Promise<MockState> {
-  const state: MockState = { note: null };
+  const state: MockState = { note: null, acknowledged: false, resolution: "unresolved" };
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -36,6 +46,17 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, privileged: true, expiresAt: "2099-01-01T00:00:00Z" });
     if (path.endsWith("/api/web/auth/authorize")) return fulfill(route, { authorized: true, privilegedExpiresAt: "2099-01-01T00:05:00Z" });
     if (path.endsWith("/api/web/auth/logout")) return fulfill(route, { authenticated: false });
+    if (path.endsWith("/api/system-status")) return fulfill(route, { status: reliabilityStatusFixture(state) });
+    if (path.endsWith("/api/reliability/events")) return fulfill(route, { events: reliabilityEventsFixture(state) });
+    if (path.endsWith("/api/reliability/acknowledge") && request.method() === "POST") { state.acknowledged = true; return fulfill(route, { ok: true, acknowledged: 1, message: "已記下查看結果；尚待決定的訊息仍會保留。" }); }
+    if (path.endsWith("/api/reliability/recover") && request.method() === "POST") return fulfill(route, { ok: true, message: "目前沒有可以重新處理的未完成訊息。", result: { requeued: 0 } });
+    if (path.endsWith("/api/reliability/events/event-retained/resolve") && request.method() === "POST") { const body = JSON.parse(request.postData() ?? "{}"); state.resolution = body.action === "force_close" ? "force_closed" : "manually_resolved"; return fulfill(route, { ok: true, changed: true, message: "這筆訊息已結案。" }); }
+    if (path.endsWith("/api/reliability/events/event-retained/record") && request.method() === "POST") { state.resolution = "manually_recorded"; return fulfill(route, { ok: true, changed: true, message: "已補登正式紀錄，這筆訊息已結案。", record: { kind: "operational", id: "event-2" } }); }
+    if (path.endsWith("/api/reliability/events/event-retained/recover") && request.method() === "POST") return fulfill(route, { ok: true, message: "這筆訊息沒有重新安排。", result: { requeued: 0 } });
+    if (path.endsWith("/api/ambient/preview")) return fulfill(route, { cutoffAt: "2026-08-20T03:00:00Z", page: 0, pageSize: 10, total: 0, totalPages: 1, candidateLikeCount: 0, excludedCount: 0, openCandidateCount: 0, processed24hCount: 0, expiredDiagnosticCount: 0, expiredDiagnostics: [], rows: [], truncated: false, readOnly: true });
+    if (path.endsWith("/api/pending-candidates")) return fulfill(route, { page: 0, pageSize: 10, total: 0, totalPages: 1, candidates: [], invalidCount: 0, truncated: false, readOnly: true });
+    if (path.endsWith("/api/test-tools")) return fulfill(route, { farms: [], houses: [], flocks: [], warning: "只讀測試資料。", readOnly: true });
+    if (path.endsWith("/api/technical-info")) return fulfill(route, { service: "fixture", accountName: "金雞協會助理Ai", conversationMode: "test_farm", conversationModel: "fixture", ambientModel: "fixture", queue: { name: "fixture", batchSize: 10, timeoutSeconds: 0, maxRetries: 3 }, schedules: [], migration: "0029", secretsIncluded: false, rawPayloadIncluded: false, note: "安全技術資料。" });
     if (path.endsWith("/api/dashboard")) return fulfill(route, { asOf: "2026-08-20", counts: { farms: 1, productionFarms: 0, testFarms: 1, caretakers: 0, activeFlocks: 1 }, stock: 995, today: { mortality: 5, cull: 0 }, upcomingShipments: 1, finance: { net: 0 }, dataHealth: { warnings: [] } });
     if (path.endsWith("/api/organizations")) return fulfill(route, { organizations: [{ id: "org-test", name: "測試組合", active: true }] });
     if (path.endsWith("/api/farms/test-farm") && request.method() === "PATCH") { const body = JSON.parse(request.postData() ?? "{}"); state.note = typeof body.note === "string" ? body.note : state.note; return fulfill(route, { farm: { ...farm, note: state.note, version: farm.version + 1 } }); }
@@ -205,6 +226,70 @@ test.describe("mobile navigation information architecture", () => {
     expect(chartBox?.x ?? -1).toBeGreaterThanOrEqual(0);
     expect((chartBox?.x ?? 0) + (chartBox?.width ?? 0)).toBeLessThanOrEqual(390);
     await expectNoBodyOverflow(page);
+  });
+});
+
+test.describe("保留訊息管理介面", () => {
+  test.beforeEach(async ({ page }) => {
+    await installMockApi(page);
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await login(page);
+    await navigateByDrawer(page, "系統狀態");
+  });
+
+  test("列表可開啟查看／處理，過期訊息不顯示重新處理", async ({ page }) => {
+    await page.getByRole("button", { name: /查看未完成訊息/ }).click();
+    await expect(page.getByRole("button", { name: "查看／處理", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "查看／處理", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "這筆訊息尚未完成" })).toBeVisible();
+    await expect(dialog).toContainText("原始訊息已超過保存時間，現在無法自動重新處理");
+    await expect(dialog.getByRole("button", { name: "重新處理", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "補登資料", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "確認不用處理", exact: true })).toBeVisible();
+    await dialog.locator("summary").filter({ hasText: "其他處理方式" }).click();
+    await expect(dialog.getByRole("button", { name: "強制結案", exact: true })).toBeVisible();
+  });
+
+  test("我已查看會顯示已查看但尚待決定", async ({ page }) => {
+    await page.getByRole("button", { name: "我已查看", exact: true }).click();
+    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
+    await authorization.getByLabel("管理密碼").fill("test-only-fixture");
+    await authorization.getByRole("button", { name: "驗證", exact: true }).click();
+    await expect(page.getByText("已查看，但仍有 1 筆需要決定如何處理。", { exact: true })).toBeVisible();
+    await expect(page.getByText("已查看待決定", { exact: true })).toBeVisible();
+  });
+
+  test("確認不用處理後會移出未完成並出現在已結案歷史", async ({ page }) => {
+    await page.getByRole("button", { name: /查看未完成訊息/ }).click();
+    await page.getByRole("button", { name: "查看／處理", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByRole("button", { name: "確認不用處理", exact: true }).click();
+    const resolution = page.getByRole("dialog").filter({ hasText: "訊息短編號" });
+    await resolution.locator("textarea").first().fill("確認不需要建立正式紀錄");
+    await resolution.getByRole("button", { name: "確認不用處理", exact: true }).click();
+    const authorization = page.getByRole("dialog").filter({ hasText: "重新驗證管理權限" });
+    await authorization.getByLabel("管理密碼").fill("test-only-fixture");
+    await authorization.getByRole("button", { name: "驗證", exact: true }).click();
+    await expect(page.getByText("已結案。", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("目前沒有未完成訊息。", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /查看已結案訊息/ }).click();
+    await expect(page.getByText("確認不用處理", { exact: true })).toBeVisible();
+  });
+
+  test("強制結案需要原因與第二次確認", async ({ page }) => {
+    await page.getByRole("button", { name: /查看未完成訊息/ }).click();
+    await page.getByRole("button", { name: "查看／處理", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.locator("summary").filter({ hasText: "其他處理方式" }).click();
+    await detail.getByRole("button", { name: "強制結案", exact: true }).click();
+    const forceDialog = page.getByRole("dialog").filter({ hasText: "強制結案" });
+    await expect(forceDialog.getByRole("checkbox", { name: /我已確認/ })).toBeVisible();
+    await forceDialog.getByRole("button", { name: "確認強制結案", exact: true }).click();
+    await expect(forceDialog).toContainText("請填寫原因");
+    await forceDialog.locator("textarea").first().fill("原始內容已遺失，確認不再追查");
+    await forceDialog.getByRole("button", { name: "確認強制結案", exact: true }).click();
+    await expect(forceDialog).toContainText("請再次確認");
   });
 });
 

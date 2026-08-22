@@ -4,6 +4,7 @@ import {
   type Alias,
   type AbnormalEvent,
   type AnalysisResult,
+  type AmbientPreview,
   type AuditRow,
   type Caretaker,
   type ChartResponse,
@@ -14,6 +15,11 @@ import {
   type Flock,
   type House,
   type OperationalEvent,
+  type PendingCandidate,
+  type ReliabilityEvent,
+  type SystemStatus,
+  type TechnicalInfo,
+  type TestToolsData,
   type TimelineItem,
   type WeatherDaily,
 } from "./api";
@@ -43,8 +49,14 @@ function LineIcon({ name, className = "nav-icon" }: { name: NavIconName; classNa
     case "reminders": glyph = <><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 7H3s3 0 3-7" /><path d="M10 20h4M10 3h4" /></>; break;
     case "aliases": glyph = <><circle cx="10" cy="10" r="6" /><path d="m14.5 14.5 5 5M7 8h6M7 11h4" /></>; break;
     case "audit": glyph = <><path d="M4 7v5h5" /><path d="M5.5 17a8 8 0 1 0-.8-9" /><path d="M12 7v5l3 2" /></>; break;
+    case "pending": glyph = <><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></>; break;
+    case "system": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="M12 8v4l2 2" /></>; break;
+    case "diagnostics": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h10M7 13h6M7 16h3" /><circle cx="17" cy="16" r="2" /></>; break;
+    case "pendingDiagnostics": glyph = <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h4" /><path d="m15 15 2 2 3-4" /></>; break;
+    case "testTools": glyph = <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3" /><path d="M8 15h8" /></>; break;
     case "health": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>; break;
     case "settings": glyph = <><circle cx="12" cy="12" r="3" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /><circle cx="12" cy="12" r="7" /></>; break;
+    case "technical": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h2m3 0h2m3 0h2M7 13h2m3 0h2m3 0h2M7 17h2m3 0h2" /></>; break;
     case "logout": glyph = <><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></>; break;
   }
   return <svg className={className} data-icon={name} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{glyph}</svg>;
@@ -92,7 +104,7 @@ function eventLabel(intent: string): string {
 }
 
 function sourceLabel(source: string): string {
-  return ({ line: "LINE", web: "WEB", system: "SYSTEM", migration: "MIGRATION" } as Record<string, string>)[source] ?? source;
+  return ({ line: "LINE", web: "網頁", system: "系統", migration: "資料更新" } as Record<string, string>)[source] ?? source;
 }
 
 function fieldLabel(field: string): string {
@@ -121,6 +133,17 @@ function isoDaysAgo(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return date.toISOString().slice(0, 10);
+}
+
+function taipeiTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+}
+
+function reconciliationLabel(value: string): string {
+  return ({ not_recorded: "尚未找到正式紀錄", possibly_recorded: "可能已記錄", already_recorded: "可能重複" } as Record<string, string>)[value] ?? value;
 }
 
 function routeFromHash(): NavKey {
@@ -301,6 +324,15 @@ export default function App() {
   const [finance, setFinance] = useState<FinanceData | null>(null);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [reliabilityEvents, setReliabilityEvents] = useState<ReliabilityEvent[]>([]);
+  const [ambientPreview, setAmbientPreview] = useState<AmbientPreview | null>(null);
+  const [pendingCandidates, setPendingCandidates] = useState<PendingCandidate[]>([]);
+  const [pendingCandidateInvalidCount, setPendingCandidateInvalidCount] = useState(0);
+  const [pendingCandidatePage, setPendingCandidatePage] = useState(0);
+  const [pendingCandidateTotalPages, setPendingCandidateTotalPages] = useState(1);
+  const [testTools, setTestTools] = useState<TestToolsData | null>(null);
+  const [technicalInfo, setTechnicalInfo] = useState<TechnicalInfo | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [abnormalEvents, setAbnormalEvents] = useState<AbnormalEvent[]>([]);
@@ -336,10 +368,10 @@ export default function App() {
   async function loadAll() {
     setBusy(true); setError("");
     try {
-      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData] = await Promise.all([
-        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }),
+      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, testData, technicalData] = await Promise.all([
+        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.testTools(), api.technicalInfo(),
       ]);
-      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline);
+      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline); setSystemStatus(systemData.status); setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates); setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page); setPendingCandidateTotalPages(pendingData.totalPages); setTestTools(testData); setTechnicalInfo(technicalData);
     } catch (err) { if ((err as { status?: number }).status === 401) { api.setToken(null); setAuthenticated(false); } setError(err instanceof Error ? err.message : "資料載入失敗。"); }
     finally { setBusy(false); }
   }
@@ -397,10 +429,11 @@ export default function App() {
   function requestAuthorization(): Promise<boolean> { return new Promise((resolve) => { authResolver.current = resolve; setAuthError(""); setAuthOpen(true); }); }
   async function submitAuthorization(password: string) { try { await api.authorize(password); authResolver.current?.(true); authResolver.current = null; setAuthOpen(false); } catch (err) { setAuthError(err instanceof Error ? err.message : "管理權限驗證失敗。"); } }
   function closeAuthorization() { authResolver.current?.(false); authResolver.current = null; setAuthOpen(false); setAuthError(""); }
-  async function runMutation(work: () => Promise<unknown>, needsAuth = false): Promise<boolean> { setError(""); if (needsAuth && !(await requestAuthorization())) return false; try { await work(); await loadAll(); setToast("已更新共用 D1 資料"); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
+  async function runMutation(work: () => Promise<unknown>, needsAuth = false, successMessage = "已更新共用 D1 資料"): Promise<boolean> { setError(""); if (needsAuth && !(await requestAuthorization())) return false; try { await work(); await loadAll(); setToast(successMessage); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
   async function loadMoreEvents() { if (!eventsCursor) return; try { const result = await api.events({ limit: 50, cursor: eventsCursor }); setEvents((currentEvents) => [...currentEvents, ...result.events]); setEventsCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "營運紀錄載入失敗。"); } }
   async function loadMoreAudit() { if (!auditCursor) return; try { const result = await api.audit({ cursor: auditCursor }); setAudit((currentAudit) => [...currentAudit, ...result.auditLogs]); setAuditCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "Audit 載入失敗。"); } }
   async function loadMoreAbnormal() { if (!abnormalCursor) return; try { const result = await api.abnormalEvents({ limit: 50, cursor: abnormalCursor }); setAbnormalEvents((currentEvents) => [...currentEvents, ...result.abnormalEvents]); setAbnormalCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "異常紀錄載入失敗。"); } }
+  async function loadPendingPage(pageNumber: number) { try { const result = await api.pendingCandidates({ page: pageNumber }); setPendingCandidates(result.candidates); setPendingCandidateInvalidCount(result.invalidCount); setPendingCandidatePage(result.page); setPendingCandidateTotalPages(result.totalPages); } catch (err) { setError(err instanceof Error ? err.message : "待確認資料載入失敗。"); } }
 
   async function askAi(question: string, force = false) {
     const value = question.trim();
@@ -447,10 +480,16 @@ export default function App() {
       {page === "charts" && <ChartsView chart={chart} loading={chartLoading} farms={farms} houses={houses} flocks={flocks} caretakers={caretakers} metric={chartMetric} setMetric={setChartMetric} range={chartRange} setRange={setChartRange} granularity={chartGranularity} setGranularity={setChartGranularity} farmId={chartFarmId} setFarmId={(value) => { setChartFarmId(value); setChartHouseId(""); setChartFlockId(""); }} houseId={chartHouseId} setHouseId={(value) => { setChartHouseId(value); setChartFlockId(""); }} flockId={chartFlockId} setFlockId={setChartFlockId} environment={chartEnvironment} setEnvironment={setChartEnvironment} caretakerId={chartCaretakerId} setCaretakerId={setChartCaretakerId} />}
       {page === "ai" && <AiView result={aiResult} question={aiQuestion} setQuestion={setAiQuestion} busy={aiBusy} onAsk={() => void askAi(aiQuestion)} />}
       {page === "reminders" && <RemindersView flocks={flocks} />}
+      {page === "pending" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic={false} />}
       {page === "aliases" && <AliasesView aliases={aliases} />}
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
+      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onRecover={() => void runMutation(() => api.recoverUnfinished(), true)} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), true, "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), true, "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), true, action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), true, "已補登正式紀錄，這筆訊息已結案。")} />}
+      {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
+      {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic />}
+      {page === "testTools" && <TestToolsView data={testTools} />}
       {page === "settings" && <SettingsView farms={farms} organization={organization} />}
+      {page === "technical" && <TechnicalInfoView info={technicalInfo} />}
     </main>
     <button className="ai-float-button" aria-label="開啟 AI 助理" onClick={() => setAiOpen(true)}>✦<span>AI</span></button>
     {aiOpen && <AiSheet question={aiQuestion} setQuestion={setAiQuestion} result={aiResult} busy={aiBusy} onClose={() => setAiOpen(false)} onAsk={() => void askAi(aiQuestion)} />}
@@ -463,6 +502,205 @@ function DashboardView({ dashboard, farms, flocks, onNavigate }: { dashboard: Da
   const activeFlocks = flocks.filter((flock) => flock.status === "active").slice(0, 8);
   const activeFarms = farms.filter((farm) => farm.active);
   return <section className="page"><div className="hero"><div><span className="hero-kicker">截至 {dashboard.asOf}</span><h2>今天，讓每一筆雞場資料都清楚可追溯。</h2><p>營運資料由 LINE 與 Web 共用；正式財務統計自動排除測試場。</p></div><button className="primary" onClick={() => onNavigate("events")}>記錄營運事件 ＋</button></div><div className="metric-grid"><Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} /><Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} /><Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} /><Metric title="歷史淨收入" value={`NT${money(dashboard.finance.net)}`} detail="僅正式雞場財務" /></div><div className="two-col"><section className="panel"><PanelTitle title="雞場概覽" action="查看全部" onClick={() => onNavigate("farms")} />{activeFarms.length ? <div className="farm-list">{activeFarms.map((farm) => <div className="farm-row" key={farm.id}><div className="farm-avatar">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><strong>{farm.name}</strong><span>{farm.siteName || (farm.structureMode === "multi_house" ? "多舍管理" : "全場管理")}</span></div><StatusPill tone={farm.environment === "test" ? "warn" : "good"}>{farm.environment === "test" ? "測試" : "正式"}</StatusPill></div>)}</div> : <EmptyState detail="目前沒有啟用中的雞場。" />}</section><section className="panel"><PanelTitle title="資料健康度" action="檢視健康檢查" onClick={() => onNavigate("health")} />{dashboard.dataHealth.warnings.length ? <div className="warning-list">{dashboard.dataHealth.warnings.map((warning) => <p key={warning}>⚠️ {warning}</p>)}</div> : <div className="healthy"><span>✓</span><div><strong>目前沒有阻塞性警告</strong><p>主檔、批次與財務資料可正常使用。</p></div></div>}<div className="mini-summary"><span>預計 7 日內出雞</span><strong>{dashboard.upcomingShipments} 批</strong></div></section></div><section className="panel"><PanelTitle title="進行中批次" action="管理批次" onClick={() => onNavigate("flocks")} />{!activeFlocks.length && <EmptyState detail="目前沒有進行中的批次；可到批次頁建立入雛資料。" />}<DataTable headers={["批次", "雞場", "入雛日", "日齡", "預計出雞", "狀態"]}>{activeFlocks.map((flock) => <tr key={flock.id}><td><strong>{flock.batchCode}</strong></td><td>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</td><td>{flock.chickInDate}</td><td>{flock.ageDays ?? 0} 日</td><td>{flock.expectedShipmentDate ?? "未設定"}</td><td><StatusPill tone="good">進行中</StatusPill></td></tr>)}</DataTable><div className="mobile-card-list">{activeFlocks.map((flock) => <MobileCard key={flock.id}><div className="mobile-card-head"><strong>{flock.batchCode}</strong><StatusPill tone="good">進行中</StatusPill></div><dl className="mobile-fields"><div><dt>雞場</dt><dd>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</dd></div><div><dt>入雛／日齡</dt><dd>{flock.chickInDate} · {flock.ageDays ?? 0} 日</dd></div><div><dt>預計出雞</dt><dd>{flock.expectedShipmentDate ?? "未設定"}</dd></div></dl></MobileCard>)}</div></section></section>;
+}
+
+function PendingCandidatesView({ candidates, invalidCount, page, totalPages, onPage, diagnostic }: { candidates: PendingCandidate[]; invalidCount: number; page: number; totalPages: number; onPage: (page: number) => Promise<void>; diagnostic: boolean }) {
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">{diagnostic ? "系統維護" : "一般場務"}</span><h2>{diagnostic ? "待確認資料診斷" : "待確認資料"}</h2><p>{diagnostic ? "查看資料狀態、來源與不一致原因；這裡只查看，不會修改資料。" : "查看目前還需要人工確認的營運資訊。"}</p></div></div>
+    <div className="metric-grid"><Metric title="待確認資料" value={candidates.length} detail="尚未完成確認" tone={candidates.length ? "warn" : "good"} /><Metric title="來源訊息" value={candidates.reduce((sum, item) => sum + item.sourceMessageCount, 0)} detail="保留必要來源數量" /><Metric title="資料不一致" value={candidates.reduce((sum, item) => sum + item.entries.filter((entry) => entry.conflict).length, 0)} detail="需要查看原因" tone={candidates.some((item) => item.entries.some((entry) => entry.conflict)) ? "warn" : "good"} /></div>
+    {invalidCount > 0 && <div className="alert">⚠️ 有 {invalidCount} 筆資料格式不足，沒有猜測內容；請到變更紀錄查看處理痕跡。</div>}
+    {candidates.length ? candidates.map((candidate) => <section className="panel" key={candidate.idShort}>
+      <div className="panel-title"><h3>待確認資料 · {candidate.idShort}</h3><StatusPill tone="warn">{candidate.status}</StatusPill></div>
+      <p className="muted">群組 {candidate.groupIdShort} · {candidate.createdTimeTaipei} · 來源 {candidate.sourceMessageCount} 則</p>
+      {candidate.entries.map((entry, index) => <article className="candidate-entry" key={`${candidate.idShort}-${index}`}>
+        <div className="panel-title"><h4>{entry.event}{entry.quantity === null ? "" : ` ${quantity(entry.quantity)}${entry.event === "異常" ? "" : "隻"}`}</h4><StatusPill tone={entry.blocking ? "warn" : "good"}>{entry.state}</StatusPill></div>
+        <p>雞場：{entry.farm}　雞舍：{entry.house}　批次：{entry.batch}</p>
+        {entry.caretakerClues.length > 0 && <p>飼養者線索：{entry.caretakerClues.join("、")}</p>}
+        {entry.conflict && <p className="notice">資料不一致：{entry.conflictText ?? "目前有不同線索，需要查看原因。"}{entry.blocking ? " 目前會影響完成。" : " 目前不影響正式紀錄。"}</p>}
+        <p className="muted">正式紀錄比對：{reconciliationLabel(entry.reconciliation)} · 已保存證據 {entry.evidenceCount} 項</p>
+        {diagnostic && <details><summary>查看來源摘要</summary><p className="muted">來源短編號：{candidate.sourceIdsShort.join("、") || "—"}</p><p className="muted">來源時間：{candidate.sourceTimestamps.map(taipeiTime).join("、") || "—"}</p></details>}
+      </article>)}
+    </section>) : <div className="panel empty">目前沒有待確認資料。</div>}
+    {totalPages > 1 && <div className="page-actions"><button disabled={page <= 0} onClick={() => void onPage(page - 1)}>上一頁</button><span className="muted">第 {page + 1}／{totalPages} 頁</span><button disabled={page >= totalPages - 1} onClick={() => void onPage(page + 1)}>下一頁</button></div>}
+    <div className="notice">正式紀錄、修改或取消仍須經既有安全流程；本頁目前只提供查看。</div>
+  </section>;
+}
+
+function reliabilityStateLabel(value: string): string {
+  return ({ received: "已收到，等待處理", queued: "等待處理", processing: "正在處理", reply_pending: "資料完成，正在回覆", retry_waiting: "正在自動再試", retained: "已保留待處理", reply_completed: "已完成" } as Record<string, string>)[value] ?? "需要查看";
+}
+
+function reliabilityStageLabel(value: string | null): string {
+  return ({ enqueue: "接收後排入處理", processing: "資料處理", reply: "LINE 回覆" } as Record<string, string>)[value ?? ""] ?? "—";
+}
+
+type RetainedResolutionAction = "manual_resolve" | "force_close";
+
+function RetainedResolutionModal({ event, action, onClose, onSubmit }: { event: ReliabilityEvent; action: RetainedResolutionAction; onClose: () => void; onSubmit: (reason: string, note: string, confirm: boolean) => Promise<boolean> }) {
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const force = action === "force_close";
+  async function submit(eventValue: FormEvent) {
+    eventValue.preventDefault();
+    if (!reason.trim()) { setError("請填寫原因。"); return; }
+    if (force && !confirm) { setError("請再次確認後才能強制結案。"); return; }
+    setBusy(true); setError("");
+    try { if (await onSubmit(reason.trim(), note.trim(), confirm)) onClose(); } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); } finally { setBusy(false); }
+  }
+  return <Modal title={force ? "強制結案" : "確認不用處理"} onClose={onClose}><form onSubmit={submit}>
+    <p className="muted">訊息短編號：{event.eventIdShort}</p>
+    {force && <div className="notice">這筆訊息結案後，系統不會再自動處理，但處理紀錄仍會保留。</div>}
+    <label>原因<span className="required">必填</span><textarea autoFocus value={reason} onChange={(change) => setReason(change.target.value)} placeholder={force ? "例如：確認為測試或重複訊息" : "例如：確認不需要建立正式紀錄"} /></label>
+    <label>補充說明（可選）<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label>
+    {force && <label className="checkbox-label"><input type="checkbox" checked={confirm} onChange={(change) => setConfirm(change.target.checked)} />我已確認這筆訊息不再自動處理</label>}
+    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className={force ? "danger-action" : "primary"} disabled={busy}>{busy ? "送出中…" : force ? "確認強制結案" : "確認不用處理"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
+  </form></Modal>;
+}
+
+function RetainedRecordModal({ event, farms, houses, flocks, onClose, onSubmit }: { event: ReliabilityEvent; farms: Farm[]; houses: House[]; flocks: Flock[]; onClose: () => void; onSubmit: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const [farmId, setFarmId] = useState("");
+  const [houseId, setHouseId] = useState("");
+  const [flockId, setFlockId] = useState("");
+  const [intent, setIntent] = useState("mortality");
+  const [quantityValue, setQuantityValue] = useState("");
+  const [unit, setUnit] = useState("隻");
+  const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const availableHouses = houses.filter((house) => house.farmId === farmId && house.active);
+  const availableFlocks = flocks.filter((flock) => flock.farmId === farmId && (!houseId || flock.houseId === houseId));
+  const abnormal = intent === "abnormal";
+  async function submit(eventValue: FormEvent) {
+    eventValue.preventDefault();
+    if (!farmId || !eventDate || !reason.trim() || (abnormal ? !note.trim() : !quantityValue)) { setError(abnormal ? "請填寫雞場、事件內容、日期與原因。" : "請填寫雞場、事件類型、數量、日期與原因。"); return; }
+    setBusy(true); setError("");
+    try {
+      if (await onSubmit({ farmId, houseId: houseId || null, flockId: flockId || null, intent, quantity: abnormal ? null : Number(quantityValue), unit: abnormal ? null : unit, eventDate, note: note.trim() || null, reason: reason.trim() })) onClose();
+    } catch (err) { setError(err instanceof Error ? err.message : "補登失敗。"); } finally { setBusy(false); }
+  }
+  return <Modal title="補登資料" onClose={onClose}><form onSubmit={submit}>
+    <p className="muted">原始內容已超過保存期限，請依你確認的資料補登；系統不會猜測原訊息。</p>
+    <label>雞場<span className="required">必填</span><select autoFocus value={farmId} onChange={(change) => { setFarmId(change.target.value); setHouseId(""); setFlockId(""); }}><option value="">請選擇雞場</option>{farms.filter((farm) => farm.active).map((farm) => <option key={farm.id} value={farm.id}>{farm.name}</option>)}</select></label>
+    <label>雞舍（可選）<select value={houseId} onChange={(change) => { setHouseId(change.target.value); setFlockId(""); }}><option value="">場級／未指定</option>{availableHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label>
+    <label>批次（可選）<select value={flockId} onChange={(change) => setFlockId(change.target.value)}><option value="">未指定</option>{availableFlocks.map((flock) => <option key={flock.id} value={flock.id}>{flock.batchCode}</option>)}</select></label>
+    <label>事件類型<span className="required">必填</span><select value={intent} onChange={(change) => setIntent(change.target.value)}><option value="mortality">死亡</option><option value="cull">淘汰</option><option value="feed">飼料</option><option value="water">飲水</option><option value="shipment">出雞</option><option value="abnormal">異常</option></select></label>
+    {!abnormal && <><label>數量<span className="required">必填</span><input type="number" min="0.01" step="0.01" value={quantityValue} onChange={(change) => setQuantityValue(change.target.value)} /></label><label>單位<select value={unit} onChange={(change) => setUnit(change.target.value)}><option value="隻">隻</option><option value="kg">kg</option><option value="L">L</option><option value="件">件</option></select></label></>}
+    <label>發生日期<span className="required">必填</span><input type="date" value={eventDate} onChange={(change) => setEventDate(change.target.value)} /></label>
+    <label>{abnormal ? "事件內容" : "備註"}{abnormal && <span className="required">必填</span>}<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label>
+    <label>補登原因<span className="required">必填</span><textarea value={reason} onChange={(change) => setReason(change.target.value)} placeholder="例如：依現場紀錄補登" /></label>
+    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy}>{busy ? "送出中…" : "確認補登"}</button></div>{error && <p className="error-text" role="alert">{error}</p>}
+  </form></Modal>;
+}
+
+function retainedResolutionLabel(event: ReliabilityEvent): string {
+  if (event.lifecycleStatus !== "retained") return reliabilityStateLabel(event.lifecycleStatus);
+  if (["manually_resolved", "manually_recorded", "force_closed"].includes(event.resolutionStatus)) return "已結案";
+  if (event.resolutionStatus === "acknowledged") return "已查看，尚待決定";
+  return "已保留待處理";
+}
+
+const retainedTerminalStatuses = new Set(["manually_resolved", "manually_recorded", "force_closed"]);
+
+function retainedProblemText(event: ReliabilityEvent): string {
+  if (event.payloadAvailable) {
+    if (event.lastErrorStage === "enqueue") return "訊息已收到，但尚未順利排入處理。";
+    if (event.lastErrorStage === "processing") return "資料處理中斷，系統多次再試仍未完成。";
+    if (event.lastErrorStage === "reply") return "資料已完成，但 LINE 回覆沒有完成。";
+  }
+  if (event.lastErrorStage === "expiry_cleanup") return "原始訊息已超過保存期限，無法安全重新處理。";
+  return "系統多次處理仍未完成，已先保留這筆訊息。";
+}
+
+function RetainedDetailModal({ event, onClose, onRecover, onRecord, onResolve }: { event: ReliabilityEvent; onClose: () => void; onRecover: (event: ReliabilityEvent) => Promise<boolean>; onRecord: (event: ReliabilityEvent) => void; onResolve: (event: ReliabilityEvent, action: RetainedResolutionAction) => void }) {
+  const [confirmRecover, setConfirmRecover] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const terminal = retainedTerminalStatuses.has(event.resolutionStatus);
+  const retained = event.lifecycleStatus === "retained" && !terminal;
+  async function recover() {
+    setBusy(true); setError("");
+    try { if (await onRecover(event)) onClose(); } catch (err) { setError(err instanceof Error ? err.message : "重新處理失敗。"); } finally { setBusy(false); }
+  }
+  return <Modal title="這筆訊息尚未完成" onClose={onClose}>
+    <div className="detail-grid">
+      <div><span>收到時間</span><strong>{taipeiTime(event.receivedAt)}</strong></div>
+      <div><span>短編號</span><strong>{event.eventIdShort}</strong></div>
+      <div><span>目前狀態</span><strong>{retainedResolutionLabel(event)}</strong></div>
+      <div><span>原始內容</span><strong>{event.payloadAvailable ? "仍在保存期限內" : "已超過保存期限或已清除"}</strong></div>
+    </div>
+    <div className="notice"><strong>為什麼沒有完成</strong><p>{retainedProblemText(event)}</p>{!event.payloadAvailable && <p>原始訊息已超過保存時間，現在無法自動重新處理。</p>}</div>
+    {terminal && <div className="healthy"><span>✓</span><div><strong>這筆已結案</strong><p>{event.resolutionReason ?? "已完成管理者決定。"}{event.resolvedAt ? ` · ${taipeiTime(event.resolvedAt)}` : ""}</p>{event.manualRecordReference && <p>正式紀錄：{event.manualRecordReference}</p>}</div></div>}
+    {retained && <div className="detail-actions">
+      {event.payloadAvailable && !confirmRecover && <button className="primary" onClick={() => setConfirmRecover(true)}>重新處理</button>}
+      {!event.payloadAvailable && <p className="muted">目前不能重新處理；可以補登資料或結案。</p>}
+      <button onClick={() => onRecord(event)}>補登資料</button>
+      <button onClick={() => onResolve(event, "manual_resolve")}>確認不用處理</button>
+      <details className="danger-details"><summary>其他處理方式</summary><p>只有在無法確認原始內容，而且確定不需要繼續追查時，才使用強制結案。</p><button className="danger-action" onClick={() => onResolve(event, "force_close")}>強制結案</button></details>
+    </div>}
+    {confirmRecover && <div className="notice recovery-confirm"><strong>請再次確認</strong><p>系統會再處理一次這筆訊息，不會重做已完成的紀錄。</p><div className="modal-actions"><button type="button" onClick={() => setConfirmRecover(false)}>先不要</button><button className="primary" disabled={busy} onClick={() => void recover()}>{busy ? "送出中…" : "確認重新處理"}</button></div></div>}
+    <details className="technical-detail"><summary>技術資料</summary><dl className="mobile-fields"><div><dt>關聯短編號</dt><dd>{event.correlationIdShort}</dd></div><div><dt>最近處理階段</dt><dd>{reliabilityStageLabel(event.lastErrorStage)}</dd></div><div><dt>再試次數</dt><dd>{event.queueAttempts + event.processingAttempts + event.replyAttempts}</dd></div><div><dt>最近問題</dt><dd>{event.lastErrorClass ?? "—"}</dd></div></dl></details>
+    {error && <p className="error-text" role="alert">{error}</p>}
+  </Modal>;
+}
+
+function SystemStatusView({ status, events, farms, houses, flocks, onRecover, onRecoverEvent, onAcknowledge, onResolve, onRecord }: { status: SystemStatus | null; events: ReliabilityEvent[]; farms: Farm[]; houses: House[]; flocks: Flock[]; onRecover: () => void; onRecoverEvent: (eventId: string) => Promise<boolean>; onAcknowledge: () => void; onResolve: (eventId: string, action: RetainedResolutionAction, reason: string, note: string, confirm: boolean) => Promise<boolean>; onRecord: (eventId: string, body: Record<string, unknown>) => Promise<boolean> }) {
+  const [showEvents, setShowEvents] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
+  const [detailEvent, setDetailEvent] = useState<ReliabilityEvent | null>(null);
+  const [action, setAction] = useState<{ kind: "resolve" | "force" | "record"; event: ReliabilityEvent } | null>(null);
+  if (!status) return <Loading />;
+  const openRetained = events.filter((event) => event.lifecycleStatus === "retained" && !retainedTerminalStatuses.has(event.resolutionStatus));
+  const resolvedRetained = events.filter((event) => event.lifecycleStatus === "retained" && retainedTerminalStatuses.has(event.resolutionStatus));
+  const replayable = openRetained.some((event) => event.payloadAvailable);
+  const attentionCount = Math.max(status.retainedOpenCount, status.stalledCount, status.deliveryUncertainCount);
+  const manuallyRecorded = events.filter((event) => event.resolutionStatus === "manually_recorded").length;
+  const manuallyResolved = events.filter((event) => event.resolutionStatus === "manually_resolved").length;
+  const forceClosed = events.filter((event) => event.resolutionStatus === "force_closed").length;
+  const openEvents = events.filter((event) => event.lifecycleStatus !== "reply_completed" && !retainedTerminalStatuses.has(event.resolutionStatus));
+  const openAction = (event: ReliabilityEvent, kind: "record" | "resolve" | "force") => { setDetailEvent(null); setAction({ kind, event }); };
+  return <section className="page">
+    <div className={`hero ${status.level === "attention" ? "warning" : ""}`}>
+      <div><span className="hero-kicker">系統目前狀態</span><h2>{status.level === "normal" ? "✅ 系統目前運作正常" : status.level === "slow" ? "⚠️ 目前有些訊息處理比較慢" : `❗ 有 ${attentionCount} 筆訊息尚未完成`}</h2><p>{status.retainedOpenCount > 0 && status.retainedAcknowledgedCount > 0 ? `已查看，但仍有 ${status.retainedOpenCount} 筆需要決定如何處理。` : status.message}</p></div>
+      <div className="modal-actions">{(status.actionableUnfinishedCount > 0 || status.stalledCount > 0 || status.deliveryUncertainCount > 0 || replayable) ? <button className="primary" onClick={onRecover}>🔄 重新處理可恢復訊息</button> : null}{status.retainedUnacknowledgedCount > 0 ? <button onClick={onAcknowledge}>我已查看</button> : null}</div>
+    </div>
+    <div className="metric-grid"><Metric title="尚待決定" value={status.retainedOpenCount} detail="請逐筆選擇處理方式" tone={status.retainedOpenCount ? "warn" : "good"} /><Metric title="已查看待決定" value={status.retainedAcknowledgedCount} detail="已查看，但還沒有結案" tone={status.retainedAcknowledgedCount ? "warn" : "good"} /><Metric title="可以重新處理" value={openRetained.filter((event) => event.payloadAvailable).length} detail="原始內容仍可使用" tone={replayable ? "warn" : "good"} /><Metric title="已補登" value={manuallyRecorded} detail="已建立正式紀錄" tone="good" /><Metric title="已確認不用處理" value={manuallyResolved} detail="已結案，不建立紀錄" tone="good" /><Metric title="已強制結案" value={forceClosed} detail="已結案，保留處理紀錄" tone="good" /></div>
+    <section className="panel"><PanelTitle title="各部分狀態" /><DataTable headers={["項目", "目前狀態", "說明"]}><tr><td>接收群組訊息</td><td><StatusPill tone={status.level === "attention" ? "warn" : "good"}>{status.checks.receive}</StatusPill></td><td>已收到的訊息會先保留處理紀錄。</td></tr><tr><td>處理群組訊息</td><td><StatusPill tone={status.checks.process === "正常" ? "good" : "warn"}>{status.checks.process}</StatusPill></td><td>卡住時會自動重新安排處理。</td></tr><tr><td>資料儲存</td><td><StatusPill tone="good">{status.checks.storage}</StatusPill></td><td>正式資料仍由同一份資料庫保存。</td></tr><tr><td>LINE 回覆</td><td><StatusPill tone={status.checks.reply === "正常" ? "good" : "warn"}>{status.checks.reply}</StatusPill></td><td>資料已完成但回覆失敗時，只會重送回覆。</td></tr></DataTable></section>
+    <section className="panel"><PanelTitle title="未完成訊息" action={showEvents ? "收起" : "🔍 查看未完成訊息"} onClick={() => setShowEvents((value) => !value)} />{showEvents ? (openEvents.length ? <DataTable headers={["短編號", "收到時間", "目前狀態", "最近問題", "操作"]}>{openEvents.map((event) => { const retained = event.lifecycleStatus === "retained"; return <tr key={`${event.eventIdShort}-${event.receivedAt}`}><td><code>{event.eventIdShort}</code></td><td>{taipeiTime(event.receivedAt)}</td><td>{retainedResolutionLabel(event)}</td><td>{event.lastErrorStage ? `${reliabilityStageLabel(event.lastErrorStage)}：發生問題` : "—"}</td><td>{retained ? <button className="table-button" onClick={() => setDetailEvent(event)}>查看／處理</button> : <span className="muted">系統正在處理</span>}</td></tr>; })}</DataTable> : <div className="empty">目前沒有未完成訊息。</div>) : <p className="muted">這裡列出尚未完成的訊息；點「查看／處理」可查看原因與下一步。已結案資料仍保留處理紀錄。</p>}</section>
+    <section className="panel"><PanelTitle title="已結案訊息" action={showResolved ? "收起" : "查看已結案訊息"} onClick={() => setShowResolved((value) => !value)} />{showResolved ? (resolvedRetained.length ? <DataTable headers={["短編號", "收到時間", "結案方式", "結案時間", "操作者", "原因", "查看"]}>{resolvedRetained.map((event) => <tr key={`${event.eventIdShort}-${event.resolvedAt}`}><td><code>{event.eventIdShort}</code></td><td>{taipeiTime(event.receivedAt)}</td><td>{event.resolutionStatus === "manually_recorded" ? "已補登" : event.resolutionStatus === "force_closed" ? "強制結案" : "確認不用處理"}</td><td>{taipeiTime(event.resolvedAt)}</td><td>{event.resolvedBy ?? "—"}</td><td>{event.resolutionReason ?? "—"}</td><td><button className="table-button" onClick={() => setDetailEvent(event)}>查看</button></td></tr>)}</DataTable> : <div className="empty">目前沒有已結案訊息。</div>) : <p className="muted">已結案的處理紀錄不會刪除，也不會再列為未完成。</p>}</section>
+    <section className="panel"><PanelTitle title="最近問題" /><p>{status.lastProblemAt ? `最近一次問題：${taipeiTime(status.lastProblemAt)}` : "目前沒有最近問題。"}</p><p className="muted">系統會先自動恢復；多次失敗的訊息會保留，管理者可逐筆選擇重新處理、補登或結案。</p></section>
+    {detailEvent && <RetainedDetailModal event={detailEvent} onClose={() => setDetailEvent(null)} onRecover={(event) => onRecoverEvent(event.eventId)} onRecord={(event) => openAction(event, "record")} onResolve={(event, resolveAction) => openAction(event, resolveAction === "force_close" ? "force" : "resolve")} />}
+    {action?.kind === "record" && <RetainedRecordModal event={action.event} farms={farms} houses={houses} flocks={flocks} onClose={() => setAction(null)} onSubmit={(body) => onRecord(action.event.eventId, body)} />}
+    {action?.kind === "resolve" && <RetainedResolutionModal event={action.event} action="manual_resolve" onClose={() => setAction(null)} onSubmit={(reason, note, confirm) => onResolve(action.event.eventId, "manual_resolve", reason, note, confirm)} />}
+    {action?.kind === "force" && <RetainedResolutionModal event={action.event} action="force_close" onClose={() => setAction(null)} onSubmit={(reason, note, confirm) => onResolve(action.event.eventId, "force_close", reason, note, confirm)} />}
+  </section>;
+}
+
+function MessageDiagnosticsView({ preview, events, onPage }: { preview: AmbientPreview | null; events: ReliabilityEvent[]; onPage?: (page: number) => void }) {
+  if (!preview) return <Loading />;
+  const failureLabel = (value: string | null): string => ({ extract: "資料整理", resolve: "資料比對", reconcile: "資料確認", push: "回覆傳送", expiry_cleanup: "保存期限處理" } as Record<string, string>)[value ?? ""] ?? "發生問題";
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">系統維護</span><h2>訊息診斷</h2><p>查看尚未整理、已過期未完成，以及尚未完成的訊息。這裡只查看，不會跑摘要或修改資料。</p></div></div>
+    <div className="metric-grid"><Metric title="尚待整理訊息" value={preview.total} detail="目前尚未完成整理" tone={preview.total ? "warn" : "good"} /><Metric title="可能與營運有關" value={preview.candidateLikeCount} detail="需要摘要檢查" /><Metric title="待確認資料" value={preview.openCandidateCount} detail="不等於正式紀錄" /><Metric title="已過期但未完成" value={preview.expiredDiagnosticCount} detail="只保留診斷摘要" tone={preview.expiredDiagnosticCount ? "warn" : "good"} /></div>
+    <section className="panel"><div className="panel-title"><h3>尚未整理訊息</h3><span className="muted">第 {preview.page + 1}／{preview.totalPages} 頁</span></div>{preview.truncated && <p className="notice">目前只先載入部分資料；請用下一頁查看其他訊息。</p>}{preview.rows.length ? <DataTable headers={["時間", "群組", "內容", "判定", "保存期限"]}>{preview.rows.map((row) => <tr key={row.idShort}><td>{row.eventTimeTaipei}</td><td>{row.groupIdShort}</td><td>{row.text}</td><td><StatusPill tone={row.candidateLike ? "warn" : "neutral"}>{row.candidateLike ? "可能與營運有關" : "目前判定與營運無關"}</StatusPill></td><td>{taipeiTime(row.expiresAt)}</td></tr>)}</DataTable> : <div className="empty">目前沒有尚未整理的群組訊息。</div>}{preview.totalPages > 1 && <div className="page-actions"><button disabled={preview.page <= 0} onClick={() => onPage?.(preview.page - 1)}>上一頁</button><button disabled={preview.page >= preview.totalPages - 1} onClick={() => onPage?.(preview.page + 1)}>下一頁</button></div>}</section>
+    <section className="panel"><PanelTitle title="已過期但未完成" /><p className="muted">原始訊息仍依保存期限清理；這裡只顯示不含原文的診斷資訊。</p>{preview.expiredDiagnostics.length ? <DataTable headers={["原始時間", "短編號", "判定", "最後問題"]}>{preview.expiredDiagnostics.map((row) => <tr key={`${row.sourceIdShort}-${row.expiredAt}`}><td>{row.eventTimeTaipei}</td><td><code>{row.sourceIdShort}</code></td><td>{row.prefilterResult}</td><td>{row.lastFailureStage ? failureLabel(row.lastFailureStage) : "—"}</td></tr>)}</DataTable> : <div className="empty">目前沒有已過期但未完成的訊息。</div>}</section>
+    <section className="panel"><PanelTitle title="尚未完成訊息" /><p className="muted">這裡只列短編號與處理狀態，不顯示原始內容。</p>{events.length ? <DataTable headers={["短編號", "收到時間", "目前狀態", "最近問題", "再試次數"]}>{events.map((event) => <tr key={`${event.eventIdShort}-${event.receivedAt}`}><td><code>{event.eventIdShort}</code></td><td>{taipeiTime(event.receivedAt)}</td><td>{reliabilityStateLabel(event.lifecycleStatus)}</td><td>{event.lastErrorStage ? reliabilityStageLabel(event.lastErrorStage) : "—"}</td><td>{event.queueAttempts + event.processingAttempts + event.replyAttempts}</td></tr>)}</DataTable> : <div className="empty">目前沒有尚未完成訊息。</div>}</section>
+    <div className="notice">本頁不會呼叫 AI、不會建立待確認資料、不會消耗來源訊息，也不會修改正式資料。</div>
+  </section>;
+}
+
+function TestToolsView({ data }: { data: TestToolsData | null }) {
+  if (!data) return <Loading />;
+  return <section className="page"><div className="hero"><div><span className="hero-kicker">系統維護</span><h2>測試工具</h2><p>{data.warning}</p></div></div><div className="metric-grid"><Metric title="測試雞場" value={data.farms.length} detail="只讀查看" /><Metric title="測試雞舍" value={data.houses.length} detail="只讀查看" /><Metric title="測試批次" value={data.flocks.length} detail="只讀查看" /></div><section className="panel"><PanelTitle title="測試雞場" /><DataTable headers={["雞場", "狀態", "雞舍數", "進行中批次"]}>{data.farms.map((farm) => <tr key={String(farm.id)}><td><strong>{String(farm.name)}</strong></td><td>{Number(farm.active) === 1 ? "啟用" : "封存"}</td><td>{String(farm.houseCount ?? 0)}</td><td>{String(farm.flockCount ?? 0)}</td></tr>)}</DataTable></section><section className="panel"><PanelTitle title="測試雞舍與批次" /><DataTable headers={["雞場／雞舍", "批次", "入雛日期", "初始數量", "狀態"]}>{data.flocks.map((flock) => <tr key={String(flock.id)}><td>{String(flock.farmName)}／{String(flock.houseName)}</td><td>{String(flock.batchCode)}</td><td>{String(flock.chickInDate)}</td><td>{quantity(flock.initialCount)}</td><td>{String(flock.status) === "active" ? "進行中" : String(flock.status)}</td></tr>)}</DataTable></section><div className="notice">測試工具沒有建立、修改或刪除正式營運紀錄的按鈕。</div></section>;
+}
+
+function TechnicalInfoView({ info }: { info: TechnicalInfo | null }) {
+  if (!info) return <Loading />;
+  return <section className="page"><div className="hero"><div><span className="hero-kicker">系統維護</span><h2>技術資訊</h2><p>{info.note}</p></div></div><section className="panel"><PanelTitle title="服務設定" /><div className="setting-row"><span>服務</span><strong>{info.service}</strong></div><div className="setting-row"><span>LINE 帳號</span><strong>{info.accountName}</strong></div><div className="setting-row"><span>對話模式</span><strong>{info.conversationMode}</strong></div><div className="setting-row"><span>對話模型</span><strong>{info.conversationModel}</strong></div><div className="setting-row"><span>背景整理模型</span><strong>{info.ambientModel}</strong></div><div className="setting-row"><span>資料庫版本</span><strong>{info.migration}</strong></div></section><section className="panel"><PanelTitle title="訊息處理設定" /><div className="setting-row"><span>訊息處理</span><strong>{info.queue.name}</strong></div><div className="setting-row"><span>每批最多</span><strong>{info.queue.batchSize} 筆</strong></div><div className="setting-row"><span>等待時間</span><strong>{info.queue.timeoutSeconds} 秒</strong></div><div className="setting-row"><span>最多自動再試</span><strong>{info.queue.maxRetries} 次</strong></div><div className="setting-row"><span>排程</span><strong>{info.schedules.join("、")}</strong></div></section><div className="notice">未顯示密碼、權杖、完整使用者編號、原始訊息或完整處理內容。</div></section>;
 }
 
 function abnormalCategoryLabel(category: string | null): string {
@@ -549,6 +787,6 @@ function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div classNa
 
 function AuditView({ audit, onLoadMore, hasMore }: { audit: AuditRow[]; onLoadMore: () => Promise<void>; hasMore: boolean }) { return <section className="page"><div className="panel"><PanelTitle title="不可覆寫的變更紀錄" /><p className="muted">LINE、WEB、SYSTEM、MIGRATION 來源清楚分開；展開後可查看修改前、修改後與變更欄位。</p>{!audit.length && <EmptyState detail="目前沒有變更紀錄；日後的資料修改會依時間列在這裡。" />}<DataTable headers={["時間", "來源", "操作", "實體", "操作者", "原因", "差異"]}>{audit.map((row) => <tr key={row.id}><td>{row.createdAt}</td><td><StatusPill>{sourceLabel(row.source)}</StatusPill></td><td>{row.action}</td><td>{row.entityType}<br /><small>{row.entityId}</small></td><td>{row.actorType}<br /><small>{row.actorId ?? "—"}</small></td><td>{row.reason ?? "—"}</td><td><AuditDiff row={row} /></td></tr>)}</DataTable><div className="mobile-card-list">{audit.map((row) => <AuditCard key={row.id} row={row} />)}</div>{hasMore && <div className="load-more"><button onClick={() => void onLoadMore()}>載入更多變更紀錄</button></div>}</div></section>; }
 
-function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>chicken-line-production · 共用 D1</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="notice">結構性操作會透過網頁視窗重新驗證管理權限；登入憑證只存在本次頁面記憶體。</div></div></section>; }
+function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。需要管理權限的操作會先重新驗證；管理密碼只在本次操作使用，不會出現在前端、資料庫或回覆。</div></div></section>; }
 
 function EquityView({ finance }: { finance: FinanceData | null }) { if (!finance) return <Loading />; return <section className="page"><div className="panel"><PanelTitle title="投資人與雞場持股" /><p className="muted">顯示正式雞場的實際投資人持股；測試雞場不納入股權與財務歷史。</p>{finance.farmInvestorEquity.length ? <DataTable className="dense-table" headers={["雞場", "投資人", "實際持股", "來源", "生效日"]}>{finance.farmInvestorEquity.map((row) => <tr key={String(row.id)}><td>{String(row.farmName)}</td><td>{String(row.investorName)}</td><td>{(Number(row.equityFraction) * 100).toFixed(4)}%</td><td>{String(row.source ?? "—")}</td><td>{String(row.effectiveDate ?? "—")}</td></tr>)}</DataTable> : <EmptyState detail="目前沒有投資人持股資料。" />}</div></section>; }
