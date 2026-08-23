@@ -157,6 +157,15 @@ export interface TestToolsData {
   readOnly: boolean;
 }
 
+export interface LineGroup {
+  groupId: string;
+  groupIdShort: string;
+  status: string;
+  farmName: string | null;
+  farmId: string | null;
+  conversationV2Enabled: boolean;
+}
+
 export interface TechnicalInfo {
   service: string;
   accountName: string;
@@ -236,6 +245,8 @@ export class ApiClient {
   reliabilityEvents() { return this.request<{ events: ReliabilityEvent[] }>("/api/reliability/events"); }
   ambientPreview(params: Record<string, string | number | null | undefined> = {}) { return this.request<AmbientPreview>(`/api/ambient/preview${queryString(params)}`); }
   pendingCandidates(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ page: number; pageSize: number; total: number; totalPages: number; candidates: PendingCandidate[]; invalidCount: number; truncated: boolean; readOnly: boolean }>(`/api/pending-candidates${queryString(params)}`); }
+  lineGroups() { return this.request<{ groups: LineGroup[] }>("/api/line-groups"); }
+  setLineGroupAiConversation(groupId: string, enabled: boolean) { return this.request<{ ok: boolean; changed: boolean; enabled: boolean; message: string }>(`/api/line-groups/${encodeURIComponent(groupId)}/ai-conversation`, { method: "PATCH", body: JSON.stringify({ enabled }) }); }
   testTools() { return this.request<TestToolsData>("/api/test-tools"); }
   technicalInfo() { return this.request<TechnicalInfo>("/api/technical-info"); }
   recoverUnfinished() { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>("/api/reliability/recover", { method: "POST", body: "{}" }); }

@@ -14,6 +14,7 @@ import {
   type FinanceData,
   type Flock,
   type House,
+  type LineGroup,
   type OperationalEvent,
   type PendingCandidate,
   type ReliabilityEvent,
@@ -57,6 +58,7 @@ function LineIcon({ name, className = "nav-icon" }: { name: NavIconName; classNa
     case "health": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>; break;
     case "settings": glyph = <><circle cx="12" cy="12" r="3" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /><circle cx="12" cy="12" r="7" /></>; break;
     case "technical": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h2m3 0h2m3 0h2M7 13h2m3 0h2m3 0h2M7 17h2m3 0h2" /></>; break;
+    case "lineGroups": glyph = <><circle cx="8" cy="8" r="3" /><circle cx="16" cy="8" r="3" /><path d="M3.5 19c.5-3 2-4.5 4.5-4.5S12 16 12.5 19M11.5 19c.5-3 2-4.5 4.5-4.5s4 1.5 4.5 4.5" /></>; break;
     case "logout": glyph = <><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></>; break;
   }
   return <svg className={className} data-icon={name} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{glyph}</svg>;
@@ -319,6 +321,7 @@ export default function App() {
   const [pendingCandidatePage, setPendingCandidatePage] = useState(0);
   const [pendingCandidateTotalPages, setPendingCandidateTotalPages] = useState(1);
   const [testTools, setTestTools] = useState<TestToolsData | null>(null);
+  const [lineGroups, setLineGroups] = useState<LineGroup[]>([]);
   const [technicalInfo, setTechnicalInfo] = useState<TechnicalInfo | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
@@ -352,10 +355,10 @@ export default function App() {
   async function loadAll() {
     setBusy(true); setError("");
     try {
-      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, testData, technicalData] = await Promise.all([
-        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.testTools(), api.technicalInfo(),
+      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, lineGroupData, testData, technicalData] = await Promise.all([
+        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.testTools(), api.technicalInfo(),
       ]);
-      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline); setSystemStatus(systemData.status); setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates); setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page); setPendingCandidateTotalPages(pendingData.totalPages); setTestTools(testData); setTechnicalInfo(technicalData);
+      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline); setSystemStatus(systemData.status); setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates); setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page); setPendingCandidateTotalPages(pendingData.totalPages); setLineGroups(lineGroupData.groups); setTestTools(testData); setTechnicalInfo(technicalData);
     } catch (err) { if ((err as { status?: number }).status === 401) { api.setToken(null); setAuthenticated(false); } setError(err instanceof Error ? err.message : "資料載入失敗。"); }
     finally { setBusy(false); }
   }
@@ -466,6 +469,7 @@ export default function App() {
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
       {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
+      {page === "lineGroups" && <LineGroupsView groups={lineGroups} onToggle={(groupId, enabled) => runMutation(() => api.setLineGroupAiConversation(groupId, enabled), enabled ? "已開啟這個群組的 AI 對話。" : "已關閉這個群組的 AI 對話。")} />}
       {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
       {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic />}
       {page === "testTools" && <TestToolsView data={testTools} />}
@@ -760,6 +764,23 @@ function AuditDiff({ row }: { row: AuditRow }) { const fields = row.changedField
 function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div className="mobile-card-head"><strong>{row.action}</strong><StatusPill>{sourceLabel(row.source)}</StatusPill></div><dl className="mobile-fields"><div><dt>時間／實體</dt><dd>{row.createdAt} · {row.entityType}</dd></div><div><dt>操作者</dt><dd>{row.actorType} · {row.actorId ?? "—"}</dd></div><div><dt>原因</dt><dd>{row.reason ?? "—"}</dd></div></dl><AuditDiff row={row} /></MobileCard>; }
 
 function AuditView({ audit, onLoadMore, hasMore }: { audit: AuditRow[]; onLoadMore: () => Promise<void>; hasMore: boolean }) { return <section className="page"><div className="panel"><PanelTitle title="不可覆寫的變更紀錄" /><p className="muted">LINE、WEB、SYSTEM、MIGRATION 來源清楚分開；展開後可查看修改前、修改後與變更欄位。</p>{!audit.length && <EmptyState detail="目前沒有變更紀錄；日後的資料修改會依時間列在這裡。" />}<DataTable headers={["時間", "來源", "操作", "實體", "操作者", "原因", "差異"]}>{audit.map((row) => <tr key={row.id}><td>{row.createdAt}</td><td><StatusPill>{sourceLabel(row.source)}</StatusPill></td><td>{row.action}</td><td>{row.entityType}<br /><small>{row.entityId}</small></td><td>{row.actorType}<br /><small>{row.actorId ?? "—"}</small></td><td>{row.reason ?? "—"}</td><td><AuditDiff row={row} /></td></tr>)}</DataTable><div className="mobile-card-list">{audit.map((row) => <AuditCard key={row.id} row={row} />)}</div>{hasMore && <div className="load-more"><button onClick={() => void onLoadMore()}>載入更多變更紀錄</button></div>}</div></section>; }
+
+function LineGroupsView({ groups, onToggle }: { groups: LineGroup[]; onToggle: (groupId: string, enabled: boolean) => MutationResult }) {
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">系統維護</span><h2>LINE 群組</h2><p>只有明確開啟的群組可以使用 @助理 的 AI 對話；其他群組維持原本的使用方式。</p></div></div>
+    <div className="notice"><strong>AI 對話設定</strong><p>這裡只控制哪個群組可以使用 AI 對話，不會修改雞場資料，也不會改變一般群組的安靜模式。</p></div>
+    {!groups.length && <EmptyState detail="目前還沒有已加入的 LINE 群組。" />}
+    <div className="card-grid">{groups.map((group) => {
+      const left = group.status === "left";
+      return <article className="panel" key={group.groupId}>
+        <div className="panel-title"><h3>LINE 群組</h3><StatusPill tone={left ? "neutral" : group.conversationV2Enabled ? "good" : "neutral"}>{left ? "已離開" : group.conversationV2Enabled ? "AI 對話已開啟" : "AI 對話已關閉"}</StatusPill></div>
+        <dl className="mobile-fields"><div><dt>群組識別碼（部分）</dt><dd><code>{group.groupIdShort}</code></dd></div><div><dt>雞場綁定</dt><dd>{group.farmName ?? "尚未綁定特定雞場"}</dd></div></dl>
+        <p className="muted">開啟後，群組成員可以用真正的 @助理 方式提問、查詢與分析；正式資料仍由既有安全流程保護。</p>
+        <button className={group.conversationV2Enabled ? "danger-action" : "primary"} disabled={left} onClick={() => void onToggle(group.groupId, !group.conversationV2Enabled)}>{group.conversationV2Enabled ? "關閉 AI 對話" : "開啟 AI 對話"}</button>
+      </article>;
+    })}</div>
+  </section>;
+}
 
 function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。編修會沿用目前登入狀態，並保留完整變更紀錄供查閱。</div></div></section>; }
 

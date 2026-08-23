@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { NAV_GROUPS, NAV_ITEMS } from "../src/navigation";
 
-type MockState = { note: string | null; acknowledged: boolean; resolution: "unresolved" | "manually_resolved" | "manually_recorded" | "force_closed" };
+type MockState = { note: string | null; acknowledged: boolean; resolution: "unresolved" | "manually_resolved" | "manually_recorded" | "force_closed"; lineGroupEnabled: boolean };
 
 const farm = {
   id: "test-farm",
@@ -37,7 +37,7 @@ async function fulfill(route: Route, payload: unknown, status = 200) {
 }
 
 async function installMockApi(page: Page): Promise<MockState> {
-  const state: MockState = { note: null, acknowledged: false, resolution: "unresolved" };
+  const state: MockState = { note: null, acknowledged: false, resolution: "unresolved", lineGroupEnabled: false };
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -71,6 +71,8 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/farm-aliases")) return fulfill(route, { aliases: [] });
     if (path.endsWith("/api/data-health")) return fulfill(route, { warnings: [], checks: [], checkedAt: "2026-08-20T00:00:00Z" });
     if (path.endsWith("/api/audit")) return fulfill(route, { auditLogs: [auditRow], nextCursor: null });
+    if (path.endsWith("/api/line-groups/group-test/ai-conversation") && request.method() === "PATCH") { state.lineGroupEnabled = Boolean(JSON.parse(request.postData() ?? "{}").enabled); return fulfill(route, { ok: true, changed: true, enabled: state.lineGroupEnabled, message: "已更新。" }); }
+    if (path.endsWith("/api/line-groups")) return fulfill(route, { groups: [{ groupId: "group-test", groupIdShort: "grou…test", status: "unbound", farmName: null, farmId: null, conversationV2Enabled: state.lineGroupEnabled }] });
     if (path.includes("/api/charts/")) return fulfill(route, { metric: "mortality", from: "2026-07-21", to: "2026-08-20", granularity: "daily", unit: "隻", definition: "每日死亡事件數。", status: "ok", series: [{ date: "2026-08-19", value: 2 }, { date: "2026-08-20", value: 5 }] });
     return fulfill(route, {});
   });
@@ -296,6 +298,20 @@ test.describe("保留訊息管理介面", () => {
     await expect(page.getByText("目前沒有未完成訊息。", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: /查看已結案訊息/ }).click();
     await expect(page.getByText("強制結案", { exact: true })).toBeVisible();
+  });
+});
+
+test.describe("LINE 群組 AI 對話開關", () => {
+  test("管理頁顯示群組狀態並可保存開關", async ({ page }) => {
+    await installMockApi(page);
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await login(page);
+    await navigateByDrawer(page, "LINE 群組");
+    await expect(page.locator(".topbar h1")).toHaveText("LINE 群組");
+    await expect(page.getByText("AI 對話已關閉", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "開啟 AI 對話", exact: true }).click();
+    await expect(page.getByText("AI 對話已開啟", { exact: true })).toBeVisible();
+    await expect(page.getByText("已開啟這個群組的 AI 對話。", { exact: false })).toBeVisible();
   });
 });
 

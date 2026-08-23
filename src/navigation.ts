@@ -1,5 +1,5 @@
 export type NavGroupKey = "operations" | "data" | "system";
-export type NavIconName = "dashboard" | "organization" | "farms" | "caretakers" | "houses" | "flocks" | "events" | "abnormal" | "finance" | "equity" | "charts" | "ai" | "reminders" | "aliases" | "audit" | "health" | "settings" | "pending" | "system" | "diagnostics" | "pendingDiagnostics" | "testTools" | "technical" | "logout";
+export type NavIconName = "dashboard" | "organization" | "farms" | "caretakers" | "houses" | "flocks" | "events" | "abnormal" | "finance" | "equity" | "charts" | "ai" | "reminders" | "aliases" | "audit" | "health" | "settings" | "pending" | "system" | "diagnostics" | "pendingDiagnostics" | "testTools" | "technical" | "lineGroups" | "logout";
 
 export const NAV_GROUPS = [
   { key: "operations", label: "一般場務" },
@@ -26,6 +26,7 @@ export const NAV_ITEMS = [
   { key: "audit", label: "變更紀錄", description: "修改追蹤", pageDescription: "追查 LINE、網頁與系統資料的修改歷程。", group: "data", icon: "audit" },
   { key: "health", label: "資料檢查", description: "資料異常檢查", pageDescription: "檢查主檔、批次與資料關聯的異常。", group: "system", icon: "health" },
   { key: "system", label: "系統狀態", description: "訊息處理狀態", pageDescription: "查看接收、處理、儲存與 LINE 回覆狀態。", group: "system", icon: "system" },
+  { key: "lineGroups", label: "LINE 群組", description: "AI 對話開關", pageDescription: "選擇哪些已授權 LINE 群組可以使用 @助理 的 AI 對話。", group: "system", icon: "lineGroups" },
   { key: "diagnostics", label: "訊息診斷", description: "尚未整理與問題訊息", pageDescription: "查看尚未整理、已過期未完成與處理問題。", group: "system", icon: "diagnostics" },
   { key: "pendingDiagnostics", label: "待確認資料診斷", description: "來源與不一致原因", pageDescription: "查看待確認資料的來源與狀態；只查看不修改。", group: "system", icon: "pendingDiagnostics" },
   { key: "testTools", label: "測試工具", description: "測試雞場資料", pageDescription: "只讀查看測試雞場、雞舍與批次。", group: "system", icon: "testTools" },
