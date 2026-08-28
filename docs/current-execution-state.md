@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-28 13:47 (Asia/Taipei)
+Last reviewed: 2026-08-28 17:27 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -731,3 +731,53 @@ The next gate, if separately authorized after dedicated Keychain auth is
 restored, is one complete serial DEV-SMOKE-8 using the unchanged model and
 retry count zero. Do not infer a smoke PASS, run Fresh Unseen, change Prompt or
 semantic policy, or activate Production from this state.
+
+## Dedicated Keychain auth access recovery gate — 2026-08-28 (latest)
+
+The read-only dedicated-auth recovery gate confirmed that the expected
+developer Keychain item is missing at the configured service/account. Parent
+and fresh sanitized child checks had the same bounded result; the auth bridge
+source, child-environment scrubber, and developer account configuration passed
+static/status checks. No token value was accessed or exposed, and no credential
+storage or auth code was changed.
+
+```text
+DEDICATED_KEYCHAIN_ITEM = MISSING
+KEYCHAIN_LOOKUP_ERROR_CLASS = ITEM_NOT_FOUND
+PARENT_DEDICATED_AUTH_AVAILABLE = NO
+CHILD_DEDICATED_AUTH_AVAILABLE = NO
+PARENT_CHILD_AUTH_PARITY = PASS
+AUTH_ROOT_CAUSE = KEYCHAIN_ITEM_MISSING
+TOKEN_STATE = UNKNOWN
+ACCOUNT_RESOLUTION = PASS
+ACCOUNT_RESOLUTION_SOURCE = DEVELOPER_CONFIG
+DEDICATED_AUTH_GATE = FAIL
+HUMAN_ACTION_REQUIRED = YES
+```
+
+The conditional smoke therefore stopped before provider execution. The
+previously implemented zero-claim input-preservation change remains committed
+and locally validated; this gate produced no new AI evidence.
+
+```text
+DEV_SMOKE_8 = NOT_RUN
+DEV_SMOKE_PROVIDER_CALLS = 0
+CURRENT_BLOCKER = KEYCHAIN_ITEM_MISSING
+ROOT_CAUSE_LOCATED = YES
+HUMAN_LINE_ACCEPTANCE = BLOCKED
+READY_FOR_HUMAN_LINE_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+READY_FOR_FRESH_UNSEEN = NO
+PRODUCTION_D1_WRITE = 0
+BUFFER_CONSUME = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+No new token, Wrangler login/logout, rotation, revocation, provider retry,
+D03 diagnosis, semantic change, or Production action is authorized by this
+state. See `forensics/dedicated-keychain-auth-access-recovery-2026-08-28.md`.
