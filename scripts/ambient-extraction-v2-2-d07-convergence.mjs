@@ -115,21 +115,20 @@ async function run() {
 
   const auth = discoverAmbientSemanticEvalAuth({
     projectRoot,
-    allowWranglerFallback: false,
   });
-  const dedicatedAuth = auth?.source === "KEYCHAIN_API_TOKEN_MEMORY"
-    && auth?.keychainState === "AVAILABLE"
+  const localFileAuth = auth?.source === "DEV_SECRETS_LOCAL"
+    && auth?.secretFileState === "AVAILABLE"
     && Boolean(auth?.auth);
-  const account = dedicatedAuth
+  const account = localFileAuth
     ? await discoverAmbientSemanticEvalAccountId({ projectRoot, auth: auth.auth })
-    : { value: null, source: "AUTH_UNAVAILABLE", failure: "DEDICATED_KEYCHAIN_REQUIRED" };
-  if (!dedicatedAuth || !account.value) {
+    : { value: null, source: "AUTH_UNAVAILABLE", failure: "DEV_SECRET_FILE_REQUIRED" };
+  if (!localFileAuth || !account.value) {
     console.log(`${markerPrefix}${JSON.stringify({
       totalProviderCalls: 0,
       authBlocked: true,
       sideEffectFree: true,
     })}`);
-    fail("V2_2_D07_DEDICATED_KEYCHAIN_AUTH_BLOCKED");
+    fail("V2_2_D07_DEV_SECRET_FILE_AUTH_BLOCKED");
     return;
   }
 

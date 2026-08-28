@@ -169,8 +169,8 @@ describe("Ambient V2.2 repeated mini-suite", () => {
     const experimentId = process.env.AMBIENT_V2_2_REAL_MINI_SUITE_EXPERIMENT_ID;
     const matrixRunId = process.env.AMBIENT_V2_2_REAL_MINI_SUITE_MATRIX_RUN_ID;
     const accountId = process.env.AMBIENT_V2_2_REAL_MINI_SUITE_ACCOUNT_ID;
-    const auth = discoverAmbientSemanticEvalAuthStatus({ allowWranglerFallback: false });
-    if (auth.source !== "KEYCHAIN_API_TOKEN_MEMORY" || auth.keychainState !== "AVAILABLE" || !auth.auth
+    const auth = discoverAmbientSemanticEvalAuthStatus();
+    if (auth.source !== "DEV_SECRETS_LOCAL" || auth.secretFileState !== "AVAILABLE" || !auth.auth
       || !ledgerPath || !experimentId || !matrixRunId || !accountId) {
       console.log("AMBIENT_V2_2_REAL_MINI_SUITE_SAFE_JSON=" + JSON.stringify({
         providerCalls: 0,

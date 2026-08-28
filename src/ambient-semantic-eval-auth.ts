@@ -1,14 +1,9 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-/**
- * Dedicated developer-only Keychain item for the non-Production REST harness.
- * This is intentionally separate from Wrangler's OAuth storage: losing or
- * refreshing Wrangler OAuth must not block a developer inference gate.
- */
-export const AMBIENT_SEMANTIC_EVAL_KEYCHAIN_SERVICE = "chicken-line-production-workers-ai";
-export const AMBIENT_SEMANTIC_EVAL_KEYCHAIN_ACCOUNT = "default";
+/** Developer-only local credential source; never used by the Production Worker. */
+export const AMBIENT_SEMANTIC_EVAL_SECRET_FILE = ".dev.secrets.local";
+export const AMBIENT_SEMANTIC_EVAL_SECRET_KEY = "CLOUDFLARE_API_TOKEN";
 export const AMBIENT_SEMANTIC_EVAL_ACCOUNT_CONFIG_PATH = "config/ambient-semantic-eval-account.json";
 
 export const AMBIENT_SEMANTIC_EVAL_SECRET_ENV_KEYS = [
@@ -22,24 +17,16 @@ export const AMBIENT_SEMANTIC_EVAL_SECRET_ENV_KEYS = [
   "AMBIENT_SEMANTIC_EVAL_REAL_TOKEN",
 ] as const;
 
-export type AmbientSemanticEvalAuthSource =
-  | "ENVIRONMENT"
-  | "KEYCHAIN_API_TOKEN_MEMORY"
-  | "WRANGLER_KEYRING_MEMORY";
+export type AmbientSemanticEvalAuthSource = "DEV_SECRETS_LOCAL";
 
-export type AmbientSemanticEvalKeychainState =
+export type AmbientSemanticEvalSecretFileState =
   | "AVAILABLE"
   | "MISSING"
   | "INACCESSIBLE"
   | "INVALID_VALUE"
-  | "NOT_CHECKED";
+  | "UNSAFE_MODE";
 
-export type AmbientSemanticEvalAuthFailure =
-  | "KEYCHAIN_ITEM_NOT_FOUND"
-  | "KEYCHAIN_ACCESS_FAILURE"
-  | "KEYCHAIN_VALUE_INVALID"
-  | "WRANGLER_AUTH_UNAVAILABLE"
-  | "NO_AUTH_SOURCE_AVAILABLE";
+export type AmbientSemanticEvalAuthFailure = string;
 
 export interface AmbientSemanticEvalAuth {
   token: string;
@@ -53,169 +40,141 @@ export interface AmbientSemanticEvalAuth {
 export interface AmbientSemanticEvalAuthDiscovery {
   auth: AmbientSemanticEvalAuth | null;
   source: AmbientSemanticEvalAuthSource | "NONE";
-  keychainState: AmbientSemanticEvalKeychainState;
+  secretFileState: AmbientSemanticEvalSecretFileState;
   failure: AmbientSemanticEvalAuthFailure | null;
 }
 
-interface AmbientSemanticEvalExecOptions {
-  cwd: string;
-  encoding: "utf8";
-  stdio: ["ignore", "pipe", "ignore"];
-  maxBuffer: number;
+interface LoadedDeveloperSecret {
+  token: string | null;
+  state: AmbientSemanticEvalSecretFileState;
+  failure: AmbientSemanticEvalAuthFailure | null;
 }
 
-type AmbientSemanticEvalExecFileSync = (
-  file: string,
-  args: string[],
-  options: AmbientSemanticEvalExecOptions,
-) => string | Buffer;
-
-const defaultExecFileSync: AmbientSemanticEvalExecFileSync = (file, args, options) =>
-  execFileSync(file, args, options);
-
-function safeExitStatus(error: unknown): number | null {
-  const status = (error as { status?: unknown } | null)?.status;
-  return typeof status === "number" && Number.isInteger(status) ? status : null;
+function errorCode(error: unknown): string | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
 }
 
-function singleLineSecret(value: string): string | null {
-  const candidate = value.trim();
-  if (!candidate || /\s/u.test(candidate)) return null;
-  return candidate;
-}
+function parseDeveloperSecretFile(contents: string): LoadedDeveloperSecret {
+  let token: string | null = null;
+  let tokenSeen = false;
+  const lines = contents.split("\n");
 
-function tokenFromJsonOutput(value: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const token = (parsed as { token?: unknown }).token;
-    return typeof token === "string" ? singleLineSecret(token) : null;
-  } catch {
-    return null;
-  }
-}
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineNumber = index + 1;
+    const line = lines[index]!.endsWith("\r")
+      ? lines[index]!.slice(0, -1)
+      : lines[index]!;
+    const trimmedStart = line.trimStart();
+    if (line.trim() === "" || trimmedStart.startsWith("#")) continue;
 
-function keychainToken(
-  projectRoot: string,
-  execFileSyncImpl: AmbientSemanticEvalExecFileSync,
-): { token: string | null; state: AmbientSemanticEvalKeychainState } {
-  try {
-    const output = execFileSyncImpl(
-      "security",
-      [
-        "find-generic-password",
-        "-s",
-        AMBIENT_SEMANTIC_EVAL_KEYCHAIN_SERVICE,
-        "-a",
-        AMBIENT_SEMANTIC_EVAL_KEYCHAIN_ACCOUNT,
-        "-w",
-      ],
-      {
-        cwd: projectRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        maxBuffer: 16 * 1024,
-      },
-    );
-    const token = singleLineSecret(String(output));
-    return token
-      ? { token, state: "AVAILABLE" }
-      : { token: null, state: "INVALID_VALUE" };
-  } catch (error) {
-    // `security` commonly returns status 44 for errSecItemNotFound. Do not
-    // expose the underlying error or any command output.
-    return safeExitStatus(error) === 44
-      ? { token: null, state: "MISSING" }
-      : { token: null, state: "INACCESSIBLE" };
-  }
-}
-
-/**
- * Discover developer-only REST auth without exposing a credential. The
- * dedicated Keychain API token is preferred after an explicitly supplied
- * environment token; Wrangler OAuth is retained only as a compatibility
- * fallback and is also captured in memory.
- */
-export function discoverAmbientSemanticEvalAuthStatus(options: {
-  env?: Record<string, string | undefined>;
-  projectRoot?: string;
-  execFileSyncImpl?: AmbientSemanticEvalExecFileSync;
-  allowWranglerFallback?: boolean;
-} = {}): AmbientSemanticEvalAuthDiscovery {
-  const env = options.env ?? process.env;
-  const envToken = typeof env.CLOUDFLARE_API_TOKEN === "string"
-    ? singleLineSecret(env.CLOUDFLARE_API_TOKEN)
-    : null;
-  if (envToken) {
-    return {
-      auth: { token: envToken, source: "ENVIRONMENT" },
-      source: "ENVIRONMENT",
-      keychainState: "NOT_CHECKED",
-      failure: null,
-    };
-  }
-
-  const projectRoot = options.projectRoot ?? resolve(import.meta.dirname, "..");
-  const execFileSyncImpl = options.execFileSyncImpl ?? defaultExecFileSync;
-  const keychain = keychainToken(projectRoot, execFileSyncImpl);
-  if (keychain.token) {
-    return {
-      auth: { token: keychain.token, source: "KEYCHAIN_API_TOKEN_MEMORY" },
-      source: "KEYCHAIN_API_TOKEN_MEMORY",
-      keychainState: keychain.state,
-      failure: null,
-    };
-  }
-
-  if (options.allowWranglerFallback !== false) {
-    try {
-      const output = execFileSyncImpl(
-        resolve(projectRoot, "node_modules/.bin/wrangler"),
-        ["auth", "token", "--json"],
-        {
-          cwd: projectRoot,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-          maxBuffer: 16 * 1024,
-        },
-      );
-      const token = tokenFromJsonOutput(String(output));
-      if (token) {
-        return {
-          auth: { token, source: "WRANGLER_KEYRING_MEMORY" },
-          source: "WRANGLER_KEYRING_MEMORY",
-          keychainState: keychain.state,
-          failure: null,
-        };
-      }
-    } catch {
-      // Return a bounded classification below; never surface CLI output.
+    const separator = line.indexOf("=");
+    if (separator <= 0) {
+      return {
+        token: null,
+        state: "INVALID_VALUE",
+        failure: `DEV_SECRET_INVALID_LINE_${lineNumber}`,
+      };
     }
+
+    const key = line.slice(0, separator);
+    if (key !== AMBIENT_SEMANTIC_EVAL_SECRET_KEY) {
+      return {
+        token: null,
+        state: "INVALID_VALUE",
+        failure: `DEV_SECRET_UNSUPPORTED_KEY_${lineNumber}`,
+      };
+    }
+    if (tokenSeen) {
+      return {
+        token: null,
+        state: "INVALID_VALUE",
+        failure: "DEV_SECRET_DUPLICATE_KEY_CLOUDFLARE_API_TOKEN",
+      };
+    }
+
+    tokenSeen = true;
+    const value = line.slice(separator + 1);
+    if (value.length === 0) {
+      return {
+        token: null,
+        state: "INVALID_VALUE",
+        failure: "DEV_SECRET_EMPTY_CLOUDFLARE_API_TOKEN",
+      };
+    }
+    if (/\s/u.test(value)) {
+      return {
+        token: null,
+        state: "INVALID_VALUE",
+        failure: "DEV_SECRET_VALUE_WHITESPACE_CLOUDFLARE_API_TOKEN",
+      };
+    }
+    token = value;
   }
 
-  const failure = keychain.state === "MISSING"
-    ? "KEYCHAIN_ITEM_NOT_FOUND"
-    : keychain.state === "INACCESSIBLE"
-      ? "KEYCHAIN_ACCESS_FAILURE"
-      : keychain.state === "INVALID_VALUE"
-        ? "KEYCHAIN_VALUE_INVALID"
-        : "WRANGLER_AUTH_UNAVAILABLE";
+  if (!tokenSeen || token === null) {
+    return {
+      token: null,
+      state: "INVALID_VALUE",
+      failure: "DEV_SECRET_MISSING_CLOUDFLARE_API_TOKEN",
+    };
+  }
+  return { token, state: "AVAILABLE", failure: null };
+}
+
+function loadDeveloperSecretFile(secretFilePath: string): LoadedDeveloperSecret {
+  let fileStats: ReturnType<typeof statSync>;
+  try {
+    fileStats = statSync(secretFilePath);
+  } catch (error) {
+    return errorCode(error) === "ENOENT"
+      ? { token: null, state: "MISSING", failure: "DEV_SECRET_FILE_NOT_FOUND" }
+      : { token: null, state: "INACCESSIBLE", failure: "DEV_SECRET_FILE_ACCESS_FAILURE" };
+  }
+
+  if (!fileStats.isFile()) {
+    return { token: null, state: "INACCESSIBLE", failure: "DEV_SECRET_FILE_NOT_REGULAR" };
+  }
+  if ((fileStats.mode & 0o077) !== 0) {
+    return { token: null, state: "UNSAFE_MODE", failure: "DEV_SECRET_FILE_UNSAFE_MODE" };
+  }
+
+  try {
+    return parseDeveloperSecretFile(readFileSync(secretFilePath, "utf8"));
+  } catch {
+    return { token: null, state: "INACCESSIBLE", failure: "DEV_SECRET_FILE_ACCESS_FAILURE" };
+  }
+}
+
+/** Discover developer-only REST auth from one local ignored file, in memory only. */
+export function discoverAmbientSemanticEvalAuthStatus(options: {
+  projectRoot?: string;
+  secretFilePath?: string;
+} = {}): AmbientSemanticEvalAuthDiscovery {
+  const projectRoot = options.projectRoot ?? resolve(import.meta.dirname, "..");
+  const secret = loadDeveloperSecretFile(
+    options.secretFilePath ?? resolve(projectRoot, AMBIENT_SEMANTIC_EVAL_SECRET_FILE),
+  );
+  if (secret.token) {
+    return {
+      auth: { token: secret.token, source: "DEV_SECRETS_LOCAL" },
+      source: "DEV_SECRETS_LOCAL",
+      secretFileState: secret.state,
+      failure: null,
+    };
+  }
   return {
     auth: null,
     source: "NONE",
-    keychainState: keychain.state,
-    failure,
+    secretFileState: secret.state,
+    failure: secret.failure ?? "NO_AUTH_SOURCE_AVAILABLE",
   };
 }
 
-/**
- * Developer-only auth bridge. A Wrangler token is captured in this process's
- * memory and never placed in stdout, a ledger, a report, or a child env.
- */
+/** Developer-only auth bridge; the token remains in this process's memory. */
 export function discoverAmbientSemanticEvalAuth(options: {
-  env?: Record<string, string | undefined>;
   projectRoot?: string;
-  execFileSyncImpl?: AmbientSemanticEvalExecFileSync;
+  secretFilePath?: string;
 } = {}): AmbientSemanticEvalAuth | null {
   return discoverAmbientSemanticEvalAuthStatus(options).auth;
 }

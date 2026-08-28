@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-28 17:27 (Asia/Taipei)
+Last reviewed: 2026-08-28 19:16 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -781,3 +781,94 @@ PRODUCTION_DEPLOYMENT = NOT_DONE
 No new token, Wrangler login/logout, rotation, revocation, provider retry,
 D03 diagnosis, semantic change, or Production action is authorized by this
 state. See `forensics/dedicated-keychain-auth-access-recovery-2026-08-28.md`.
+
+## Critical developer Keychain persistence regression and repair — 2026-08-28 (latest)
+
+The historical record shows that the dedicated developer credential was
+provisioned, retrieved from fresh processes, and used successfully earlier on
+this date. A later metadata-only lookup returned item-not-found. The
+read-only domain, helper, cleanup, process, and timeline reviews found no
+project deletion path and did not prove physical deletion, keychain reset, or
+ACL failure. The original helper did not explicitly select the user's login
+Keychain; it relied on the process's implicit/default domain. Therefore the
+current bounded classification is:
+
+```text
+AUTH_PROVISIONING = HISTORICAL_PASS
+AUTH_SHORT_TERM_RETRIEVAL = HISTORICAL_PASS
+AUTH_PERSISTENCE = FAIL
+AUTH_DURABILITY = NOT_PROVEN
+AUTH_INCIDENT = KEYCHAIN_ITEM_DISAPPEARANCE
+ROOT_CAUSE = PERSISTENCE_DOMAIN_NOT_STRONGLY_CONTROLLED
+ROOT_CAUSE_CERTAINTY = MEDIUM
+PREVIOUS_DURABILITY_CLAIM_OVERSTATED = YES
+```
+
+The developer-only repair now explicitly opens the current user's
+`~/Library/Keychains/login.keychain-db`: the Swift stdin provisioning helper
+uses Security.framework with an explicit login-keychain reference, the
+metadata checker performs a password-free Security.framework lookup, and the
+TypeScript/JavaScript readers pass the same login keychain path to the
+`security` CLI. The upsert remains update-in-place or add-if-missing and has
+no delete-before-add path. Production authentication and behavior are
+unchanged.
+
+No replacement token has been entered in this gate, so the stronger
+independent-process and cleanup-survival durability matrix has not run. The
+current blocker is a human-created replacement least-privilege Workers AI API
+token entered through the documented hidden stdin flow; it must not be pasted
+into Codex or chat. Until that occurs, no Cloudflare request or Workers AI
+inference is authorized.
+
+```text
+EXPLICIT_LOGIN_KEYCHAIN_TARGET = IMPLEMENTED_NOT_YET_PROVISIONED
+HUMAN_NEW_TOKEN_REQUIRED = YES
+AUTH_DURABILITY = NOT_PROVEN
+TYPESCRIPT = PASS
+FULL_VITEST = PASS (692 passed / 11 skipped)
+WORKERS_AI_INFERENCE_CALLS = 0
+PRODUCTION_SIDE_EFFECTS = 0
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+## Developer auth simplification — 2026-08-28 (latest current state)
+
+The active developer-only Direct REST authentication path is now intentionally
+small: it reads the ignored project-root `.dev.secrets.local` file into the
+current evaluating process's memory and enforces the local POSIX 0600 policy.
+The custom Swift Keychain provisioning/checking path and Wrangler OAuth
+fallback are retired from active developer evaluation; the historical sections
+above remain historical evidence and are not rewritten. The loader rejects
+malformed, duplicate, unsupported, empty, or whitespace-bearing values and
+never passes the credential through argv, a child environment, a ledger, a
+report, or a repository file.
+
+The real secret file was deliberately not created or requested in this task;
+tests use temporary synthetic files. This confirms the mechanism, not current
+Cloudflare authentication or provider readiness.
+
+```text
+CUSTOM_KEYCHAIN_ACTIVE_PATH = NO
+DEV_AUTH_SOURCE = DEV_SECRETS_LOCAL
+AUTH_FILE_MECHANISM_READY = YES
+REAL_SECRET_PROVISIONED = NO
+WRANGLER_FALLBACK_FOR_V2_2 = NO
+WORKERS_AI_CALLS = 0
+CLOUDFLARE_AUTH_REQUESTS = 0
+DEV_SMOKE_8 = NOT_RUN
+TYPESCRIPT = PASS
+TARGETED_AUTH_AND_V2_TESTS = PASS (140 passed / 6 skipped)
+FULL_VITEST = PASS (697 passed / 11 skipped)
+PRODUCTION_D1_WRITE = 0
+BUFFER_CONSUME = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+The local auth mechanism is ready for a future user-provisioned existing
+token. No token creation, login, rotation, Cloudflare request, Workers AI
+request, Production write, or deployment was performed in this task.

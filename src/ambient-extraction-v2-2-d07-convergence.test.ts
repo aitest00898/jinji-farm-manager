@@ -202,8 +202,8 @@ describe("Ambient V2.2 D07 convergence gate", () => {
     const experimentId = process.env.AMBIENT_V2_2_D07_CONVERGENCE_EXPERIMENT_ID;
     const matrixRunId = process.env.AMBIENT_V2_2_D07_CONVERGENCE_MATRIX_RUN_ID;
     const accountId = process.env.AMBIENT_V2_2_D07_CONVERGENCE_ACCOUNT_ID;
-    const auth = discoverAmbientSemanticEvalAuthStatus({ allowWranglerFallback: false });
-    if (auth.source !== "KEYCHAIN_API_TOKEN_MEMORY" || auth.keychainState !== "AVAILABLE" || !auth.auth
+    const auth = discoverAmbientSemanticEvalAuthStatus();
+    if (auth.source !== "DEV_SECRETS_LOCAL" || auth.secretFileState !== "AVAILABLE" || !auth.auth
       || !ledgerPath || !experimentId || !matrixRunId || !accountId) {
       console.log("AMBIENT_V2_2_D07_CONVERGENCE_SAFE_JSON=" + JSON.stringify({
         totalProviderCalls: 0,
