@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import worker, {
+import worker from "./ambient-extraction-v2-2-parity-worker";
+import {
   AMBIENT_V2_2_PARITY_PATH,
   AMBIENT_V2_2_PARITY_MODEL,
-} from "./ambient-extraction-v2-2-parity-worker";
+} from "./ambient-extraction-v2-2-parity-contract";
 import { AMBIENT_V2_2_STRUCTURED_RESPONSE_FORMAT } from "./ambient-extraction-v2-2";
-import type { AmbientV2_2ParityWorkerEnv } from "./ambient-extraction-v2-2-parity-worker";
+import type { AmbientV2_2ParityWorkerEnv } from "./ambient-extraction-v2-2-parity-contract";
 
 function config() {
   return JSON.parse(readFileSync(resolve(process.cwd(), "wrangler.parity.jsonc"), "utf8")) as Record<string, any>;
@@ -112,5 +113,12 @@ describe("V2.2 local Worker and remote-AI parity boundary", () => {
     expect(source).not.toContain("DB");
     expect(source).not.toContain("EVENTS");
     expect(source).not.toContain("LINE_CHANNEL");
+  });
+
+  it("keeps the dedicated Worker entrypoint default-only", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/ambient-extraction-v2-2-parity-worker.ts"), "utf8");
+    expect(source).toMatch(/^export default worker;$/m);
+    expect(source).not.toMatch(/^\s*export\s+(const|let|var|function|class|interface|type)\b/m);
+    expect(source).not.toMatch(/^\s*export\s*(\{|\*)/m);
   });
 });

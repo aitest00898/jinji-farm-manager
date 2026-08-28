@@ -1,5 +1,13 @@
 import { runAmbientAiRequestInput, type AmbientEnv } from "./ambient";
 import {
+  AMBIENT_V2_2_PARITY_CASE_REF,
+  AMBIENT_V2_2_PARITY_MAX_TOKENS,
+  AMBIENT_V2_2_PARITY_MODEL,
+  AMBIENT_V2_2_PARITY_PATH,
+  AMBIENT_V2_2_PARITY_TEMPERATURE,
+  type AmbientV2_2ParityWorkerEnv,
+} from "./ambient-extraction-v2-2-parity-contract";
+import {
   AMBIENT_V2_2_STRUCTURED_RESPONSE_FORMAT,
   AMBIENT_V2_2_SYSTEM_PROMPT,
   AMBIENT_V2_2_WIRE_CONTRACT_VERSION,
@@ -11,23 +19,12 @@ import {
 } from "./ambient-extraction-v2-2";
 import type { AmbientV2MessageInput } from "./ambient-extraction-v2";
 
-export const AMBIENT_V2_2_PARITY_PATH = "/__codex/ambient-v2-2-parity";
-export const AMBIENT_V2_2_PARITY_MODEL = "@cf/meta/llama-3.2-3b-instruct" as const;
-export const AMBIENT_V2_2_PARITY_CASE_REF = "D03" as const;
-export const AMBIENT_V2_2_PARITY_MAX_TOKENS = 1536 as const;
-export const AMBIENT_V2_2_PARITY_TEMPERATURE = 0 as const;
-
 /** The existing frozen D03 input; this entrypoint creates no new fixture. */
 const D03_SOURCE_TEXT = "金雞測試場有幾隻一直咳，數量還不確定";
 const D03_EXPECTED: AmbientV2_2FactSet = {
   operations: [],
   abnormalities: [{ detail: "咳嗽", quantity: null }],
 };
-
-export interface AmbientV2_2ParityWorkerEnv {
-  AI: Ai;
-  PARITY_LOCAL_ONLY?: string;
-}
 
 type ParityRequest = { caseRef: typeof AMBIENT_V2_2_PARITY_CASE_REF };
 
