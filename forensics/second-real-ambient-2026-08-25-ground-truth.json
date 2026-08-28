@@ -1,0 +1,40 @@
+{
+  "sample": "SECOND_REAL_AMBIENT_18_00_MAX_VALUE",
+  "date": "2026-08-25",
+  "timezone": "Asia/Taipei",
+  "target_scheduled_run": "2026-08-25T10:00:00Z",
+  "group_display_name": "++開發++金雞協會Ai助手測試頻道++",
+  "transport": "LINE ordinary group chat; no mention, command, menu, quick reply, or postback",
+  "locked_before_send": true,
+  "messages": [
+    {"id":"S01","text":"下午4點半有人要喝咖啡嗎","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S02","text":"我買5杯飲料","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S03","text":"今天雞排一份85元","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S04","text":"金雞測試場附近今天車很多","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S05","text":"手機剩20%","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S06","text":"金雞測試場剛剛死2隻","ground_truth":"OPS_MORTALITY","expected_operational":{"event_key":"E1","farm":"金雞測試場","type":"mortality","quantity":2}},
+    {"id":"S07","text":"我晚點去吃飯，金雞測試場剛剛又死1隻","ground_truth":"MIXED_CHAT_OPS_MORTALITY","expected_operational":{"event_key":"E2","farm":"金雞測試場","type":"mortality","quantity":1}},
+    {"id":"S08","text":"金雞測試場有幾隻一直咳，數量還不確定","ground_truth":"OPS_ABNORMAL_AMBIGUOUS","expected_operational":{"event_key":"E3","farm":"金雞測試場","type":"abnormal","evidence":"咳","quantity":null}},
+    {"id":"S09","text":"金雞測試場今天淘汰2隻，腳傷","ground_truth":"OPS_CULL","expected_operational":{"event_key":"E4","farm":"金雞測試場","type":"cull","quantity":2,"evidence":"腳傷"}},
+    {"id":"S10","text":"金雞測試場那邊有幾隻精神不太好","ground_truth":"OPS_ABNORMAL_CONTEXT_OPEN","expected_operational":{"event_key":"E5","farm":"金雞測試場","type":"abnormal","quantity":null}},
+    {"id":"S11","text":"剛才說的，大概4隻","ground_truth":"CONTEXT_FOLLOWUP","expected_operational":{"event_key":"E5","quantity":4,"merge_allowed_only_if_supported":true}},
+    {"id":"S12","text":"等等去便利商店","ground_truth":"CHAT","expected_operational":null},
+    {"id":"S13","text":"4個人","ground_truth":"CHAT_FOLLOWUP","expected_operational":null},
+    {"id":"S14","text":"金雞測試場今天早上死3隻","ground_truth":"OPS_MORTALITY","expected_operational":{"event_key":"E6","farm":"金雞測試場","type":"mortality","quantity":3}},
+    {"id":"S15","text":"剛才那3隻就是早上看到的同一件事","ground_truth":"DUPLICATE_REFERENCE","expected_operational":{"event_key":"E6","same_as":"S14"}},
+    {"id":"S16","text":"那個死亡3隻先記著，不是新增一筆","ground_truth":"DUPLICATE_REFERENCE","expected_operational":{"event_key":"E6","same_as":"S14"}},
+    {"id":"S17","text":"金雞測試場今天整體狀況不太好，還沒確認是哪裡有問題","ground_truth":"OPS_AMBIGUOUS","expected_operational":{"event_key":"E7","farm":"金雞測試場","type":"abnormal_or_operational_concern","quantity":null,"cause":null}},
+    {"id":"S18","text":"晚上7點吃飯，記得幫我留一份","ground_truth":"CHAT","expected_operational":null}
+  ],
+  "pure_chat_ids":["S01","S02","S03","S04","S05","S12","S13","S18"],
+  "source_level_relevant_ids":["S06","S07","S08","S09","S10","S11","S14","S15","S16","S17"],
+  "distinct_expected_events":["E1","E2","E3","E4","E5","E6","E7"],
+  "expected_safety": {
+    "immediate_bot_replies": 0,
+    "official_operational_writes": 0,
+    "official_abnormal_writes": 0,
+    "master_data_mutations": 0,
+    "finance_mutations": 0,
+    "multi_speaker": "NOT_TESTED"
+  }
+}

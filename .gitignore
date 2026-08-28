@@ -1,0 +1,31 @@
+# Keep the nested Web application as its own repository.
+/web/
+
+# Local dependencies and generated artifacts.
+/node_modules/
+/dist/
+/build/
+/coverage/
+/test-results/
+/.wrangler/
+
+# Local credentials and developer variables.
+/.env
+/.env.*
+!/.env.example
+/.dev.vars
+/.dev.vars.*
+!/.dev.vars.example
+
+# Runtime-only logs, ledgers, temporary files, and local databases.
+*.log
+/logs/
+/tmp/
+/temp/
+*.tmp
+*.bak
+*.sqlite*
+/forensics/runtime/
+
+# macOS metadata.
+.DS_Store

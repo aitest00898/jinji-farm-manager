@@ -1,0 +1,235 @@
+{
+  "schema_version": "ambient_extraction_v2_2",
+  "ground_truth_version": "2.2.0",
+  "previous_ground_truth_version": "1.0.1",
+  "status": "FROZEN",
+  "frozen_at": "2026-08-28",
+  "ground_truth_change_reason": "SEPARATE_FACT_EXTRACTION_FROM_CROSS_FACT_ATTRIBUTION",
+  "historical_ground_truth_unchanged": true,
+  "historical_artifact": "forensics/ambient-extraction-v2-ground-truth-2026-08-27.json",
+  "acceptance_projection": {
+    "case_level_expectations_changed": false,
+    "wire_representation_changed": true,
+    "d04_cross_fact_quantity_attribution": "separate_unresolved_layer"
+  },
+  "wire_contract": {
+    "top_level_required_keys": ["operations", "abnormalities"],
+    "top_level_additional_properties": false,
+    "operation_required_keys": ["type", "quantity"],
+    "operation_additional_properties": false,
+    "abnormality_required_keys": ["detail", "quantity"],
+    "abnormality_additional_properties": false,
+    "operation_types": ["mortality", "cull"],
+    "quantity": "positive_number_or_null",
+    "abnormality_detail": "non_empty_trimmed_short_label_string_max_12_unicode_code_points",
+    "structural_fail_closed": true,
+    "semantic_partial_success": true,
+    "automatic_quantity_propagation": false,
+    "automatic_event_split": false,
+    "semantic_dedupe": false,
+    "relation_outside_fact_extraction": true
+  },
+  "dev_smoke_8": {
+    "source_order": ["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08"],
+    "selected_refs": ["D02", "D03", "D04", "D05", "D06", "D07"],
+    "messages": [
+      {
+        "safe_ref": "D01",
+        "role": "context",
+        "text": "今天雞排一份85元",
+        "expected": {"operations": [], "abnormalities": [], "relation_intent": null}
+      },
+      {
+        "safe_ref": "D02",
+        "role": "selected",
+        "text": "金雞測試場剛剛死2隻",
+        "expected": {
+          "operations": [{"type": "mortality", "quantity": 2}],
+          "abnormalities": [],
+          "relation_intent": null
+        }
+      },
+      {
+        "safe_ref": "D03",
+        "role": "selected",
+        "text": "金雞測試場有幾隻一直咳，數量還不確定",
+        "expected": {
+          "operations": [],
+          "abnormalities": [{"detail": "咳嗽", "quantity": null}],
+          "relation_intent": null
+        }
+      },
+      {
+        "safe_ref": "D04",
+        "role": "selected",
+        "text": "金雞測試場今天淘汰2隻，腳傷",
+        "risk": "D04_CROSS_FACT_QUANTITY_ATTRIBUTION_HIGH",
+        "expected": {
+          "operations": [{"type": "cull", "quantity": 2}],
+          "abnormalities": [{"detail": "腳傷", "quantity": null}],
+          "relation_intent": null,
+          "quantity_attribution": "UNRESOLVED"
+        }
+      },
+      {
+        "safe_ref": "D05",
+        "role": "selected",
+        "text": "金雞測試場今天早上死3隻",
+        "expected": {
+          "operations": [{"type": "mortality", "quantity": 3}],
+          "abnormalities": [],
+          "relation_intent": null
+        }
+      },
+      {
+        "safe_ref": "D06",
+        "role": "selected",
+        "text": "那個死亡3隻先記著，不是新增一筆",
+        "expected": {
+          "operations": [],
+          "abnormalities": [],
+          "relation_intent": {"type": "explicit_duplicate_reference", "target_ref": "D05"}
+        }
+      },
+      {
+        "safe_ref": "D07",
+        "role": "selected",
+        "text": "我晚點去吃飯，金雞測試場剛剛又死1隻",
+        "expected": {
+          "operations": [{"type": "mortality", "quantity": 1}],
+          "abnormalities": [],
+          "relation_intent": null
+        }
+      },
+      {
+        "safe_ref": "D08",
+        "role": "context",
+        "text": "4個人",
+        "expected": {"operations": [], "abnormalities": [], "relation_intent": null}
+      }
+    ],
+    "aggregate_expected": {
+      "fact_count": 6,
+      "operation_fact_count": 4,
+      "abnormality_fact_count": 2,
+      "relation_count": 1,
+      "chat_contamination": 0,
+      "hallucinated_facts": 0,
+      "duplicate_mortality3": 0,
+      "d04_quantity_attribution": "UNRESOLVED"
+    }
+  },
+  "fresh_unseen_cases": [
+    {
+      "case_id": "FRESH-01",
+      "category": "simple_mortality",
+      "messages": [{"safe_ref": "F01-1", "text": "東側試驗舍早班少了4隻雞", "expected": {"operations": [{"type": "mortality", "quantity": 4}], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 0}
+    },
+    {
+      "case_id": "FRESH-02",
+      "category": "simple_cull",
+      "messages": [{"safe_ref": "F02-1", "text": "南側試驗舍今天淘汰1隻", "expected": {"operations": [{"type": "cull", "quantity": 1}], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 0}
+    },
+    {
+      "case_id": "FRESH-03",
+      "category": "abnormal_unknown_quantity",
+      "messages": [{"safe_ref": "F03-1", "text": "育雛舍有雞在喘，數量還沒算清楚", "expected": {"operations": [], "abnormalities": [{"detail": "喘", "quantity": null}], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 0}
+    },
+    {
+      "case_id": "FRESH-04",
+      "category": "multi_event",
+      "messages": [{"safe_ref": "F04-1", "text": "西側試驗舍今天死2隻，還有咳嗽和跛腳", "expected": {"operations": [{"type": "mortality", "quantity": 2}], "abnormalities": [{"detail": "咳嗽", "quantity": null}, {"detail": "跛腳", "quantity": null}], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 3, "relation_count": 0}
+    },
+    {
+      "case_id": "FRESH-05",
+      "category": "mixed_chat_event",
+      "messages": [{"safe_ref": "F05-1", "text": "晚點要吃飯，北側試驗舍又少1隻", "expected": {"operations": [{"type": "mortality", "quantity": 1}], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 0, "chat_contamination": 0}
+    },
+    {
+      "case_id": "FRESH-06",
+      "category": "pure_chat_number",
+      "messages": [{"safe_ref": "F06-1", "text": "下午有7位訪客到場", "expected": {"operations": [], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 0, "relation_count": 0, "chat_contamination": 0}
+    },
+    {
+      "case_id": "FRESH-07",
+      "category": "ambiguous_farm_context",
+      "messages": [{"safe_ref": "F07-1", "text": "甲試驗場或乙試驗場今天少2隻", "context_candidates": ["FARM-A", "FARM-B"], "expected": {"operations": [{"type": "mortality", "quantity": 2}], "abnormalities": [], "relation_intent": null, "context_resolution": "unresolved"}}],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 0, "farm_resolution": "unresolved", "wrong_farm_assignment": 0}
+    },
+    {
+      "case_id": "FRESH-08",
+      "category": "support_relation",
+      "messages": [
+        {"safe_ref": "F08-1", "text": "東試驗舍晨間死亡3隻", "expected": {"operations": [{"type": "mortality", "quantity": 3}], "abnormalities": [], "relation_intent": null}},
+        {"safe_ref": "F08-2", "text": "那三隻是前面那筆，不是新的一筆", "expected": {"operations": [], "abnormalities": [], "relation_intent": {"type": "explicit_duplicate_reference", "target_ref": "F08-1"}}}
+      ],
+      "aggregate_expected": {"fact_count": 1, "relation_count": 1}
+    },
+    {
+      "case_id": "FRESH-09",
+      "category": "duplicate_source_reference",
+      "messages": [
+        {"safe_ref": "F09-1", "source_identity": "fresh-09-source", "text": "西試驗舍記錄死亡2隻", "expected": {"operations": [{"type": "mortality", "quantity": 2}], "abnormalities": [], "relation_intent": null}},
+        {"safe_ref": "F09-1-retry", "source_identity": "fresh-09-source", "delivery_attempt": "retry", "text": "西試驗舍記錄死亡2隻", "expected": {"operations": [{"type": "mortality", "quantity": 2}], "abnormalities": [], "relation_intent": null}}
+      ],
+      "aggregate_expected": {"fact_count": 1, "technical_unique_fact_count": 1, "same_source_staged_duplicates": 0}
+    },
+    {
+      "case_id": "FRESH-10",
+      "category": "negative_statement",
+      "messages": [{"safe_ref": "F10-1", "text": "今天沒有雞隻死亡，也沒有新增異常", "expected": {"operations": [], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 0, "relation_count": 0, "hallucinated_facts": 0}
+    },
+    {
+      "case_id": "FRESH-11",
+      "category": "mortality_unknown_quantity",
+      "messages": [{"safe_ref": "F11-1", "text": "南舍發現有死亡，隻數尚未盤完", "expected": {"operations": [{"type": "mortality", "quantity": null}], "abnormalities": [], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "unknown_quantity_fact_count": 1}
+    },
+    {
+      "case_id": "FRESH-12",
+      "category": "new_abnormal_wording",
+      "messages": [{"safe_ref": "F12-1", "text": "北舍雞群羽毛蓬亂，數量還未清點", "expected": {"operations": [], "abnormalities": [{"detail": "羽毛蓬亂", "quantity": null}], "relation_intent": null}}],
+      "aggregate_expected": {"fact_count": 1, "unknown_quantity_fact_count": 1}
+    },
+    {
+      "case_id": "FRESH-13",
+      "category": "mixed_new_event_and_relation",
+      "messages": [
+        {"safe_ref": "F13-1", "text": "中舍昨天淘汰2隻", "expected": {"operations": [{"type": "cull", "quantity": 2}], "abnormalities": [], "relation_intent": null}},
+        {"safe_ref": "F13-2", "text": "今天又少1隻，前面淘汰兩隻那筆不是新增", "expected": {"operations": [{"type": "mortality", "quantity": 1}], "abnormalities": [], "relation_intent": {"type": "explicit_duplicate_reference", "target_ref": "F13-1"}}}
+      ],
+      "aggregate_expected": {"fact_count": 2, "relation_count": 1, "mixed_event_relation": true}
+    }
+  ],
+  "additional_local_cases": [
+    {
+      "case_id": "V22-MULTI-01",
+      "category": "operation_plus_two_abnormalities",
+      "text": "死亡32 咳嗽 臭腳",
+      "expected": {
+        "operations": [{"type": "mortality", "quantity": 32}],
+        "abnormalities": [{"detail": "咳嗽", "quantity": null}, {"detail": "臭腳", "quantity": null}],
+        "relation_intent": null
+      }
+    },
+    {
+      "case_id": "V22-NULL-MORTALITY",
+      "category": "mortality_unknown_quantity",
+      "text": "死了幾隻，還沒算清楚",
+      "expected": {"operations": [{"type": "mortality", "quantity": null}], "abnormalities": [], "relation_intent": null}
+    },
+    {
+      "case_id": "V22-NULL-CULL",
+      "category": "cull_unknown_quantity",
+      "text": "今天有淘汰，但數量還沒統計",
+      "expected": {"operations": [{"type": "cull", "quantity": null}], "abnormalities": [], "relation_intent": null}
+    }
+  ]
+}

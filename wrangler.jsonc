@@ -1,0 +1,63 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "chicken-line-production",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-19",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"triggers": {
+		"crons": [
+			"0 1,4,7,10,22 * * *",
+			"0 13 * * *",
+			"*/2 * * * *"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "chicken-line-production",
+			"migrations_dir": "migrations",
+			"database_id": "335c5fcf-c448-4d52-94ee-d3cd829f7d93",
+			"remote": true
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "EVENTS",
+				"queue": "chicken-line-events"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "chicken-line-events",
+				"max_batch_size": 10,
+				"max_batch_timeout": 0,
+				"max_retries": 3
+			}
+		]
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"vars": {
+		"LINE_ACCOUNT_NAME": "金雞協會助理Ai",
+		"LINE_ACCOUNT_ID": "@550rsdwc",
+		"CONVERSATION_V2_MODE": "test_farm",
+		"CONVERSATION_MODEL": "@cf/meta/llama-3.2-3b-instruct",
+		"DEV_COMMANDS_ENABLED": "true",
+		"DEV_AMBIENT_GROUP_ALLOWLIST": "Ce96852f54b6751ca9954ce977e3c17b2",
+		"DEV_AMBIENT_ACTOR_ALLOWLIST": "U4bec27a7299672c0d9aae338fc6c7e03"
+	},
+	"secrets": {
+		"required": [
+			"LINE_CHANNEL_SECRET",
+			"LINE_CHANNEL_ACCESS_TOKEN",
+			"FARM_ADMIN_PASSWORD_HASH"
+		]
+	}
+}
