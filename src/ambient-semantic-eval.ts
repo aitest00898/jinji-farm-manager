@@ -47,11 +47,28 @@ export interface AmbientSemanticEvalAiAdapter {
 }
 
 /** Bounded transport evidence exposed to the real-model report only. */
+export type AmbientSemanticEvalTransportSubtype =
+  | "DNS"
+  | "CONNECTION_REFUSED"
+  | "CONNECTION_RESET"
+  | "CONNECT_TIMEOUT"
+  | "TLS"
+  | "UNDICI"
+  | "SOCKET"
+  | "INVALID_REQUEST"
+  | "UNKNOWN";
+
 export interface AmbientSemanticEvalTransportMetadata {
   httpStatus: number | null;
   providerResponseConfirmed: boolean;
   errorCode: string | null;
   errorClass: string | null;
+  /** Safe classification only; raw provider errors never cross this boundary. */
+  transportSubtype?: AmbientSemanticEvalTransportSubtype | null;
+  transportErrorName?: string | null;
+  transportCauseName?: string | null;
+  transportCauseCode?: string | null;
+  transportElapsedMs?: number | null;
 }
 
 export interface AmbientSemanticEvalGroundTruth {

@@ -3,6 +3,7 @@ import { PRODUCTION_AI_MODEL } from "./analysis";
 import {
   AMBIENT_SEMANTIC_EVAL_REAL_MODEL_HARD_MAX_CALLS,
   type AmbientSemanticEvalAiAdapter,
+  type AmbientSemanticEvalTransportSubtype,
   type AmbientSemanticEvalTransportMetadata,
 } from "./ambient-semantic-eval";
 import type { AmbientAiRequestInput } from "./ambient";
@@ -40,6 +41,82 @@ function boundedError(name: string): Error {
   const error = new Error(name);
   error.name = name;
   return error;
+}
+
+const SAFE_TRANSPORT_VALUE = /^[A-Za-z0-9_.:-]{1,96}$/u;
+const INVALID_REQUEST_CODES = new Set([
+  "ERR_INVALID_ARG_TYPE",
+  "ERR_INVALID_ARG_VALUE",
+  "ERR_INVALID_URL",
+]);
+const SOCKET_CODES = new Set([
+  "ECONNABORTED",
+  "EHOSTDOWN",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+]);
+
+interface SafeProviderTransportError {
+  subtype: AmbientSemanticEvalTransportSubtype;
+  errorName: string | null;
+  errorCode: string | null;
+  causeName: string | null;
+  causeCode: string | null;
+}
+
+function safeTransportValue(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const candidate = String(value);
+  return SAFE_TRANSPORT_VALUE.test(candidate) ? candidate : null;
+}
+
+function safeProperty(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function safeProviderTransportFields(error: unknown): Omit<SafeProviderTransportError, "subtype"> {
+  const errorCode = safeTransportValue(safeProperty(error, "code") ?? safeProperty(error, "errno"));
+  const cause = safeProperty(error, "cause");
+  const causeCode = safeTransportValue(safeProperty(cause, "code") ?? safeProperty(cause, "errno"));
+  return {
+    errorName: safeTransportValue(safeProperty(error, "name")),
+    errorCode,
+    causeName: safeTransportValue(safeProperty(cause, "name")),
+    causeCode,
+  };
+}
+
+function isTlsCode(code: string): boolean {
+  return /^(?:CERT_|DEPTH_ZERO_SELF_SIGNED_CERT|ERR_SSL_|ERR_TLS_|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE)$/u.test(code)
+    || /^(?:CERT_|ERR_SSL_|ERR_TLS_)/u.test(code);
+}
+
+/**
+ * Convert only safe, known runtime fields into a bounded transport subtype.
+ * Never inspect error.message, error.stack, request data, or response data.
+ */
+export function classifyProviderTransportError(error: unknown): SafeProviderTransportError {
+  const fields = safeProviderTransportFields(error);
+  const codes = [fields.errorCode, fields.causeCode].filter((value): value is string => value !== null);
+  const names = [fields.errorName, fields.causeName].filter((value): value is string => value !== null);
+  let subtype: AmbientSemanticEvalTransportSubtype = "UNKNOWN";
+  if (names.includes("AbortError")) subtype = "ABORT" as AmbientSemanticEvalTransportSubtype;
+  else if (codes.some((code) => code === "ENOTFOUND" || code === "EAI_AGAIN")) subtype = "DNS";
+  else if (codes.includes("ECONNREFUSED")) subtype = "CONNECTION_REFUSED";
+  else if (codes.includes("ECONNRESET")) subtype = "CONNECTION_RESET";
+  else if (codes.includes("UND_ERR_CONNECT_TIMEOUT")) subtype = "CONNECT_TIMEOUT";
+  else if (codes.some(isTlsCode)) subtype = "TLS";
+  else if (codes.some((code) => INVALID_REQUEST_CODES.has(code))) subtype = "INVALID_REQUEST";
+  else if (codes.some((code) => code.startsWith("UND_ERR_"))) subtype = "UNDICI";
+  else if (codes.some((code) => SOCKET_CODES.has(code))) subtype = "SOCKET";
+  return { ...fields, subtype };
 }
 
 function boundedErrorCode(errors: unknown): string | null {
@@ -188,6 +265,7 @@ export class DirectWorkersAiRestAdapter implements AmbientSemanticEvalAiAdapter 
     let response: Response;
     const controller = new AbortController();
     let timedOut = false;
+    const requestStartedAt = Date.now();
     const timeout = setTimeout(() => {
       timedOut = true;
       controller.abort();
@@ -202,13 +280,20 @@ export class DirectWorkersAiRestAdapter implements AmbientSemanticEvalAiAdapter 
         body: JSON.stringify(input),
         signal: controller.signal,
       });
-    } catch {
+    } catch (error) {
       clearTimeout(timeout);
+      const elapsedMs = Math.max(0, Date.now() - requestStartedAt);
+      const transport = timedOut ? null : classifyProviderTransportError(error);
       this.lastCall = {
         httpStatus: null,
         providerResponseConfirmed: false,
-        errorCode: null,
+        errorCode: transport?.errorCode ?? null,
         errorClass: timedOut ? "PROVIDER_TIMEOUT" : "NETWORK_FAILURE",
+        transportSubtype: transport?.subtype ?? null,
+        transportErrorName: transport?.errorName ?? null,
+        transportCauseName: transport?.causeName ?? null,
+        transportCauseCode: transport?.causeCode ?? null,
+        transportElapsedMs: elapsedMs,
       };
       throw boundedError(timedOut ? "REAL_MODEL_REST_TIMEOUT" : "REAL_MODEL_REST_NETWORK_FAILURE");
     }

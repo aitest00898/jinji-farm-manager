@@ -111,4 +111,89 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
     await expect(adapter.run("other-model", input)).rejects.toThrow("REAL_MODEL_MODEL_MISMATCH");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  const transportCases: readonly { code?: string; errorName?: string; subtype: string }[] = [
+    { code: "ENOTFOUND", subtype: "DNS" },
+    { code: "EAI_AGAIN", subtype: "DNS" },
+    { code: "ECONNREFUSED", subtype: "CONNECTION_REFUSED" },
+    { code: "ECONNRESET", subtype: "CONNECTION_RESET" },
+    { code: "UND_ERR_CONNECT_TIMEOUT", subtype: "CONNECT_TIMEOUT" },
+    { code: "ERR_TLS_CERT_ALTNAME_INVALID", subtype: "TLS" },
+    { code: "UND_ERR_SOCKET", subtype: "UNDICI" },
+    { code: "ERR_INVALID_URL", subtype: "INVALID_REQUEST" },
+    { code: "EPIPE", subtype: "SOCKET" },
+    { errorName: "AbortError", subtype: "ABORT" },
+    { errorName: "TypeError", subtype: "UNKNOWN" },
+  ];
+
+  for (const transportCase of transportCases) {
+    it(`classifies ${transportCase.subtype} without persisting raw error data`, async () => {
+      const rawMessage = "synthetic raw network detail test-token-not-a-real-secret";
+      const error = Object.assign(new Error(rawMessage), {
+        name: transportCase.errorName ?? "Error",
+        code: transportCase.code,
+      });
+      const fetchImpl = vi.fn(async () => { throw error; });
+      const adapter = new DirectWorkersAiRestAdapter({
+        endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+        token: "test-token-not-a-real-secret",
+        fetchImpl,
+      });
+
+      await expect(adapter.run(PRODUCTION_AI_MODEL, input)).rejects.toThrow("REAL_MODEL_REST_NETWORK_FAILURE");
+      expect(adapter.lastCall).toMatchObject({
+        httpStatus: null,
+        providerResponseConfirmed: false,
+        errorClass: "NETWORK_FAILURE",
+        transportSubtype: transportCase.subtype,
+        transportElapsedMs: expect.any(Number),
+      });
+      expect(JSON.stringify(adapter.lastCall)).not.toContain(rawMessage);
+      expect(JSON.stringify(adapter.lastCall)).not.toContain("test-token-not-a-real-secret");
+      expect(JSON.stringify(adapter.lastCall)).not.toContain("Error: ");
+    });
+  }
+
+  it("classifies a safe cause code without reading the raw error", async () => {
+    const error = Object.assign(new TypeError("synthetic raw detail test-token-not-a-real-secret"), {
+      cause: { name: "Error", code: "ENOTFOUND", message: "private cause detail" },
+    });
+    const fetchImpl = vi.fn(async () => { throw error; });
+    const adapter = new DirectWorkersAiRestAdapter({
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      token: "test-token-not-a-real-secret",
+      fetchImpl,
+    });
+
+    await expect(adapter.run(PRODUCTION_AI_MODEL, input)).rejects.toThrow("REAL_MODEL_REST_NETWORK_FAILURE");
+    expect(adapter.lastCall).toMatchObject({
+      errorClass: "NETWORK_FAILURE",
+      transportSubtype: "DNS",
+      transportErrorName: "TypeError",
+      transportCauseName: "Error",
+      transportCauseCode: "ENOTFOUND",
+    });
+    expect(JSON.stringify(adapter.lastCall)).not.toContain("private cause detail");
+    expect(JSON.stringify(adapter.lastCall)).not.toContain("test-token-not-a-real-secret");
+  });
+
+  it("keeps the built-in timeout distinct from a network subtype", async () => {
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("synthetic timeout detail")), { once: true });
+    }));
+    const adapter = new DirectWorkersAiRestAdapter({
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      token: "test-token-not-a-real-secret",
+      fetchImpl,
+      timeoutMs: 5,
+    });
+
+    await expect(adapter.run(PRODUCTION_AI_MODEL, input)).rejects.toThrow("REAL_MODEL_REST_TIMEOUT");
+    expect(adapter.lastCall).toMatchObject({
+      errorClass: "PROVIDER_TIMEOUT",
+      transportSubtype: null,
+      transportElapsedMs: expect.any(Number),
+    });
+    expect(JSON.stringify(adapter.lastCall)).not.toContain("synthetic timeout detail");
+  });
 });

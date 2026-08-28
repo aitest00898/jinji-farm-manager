@@ -30,6 +30,7 @@ import {
   type AmbientV2AttemptTerminalRecord,
 } from "./ambient-extraction-v2-real-runner";
 import { DirectWorkersAiRestAdapter } from "./ambient-semantic-eval-rest";
+import type { AmbientSemanticEvalTransportSubtype } from "./ambient-semantic-eval";
 
 export const AMBIENT_V2_2_D07_CONVERGENCE_SMOKE_AI_CASE_REFS = ["D03", "D04", "D07"] as const;
 export const AMBIENT_V2_2_D07_CONVERGENCE_MAX_CALLS = 6 as const;
@@ -67,6 +68,11 @@ export interface AmbientV2_2D07ConvergenceOptions {
 
 export interface AmbientV2_2D07ConvergenceAttempt extends AmbientV2_2MiniSuiteAttemptResult {
   phase: "DEV_SMOKE_8";
+  transportSubtype: AmbientSemanticEvalTransportSubtype | null;
+  transportErrorName: string | null;
+  transportCauseName: string | null;
+  transportCauseCode: string | null;
+  transportElapsedMs: number | null;
 }
 
 export interface AmbientV2_2D07ConvergencePhaseSummary {
@@ -149,6 +155,11 @@ interface SafeTransportMetadata {
   providerResponseConfirmed: boolean;
   errorClass: string | null;
   errorCode: string | null;
+  transportSubtype: AmbientSemanticEvalTransportSubtype | null;
+  transportErrorName: string | null;
+  transportCauseName: string | null;
+  transportCauseCode: string | null;
+  transportElapsedMs: number | null;
 }
 
 function safeTransportMetadata(adapter: DirectWorkersAiRestAdapter): SafeTransportMetadata {
@@ -157,6 +168,11 @@ function safeTransportMetadata(adapter: DirectWorkersAiRestAdapter): SafeTranspo
     providerResponseConfirmed: adapter.lastCall?.providerResponseConfirmed ?? false,
     errorClass: adapter.lastCall?.errorClass ?? null,
     errorCode: adapter.lastCall?.errorCode ?? null,
+    transportSubtype: adapter.lastCall?.transportSubtype ?? null,
+    transportErrorName: adapter.lastCall?.transportErrorName ?? null,
+    transportCauseName: adapter.lastCall?.transportCauseName ?? null,
+    transportCauseCode: adapter.lastCall?.transportCauseCode ?? null,
+    transportElapsedMs: adapter.lastCall?.transportElapsedMs ?? null,
   };
 }
 
@@ -334,6 +350,11 @@ async function executeAiAttempt(
       providerResponseConfirmed: metadata.providerResponseConfirmed,
       transportErrorClass: metadata.errorClass,
       transportErrorCode: metadata.errorCode,
+      transportSubtype: metadata.transportSubtype,
+      transportErrorName: metadata.transportErrorName,
+      transportCauseName: metadata.transportCauseName,
+      transportCauseCode: metadata.transportCauseCode,
+      transportElapsedMs: metadata.transportElapsedMs,
       terminalRecordType: terminal.recordType,
       evidence,
     },
