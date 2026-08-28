@@ -950,12 +950,15 @@ export function claimAmbientV2_2DeterministicOperations(
     return { route, operations: [], residualMessage: "", residualRequiresAi: false };
   }
   if (route === "ROUTING_UNRESOLVED") {
-    const residualMessage = message.text.normalize("NFKC").trim();
+    // A zero-claim fallback must preserve the exact trusted source text for
+    // the model-visible input. Normalization belongs to routing, not to an
+    // AI fallback payload when deterministic extraction claimed nothing.
+    const residualMessage = message.text;
     return {
       route,
       operations: [],
       residualMessage,
-      residualRequiresAi: Boolean(residualMessage) && ambientMessageMayBeRelevant(residualMessage),
+      residualRequiresAi: Boolean(residualMessage.trim()) && ambientMessageMayBeRelevant(residualMessage),
     };
   }
 
@@ -1013,6 +1016,16 @@ export function claimAmbientV2_2DeterministicOperations(
       && chunk.clauseIndex > firstClaimedClauseIndex
       && !isContextOnlyClause(chunk.text)),
   );
+  if (operations.length === 0) {
+    // Do not send a clause-split/reconstructed residual when the deterministic
+    // layer made no claim. The AI fallback sees the original full message.
+    return {
+      route,
+      operations,
+      residualMessage: message.text,
+      residualRequiresAi: Boolean(message.text.trim()) && ambientMessageMayBeRelevant(message.text),
+    };
+  }
   return {
     route,
     operations,

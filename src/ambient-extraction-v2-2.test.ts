@@ -485,6 +485,42 @@ describe("Ambient V2.2 orthogonal fact wire", () => {
     expect(bundleClaim.residualRequiresAi).toBe(true);
   });
 
+  it("preserves the original full AI input when deterministic claim count is zero", () => {
+    const abnormalComma: AmbientV2MessageInput = {
+      safeRef: "ABNORMAL-COMMA",
+      sourceIdentity: "fixture-ABNORMAL-COMMA",
+      text: "咳嗽，精神差",
+      selected: true,
+      groupKey: "smoke-group",
+    };
+
+    for (const message of [d03, abnormalComma]) {
+      const claim = claimAmbientV2_2DeterministicOperations(message);
+      expect(claim.operations).toEqual([]);
+      expect(claim.residualMessage).toBe(message.text);
+      expect(claim.residualRequiresAi).toBe(true);
+    }
+
+    const request = buildAmbientV2_2StructuredRequest(d03);
+    const requestSource = JSON.parse(request.messages[1]!.content) as { source: string };
+    expect(requestSource.source).toBe(d03.text);
+  });
+
+  it("does not transform ordinary comma chat through deterministic claiming", () => {
+    const chat: AmbientV2MessageInput = {
+      safeRef: "CHAT-COMMA",
+      sourceIdentity: "fixture-CHAT-COMMA",
+      text: "我今天吃飯，下午下雨",
+      selected: true,
+      groupKey: "smoke-group",
+    };
+    const original = chat.text;
+    const claim = claimAmbientV2_2DeterministicOperations(chat);
+    expect(claim.operations).toEqual([]);
+    expect(chat.text).toBe(original);
+    expect(claim.residualRequiresAi).toBe(false);
+  });
+
   it("does not claim negated or relation-bearing operation text", () => {
     const negated = claimAmbientV2_2DeterministicOperations({
       safeRef: "NEGATED",
