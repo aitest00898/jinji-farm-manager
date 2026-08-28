@@ -1,0 +1,18 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "chicken-line-v2-2-ai-parity-local",
+	"main": "src/ambient-extraction-v2-2-parity-worker.ts",
+	"compatibility_date": "2026-08-19",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": false,
+	"preview_urls": false,
+	"ai": {
+		"binding": "AI",
+		"remote": true
+	},
+	"vars": {
+		"PARITY_LOCAL_ONLY": "1"
+	}
+}
