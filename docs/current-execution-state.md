@@ -672,3 +672,62 @@ Current blocker: D03 frozen semantic/fact extraction mismatch. The next
 authorized step is a separate semantic decision; do not infer or rewrite the
 missing detail, add another Prompt patch, rerun D03/D04/D07, run Fresh Unseen,
 or activate Production from this result.
+
+## V2.2 D03 request-equivalence gate — 2026-08-28 (latest)
+
+The Worker root Git baseline is now established. Before that baseline there
+was no recoverable Worker-root source history; the nested `web/` repository
+remains independent and unchanged. The baseline and result metadata are
+recorded in the two 2026-08-28 forensic artifacts.
+
+The current-source D03 trace proved a zero-claim clause-input regression:
+clause splitting and residual reconstruction changed the model-visible input
+even though the deterministic layer claimed no operation. The developer-only
+V2.2 path now preserves the original full `message.text` whenever the claim
+count is zero. The change is generic and does not alter Prompt, schema, model,
+Ground Truth, evaluator semantics, relation behavior, or the Production
+entrypoint.
+
+```text
+SOURCE_COMMIT = fc66f4d78d1bcfb6ee3de6eecdb015bc7bff147c
+BASELINE_COMMIT = fc66f4d78d1bcfb6ee3de6eecdb015bc7bff147c
+RESULT_COMMIT = 19d4462fbd297ae8a25ef667abcdd2f1fd983094
+PRE_BASELINE_SOURCE_HISTORY = NOT_AVAILABLE
+D03_ROOT_CAUSE = CLAUSE_INPUT_REGRESSION (CURRENT_PATH)
+D03_DETERMINISTIC_CLAIM_COUNT = 0
+D03_CURRENT_AI_USER_CONTENT_EQUALS_ORIGINAL_BEFORE_FIX = NO
+ZERO_CLAIM_INPUT_PRESERVATION = IMPLEMENTED
+PROMPT_CHANGED = NO
+SCHEMA_CHANGED = NO
+GROUND_TRUTH_CHANGED = NO
+MODEL_CHANGED = NO
+LOCAL_VALIDATION = PASS
+TYPESCRIPT = PASS
+FULL_VITEST = 691 passed / 11 skipped
+```
+
+The four read-only post-change validations passed. The conditional real
+DEV-SMOKE-8 could not start because the dedicated Keychain API token was not
+available before the provider boundary; it made zero Workers AI calls. This
+is an authentication blocker, not a semantic or provider result.
+
+```text
+DEV_SMOKE_8 = NOT_RUN
+DEV_SMOKE_PROVIDER_CALLS = 0
+CURRENT_BLOCKER = DEDICATED_KEYCHAIN_AUTH_UNAVAILABLE
+READY_FOR_HUMAN_LINE_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+PRODUCTION_D1_WRITE = 0
+BUFFER_CONSUME = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+The next gate, if separately authorized after dedicated Keychain auth is
+restored, is one complete serial DEV-SMOKE-8 using the unchanged model and
+retry count zero. Do not infer a smoke PASS, run Fresh Unseen, change Prompt or
+semantic policy, or activate Production from this state.
