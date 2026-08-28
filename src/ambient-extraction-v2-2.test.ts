@@ -706,9 +706,11 @@ describe("Ambient V2.2 orthogonal fact wire", () => {
     expect(aggregate.facts.operations).toEqual([{ type: "mortality", quantity: 2 }]);
   });
 
-  it("does not import the developer-only V2.2 prototype into Production", () => {
+  it("keeps V2.2 out of Production Ambient processing while retaining a gated parity endpoint", () => {
     const productionSource = readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
-    expect(productionSource).not.toContain("ambient-extraction-v2-2");
+    expect(productionSource).not.toMatch(/(?:extract|plan|canonicalize|resolve)AmbientV2_2/u);
+    expect(productionSource).toContain('url.pathname === "/__codex/runtime/ambient-semantic-ai"');
+    expect(productionSource).toContain('env.RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED !== "1"');
   });
 
   it("keeps local prototype accounting at zero provider calls", () => {

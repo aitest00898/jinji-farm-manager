@@ -2,6 +2,7 @@ import { PRODUCTION_AI_MODEL } from "./analysis";
 import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-resolver";
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
+import type { AmbientV2ResponseFormat } from "./ambient-extraction-v2";
 
 export interface AmbientEnv {
   DB: D1Database;
@@ -539,6 +540,9 @@ export interface AmbientAiRequestInput {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_tokens: number;
   temperature: number;
+  /** Developer-only structured request fields; absent from Production V1 requests. */
+  response_format?: AmbientV2ResponseFormat;
+  stream?: boolean;
 }
 
 export interface AmbientExtractionResult {

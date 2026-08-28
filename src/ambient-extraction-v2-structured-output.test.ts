@@ -342,9 +342,11 @@ describe("Ambient V2 structured-output developer boundary", () => {
     expect(bounded).not.toContain("腳傷");
   });
 
-  it("keeps the Production Worker path free of developer structured integration", () => {
+  it("keeps Production Ambient processing free of developer structured execution while retaining a gated parity endpoint", () => {
     const productionSource = readFileSync(resolve(import.meta.dirname, "index.ts"), "utf8");
-    expect(productionSource).not.toContain("ambient-extraction-v2");
+    expect(productionSource).not.toMatch(/(?:extract|plan|canonicalize|resolve)AmbientV2_2/u);
+    expect(productionSource).toContain('url.pathname === "/__codex/runtime/ambient-semantic-ai"');
+    expect(productionSource).toContain('env.RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED !== "1"');
   });
 
   it("audits model schema with bounded fields and no payload persistence", async () => {

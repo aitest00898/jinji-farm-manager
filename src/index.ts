@@ -123,6 +123,7 @@ import {
   handleDevelopmentAmbientCommand,
   parseDevelopmentAmbientCommand,
 } from "./ambient-dev";
+import { validateAmbientV2_2WorkerParityRequest } from "./ambient-extraction-v2-2-provider-parity";
 import {
   handleLineAbnormalInput,
   handleLineAbnormalPendingInput,
@@ -9550,35 +9551,11 @@ export default {
       } catch {
         return json({ error: "invalid_runtime_ambient_semantic_request" }, 400);
       }
-      if (body.model !== SEMANTIC_AI_MODEL || typeof body.request !== "object" || body.request === null || Array.isArray(body.request)) {
-        return json({ error: "invalid_runtime_ambient_semantic_model_or_request" }, 400);
-      }
-      const input = body.request as Record<string, unknown>;
-      const inputKeys = Object.keys(input).sort();
-      if (inputKeys.join(",") !== "max_tokens,messages,temperature"
-        || input.max_tokens !== 1536
-        || input.temperature !== 0
-        || !Array.isArray(input.messages)
-        || input.messages.length !== 2
-        || input.messages.some((message) => typeof message !== "object" || message === null || Array.isArray(message))) {
-        return json({ error: "invalid_runtime_ambient_semantic_input" }, 400);
-      }
-      const messages = input.messages as Array<Record<string, unknown>>;
-      if (messages[0]?.role !== "system"
-        || messages[1]?.role !== "user"
-        || messages.some((message) => typeof message.content !== "string" || message.content.length > 100_000)) {
-        return json({ error: "invalid_runtime_ambient_semantic_messages" }, 400);
-      }
+      const validation = validateAmbientV2_2WorkerParityRequest(body.model, body.request, SEMANTIC_AI_MODEL);
+      if (!validation.ok) return json({ error: `invalid_runtime_ambient_semantic_${validation.error.toLowerCase()}` }, 400);
       try {
-        const result = await runAmbientAiRequestInput(env, body.model, {
-          messages: messages.map((message) => ({
-            role: message.role as "system" | "user",
-            content: message.content as string,
-          })),
-          max_tokens: 1536,
-          temperature: 0,
-        });
-        return json({ ok: true, model: body.model, result });
+        const result = await runAmbientAiRequestInput(env, validation.model, validation.input);
+        return json({ ok: true, model: validation.model, result });
       } catch {
         return json({ ok: false, error: "ambient_semantic_ai_error" }, 502);
       }
