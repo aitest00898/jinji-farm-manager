@@ -3299,6 +3299,8 @@ export interface AmbientDigestRunOptions {
   cutoffAt?: Date;
   leaseOwner?: string;
   leaseTtlMs?: number;
+  /** Best-effort notification after an individual Ambient group reaches its existing terminal boundary. */
+  onGroupTerminal?: (context: AmbientDigestGroupTerminalContext) => void;
   extract?: (env: AmbientEnv, messages: AmbientBufferedMessage[]) => Promise<AmbientExtractionResult>;
   push?: (groupId: string, candidateId: string, bundle: AmbientCandidateBundle) => Promise<void>;
   reconcile?: (
@@ -3309,6 +3311,12 @@ export interface AmbientDigestRunOptions {
     cutoffAt: Date,
     observeStage?: AmbientReconcileStageObserver,
   ) => Promise<{ bundle: AmbientCandidateBundle; summary: AmbientReconciliationSummary }>;
+}
+
+export interface AmbientDigestGroupTerminalContext {
+  organizationId: string;
+  groupId: string;
+  status: "completed" | "busy" | "failed";
 }
 
 export type AmbientDigestExecutionMode = "normal" | "dev_dry_run" | "dev_commit";
@@ -4616,6 +4624,7 @@ async function runAmbientDigestCore(env: AmbientEnv, options: AmbientDigestRunOp
       });
       await incrementAmbientDigestInvocation(env, invocationId, "per_group_runs_created", 1);
     }
+    let groupTerminalNotified = false;
     const finishRun = async (
       status: "completed" | "busy" | "failed",
       errorStage: string | null = null,
@@ -4627,6 +4636,18 @@ async function runAmbientDigestCore(env: AmbientEnv, options: AmbientDigestRunOp
         error_class: errorClassValue,
         completed_at: new Date().toISOString(),
       });
+      if (!groupTerminalNotified) {
+        groupTerminalNotified = true;
+        try {
+          options.onGroupTerminal?.({
+            organizationId: group.organizationId,
+            groupId: group.lineGroupId,
+            status,
+          });
+        } catch {
+          // Terminal telemetry must never become a Production Ambient failure boundary.
+        }
+      }
     };
     const diagnostic: AmbientDigestDiagnostic = {
       run_id: runId,

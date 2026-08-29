@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-28 20:24 (Asia/Taipei)
+Last reviewed: 2026-08-29 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -1564,3 +1564,143 @@ real LINE message, real Workers AI request, Production D1/Queue access,
 Candidate mutation, official write, or activation occurred. The next gate must
 review the exact test-group value, effective deployment diff, bounded shadow
 side-effect boundary, observability, and rollback before any deployment.
+
+## V2.2 test-group Shadow deployment review — 2026-08-29 (latest)
+
+This review was read-only. No Worker deployment, Shadow activation, real LINE
+message, Workers AI call, Production D1/Queue access, source/config change, or
+git commit occurred. The three required read-only audits were completed and
+cross-checked against the local source/config.
+
+```text
+TEST_GROUP_SHADOW_IMPLEMENTATION = PASS
+TEST_GROUP_SHADOW_DEPLOYMENT_REVIEW = FAIL
+TEST_GROUP_SHADOW_DEPLOYED = NO
+REAL_LINE_SHADOW_OBSERVED = NO
+WORKER_ROOT_HEAD = 7e19587c6eb93cb7953a8f361adbe338d8315af0
+RUNTIME_SOURCE_DIRTY = NO
+UNRELATED_SOURCE_CHANGES_IN_DEPLOYMENT = NO
+STRUCTURED_OUTPUT_BINDING_PARITY = PASS
+REAL_AI_CALLS = 0
+PROVIDER_ATTEMPTS = 0
+WORKERS_AI_USAGE = 0
+LINE_SEND = 0
+PRODUCTION_D1_SCHEMA_CHANGE = NO
+PRODUCTION_QUEUE_CHANGE = NO
+MIGRATION_REQUIRED = NO
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+The local Production surface is `wrangler.jsonc` → Worker
+`chicken-line-production` → `src/index.ts`, with existing D1/Queue/AI
+bindings and three cron schedules. `npm run deploy` is the canonical
+deployment command; `wrangler.parity.jsonc` is not used for Production. The
+intentional runtime Shadow change is `7e19587`; the main-bundle parity import
+from `5084568` is guarded and the standalone parity Worker changes from
+`b02d62e`/`146d453` are not selected by the Production manifest.
+
+`AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST` is a Worker environment variable. It is
+absent locally, so Shadow is off. Missing/empty values are off, matching is
+exact and fail-closed, and wildcard tokens cannot match. The implementation
+accepts multiple exact entries, so deployment must independently enforce one
+entry. No Shadow-designated test group is confirmed; the existing
+developer-command allowlist is not silently reused. The recorded pre-Shadow
+Worker version is `62b51851-ac9a-49f3-93c2-44e76341d05d`; the corresponding
+source commit is not proven. Wrangler's existing-version rollback command is
+available; no remote metadata query was made in this review.
+
+The installed Wrangler tail command is available for the bounded console
+event, and Shadow has no business-write seams. The observability blocker is
+that the Shadow event has no exact Ambient-run/correlation identifier and does
+not itself prove the same run's V1 terminal completion. Thus a short tail can
+show Shadow activity, but it cannot yet provide release-grade Shadow-to-V1
+evidence without an implementation review. No persistent Shadow storage is
+required for the bounded window.
+
+```text
+SHADOW_GATE_CONFIGURATION_METHOD_PROVEN = YES
+SHADOW_GATE_CHANGE_REQUIRES_DEPLOYMENT = YES
+SHADOW_GATE_CHANGE_CREATES_NEW_WORKER_VERSION = YES
+CONFIRMED_TEST_GROUP_ID_AVAILABLE = NO
+TEST_GROUP_SELECTION_REQUIRED = YES
+SHADOW_KILL_SWITCH_READY = YES
+FULL_WORKER_ROLLBACK_READY = YES_WITH_SOURCE_COMMIT_PROVENANCE_GAP
+LIVE_SHADOW_TELEMETRY_QUERY_METHOD_PROVEN = YES
+PERSISTENT_LOG_STORAGE_REQUIRED = NO
+OBSERVABILITY_READY = NO
+SHADOW_BUSINESS_WRITES = 0
+SHADOW_FAILURE_QUEUE_RETRY = 0
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = SHADOW_OBSERVABILITY_IMPLEMENTATION_REVIEW
+```
+
+## V2.2 Shadow observability implementation — 2026-08-29 (latest)
+
+The observability blocker is closed by a minimal runtime-only correlation
+change. Shadow and the existing V1 extractor share the
+`runProductionAmbientExtraction` scope, while the V1 terminal event is emitted
+only after the existing `runAmbientDigest` group `finishRun` boundary. An
+opaque `crypto.randomUUID()` is created only after the exact Shadow allowlist
+matches; it is not derived from group, user, message, LINE, or source data.
+Existing V1 return/error behavior and all business side effects are unchanged.
+
+```text
+OPAQUE_CORRELATION_ID_IMPLEMENTED = YES
+CORRELATION_DERIVED_FROM_USER_DATA = NO
+SHADOW_AND_V1_SAME_RUN_CORRELATION = PASS
+DIFFERENT_RUN_CORRELATION_UNIQUENESS = PASS
+V1_TERMINAL_COMPLETION_OBSERVABLE = YES
+SHADOW_FAILURE_V1_COMPLETION_TEST = PASS
+STRUCTURAL_FAILURE_V1_COMPLETION_TEST = PASS
+DETERMINISTIC_CORRELATION_TEST = PASS
+RELATION_ONLY_CORRELATION_TEST = PASS
+AI_REQUIRED_MOCK_CORRELATION_TEST = PASS
+LIVE_CORRELATION_QUERY_POSSIBLE = YES
+NEW_PERSISTENT_STORAGE_REQUIRED = NO
+PERSISTENT_LOG_STORAGE_REQUIRED = NO
+RAW_TEXT_IN_TELEMETRY = NO
+ABNORMAL_DETAIL_IN_TELEMETRY = NO
+GROUP_ID_IN_TELEMETRY = NO
+USER_ID_IN_TELEMETRY = NO
+PRODUCTION_BOUNDED_TELEMETRY_CHANGED = YES
+PRODUCTION_BUSINESS_LOGIC_CHANGED = NO
+PRODUCTION_USER_VISIBLE_BEHAVIOR_CHANGED = NO
+PRODUCTION_WRITE_BEHAVIOR_CHANGED = NO
+TARGETED_OBSERVABILITY_TESTS = PASS (20)
+EXISTING_SHADOW_TESTS = PASS
+ORDINARY_PRODUCTION_PATH_TEST = PASS
+TELEMETRY_PRIVACY_TEST = PASS
+SIDE_EFFECT_GUARD_TEST = PASS
+V1_GOLDEN_BEHAVIOR_TEST = PASS
+V2_2_REGRESSION = PASS
+PROVIDER_PARITY_REGRESSION = PASS
+TYPESCRIPT = PASS
+FULL_VITEST = PASS (741 passed / 11 skipped)
+GIT_DIFF_CHECK = PASS
+REAL_AI_CALLS = 0
+PROVIDER_ATTEMPTS = 0
+LINE_SEND = 0
+OFFICIAL_WRITE = 0
+CANDIDATE_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+HISTORICAL_TRANSPORT_FAIL = PRESERVED
+STALE_DEV_SMOKE_FINAL_CONCLUSION = CORRECTED
+OBSERVABILITY_READY = YES
+OBSERVABILITY_CONFIDENCE = HIGH
+SHADOW_DEPLOYMENT_REVIEW = PASS_WITH_TEST_GROUP_SELECTION_REQUIRED
+TEST_GROUP_SHADOW_DEPLOYED = NO
+REAL_LINE_SHADOW_OBSERVED = NO
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = TEST_GROUP_ID_SELECTION
+```
+
+The existing `ambient_v2_2_shadow` console event now provides the bounded
+phases `SHADOW_ENTERED`, `SHADOW_TERMINAL`, and `V1_TERMINAL` with the same
+opaque correlation ID. Shadow provider/structural failures are contained;
+V1 still completes or rethrows exactly as before. No new D1/KV/DO/R2/Queue
+storage was added. The next gate is selecting one confirmed test group; no
+deployment or live observation occurred in this gate.

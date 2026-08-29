@@ -125,7 +125,13 @@ import {
   handleDevelopmentAmbientCommand,
   parseDevelopmentAmbientCommand,
 } from "./ambient-dev";
-import { runAmbientV2_2Shadow } from "./ambient-extraction-v2-2-shadow";
+import {
+  ambientV2_2ShadowGroupMatches,
+  createAmbientV2_2ShadowCorrelationId,
+  emitAmbientV2_2V1TerminalTelemetry,
+  runAmbientV2_2Shadow,
+  type AmbientV2_2ShadowTelemetry,
+} from "./ambient-extraction-v2-2-shadow";
 import { validateAmbientV2_2WorkerParityRequest } from "./ambient-extraction-v2-2-provider-parity";
 import {
   handleLineAbnormalInput,
@@ -9156,32 +9162,87 @@ async function runtimeOrganizationId(env: Env): Promise<string | null> {
  * Production Ambient extraction seam. V1 remains the returned result; the
  * V2.2 branch is an explicit, default-off, read-only shadow side observation.
  */
+interface ProductionAmbientExtractionObservabilityOptions {
+  deferV1Terminal?: boolean;
+  onCorrelationCreated?: (correlationId: string) => void;
+}
+
 export async function runProductionAmbientExtraction(
   env: Pick<Env, "AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST">,
   ambientEnv: AmbientEnv,
   messages: AmbientBufferedMessage[],
   v1Extractor?: NonNullable<AmbientDigestRunOptions["extract"]>,
+  shadowTelemetryEmit?: (telemetry: AmbientV2_2ShadowTelemetry) => void,
+  observabilityOptions: ProductionAmbientExtractionObservabilityOptions = {},
 ): Promise<AmbientExtractionResult> {
-  try {
-    await runAmbientV2_2Shadow(ambientEnv, messages, {
-      groupId: messages[0]?.lineGroupId ?? null,
-      allowlist: env.AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST,
-    });
-  } catch {
-    // The Shadow helper already contains its provider boundary. Keep this
-    // outer guard so a future telemetry/runtime defect cannot reach V1.
+  const groupId = messages[0]?.lineGroupId ?? null;
+  const allowlist = env.AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST;
+  const shadowEnabled = ambientV2_2ShadowGroupMatches(groupId, allowlist);
+  const correlationId = shadowEnabled ? createAmbientV2_2ShadowCorrelationId() : null;
+  if (correlationId) {
+    try {
+      observabilityOptions.onCorrelationCreated?.(correlationId);
+    } catch {
+      // Correlation registration is observability-only and must not affect V1.
+    }
+    try {
+      await runAmbientV2_2Shadow(ambientEnv, messages, {
+        groupId,
+        allowlist,
+        correlationId,
+        emit: shadowTelemetryEmit,
+      });
+    } catch {
+      // The Shadow helper already contains its provider boundary. Keep this
+      // outer guard so a future telemetry/runtime defect cannot reach V1.
+    }
   }
   const extract = v1Extractor ?? ((serviceEnv: AmbientEnv, selectedMessages: AmbientBufferedMessage[]) =>
     extractAmbientCandidates(serviceEnv, selectedMessages, SEMANTIC_AI_MODEL));
-  return extract(ambientEnv, messages);
+  try {
+    const result = await extract(ambientEnv, messages);
+    if (correlationId && !observabilityOptions.deferV1Terminal) {
+      emitAmbientV2_2V1TerminalTelemetry(correlationId, "COMPLETED", shadowTelemetryEmit);
+    }
+    return result;
+  } catch (error) {
+    if (correlationId && !observabilityOptions.deferV1Terminal) {
+      emitAmbientV2_2V1TerminalTelemetry(correlationId, "FAILED", shadowTelemetryEmit);
+    }
+    throw error;
+  }
 }
 
 async function runProductionAmbientDigest(env: Env, now: Date): Promise<void> {
+  const shadowCorrelations = new Map<string, string>();
+  const groupKey = (organizationId: string, groupId: string): string => `${organizationId}\u001f${groupId}`;
+  const emitV1Terminal = ({ organizationId, groupId, status }: Parameters<NonNullable<AmbientDigestRunOptions["onGroupTerminal"]>>[0]): void => {
+    const key = groupKey(organizationId, groupId);
+    const correlationId = shadowCorrelations.get(key);
+    if (!correlationId) return;
+    emitAmbientV2_2V1TerminalTelemetry(correlationId, status === "completed" ? "COMPLETED" : "FAILED");
+    shadowCorrelations.delete(key);
+  };
   try {
     await runAmbientDigest(env, {
       trigger: "cron",
       now,
-      extract: (ambientEnv, messages) => runProductionAmbientExtraction(env, ambientEnv, messages),
+      onGroupTerminal: emitV1Terminal,
+      extract: (ambientEnv, messages) => runProductionAmbientExtraction(
+        env,
+        ambientEnv,
+        messages,
+        undefined,
+        undefined,
+        {
+          deferV1Terminal: true,
+          onCorrelationCreated: (correlationId) => {
+            const organizationId = messages[0]?.organizationId;
+            const groupId = messages[0]?.lineGroupId;
+            if (organizationId && groupId) shadowCorrelations.set(groupKey(organizationId, groupId), correlationId);
+          },
+        },
+      ),
       push: async (groupId, candidateId, bundle) => {
         const group = await groupState(env, groupId);
         const quickReply = group.organizationId ? await ambientDigestQuickReply(env, group.organizationId, candidateId, bundle) : null;
@@ -9189,6 +9250,10 @@ async function runProductionAmbientDigest(env: Env, now: Date): Promise<void> {
       },
     });
   } catch (error) {
+    for (const correlationId of shadowCorrelations.values()) {
+      emitAmbientV2_2V1TerminalTelemetry(correlationId, "FAILED");
+    }
+    shadowCorrelations.clear();
     console.log(JSON.stringify({
       event: "ambient_digest_cron_error",
       trigger: "cron",

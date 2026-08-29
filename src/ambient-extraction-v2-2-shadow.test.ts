@@ -121,7 +121,9 @@ describe("Ambient V2.2 test-group Shadow", () => {
     expect(source).toContain("if (gate === \"quiet\")");
     expect(source).toContain("bufferAmbientMessage");
     expect(source).toContain("runProductionAmbientDigest");
-    expect(source).toContain("runProductionAmbientExtraction(env, ambientEnv, messages)");
+    expect(source).toContain("extract: (ambientEnv, messages) => runProductionAmbientExtraction(");
+    expect(source).toContain("deferV1Terminal: true");
+    expect(source).toContain("onGroupTerminal: emitV1Terminal");
     expect(source).toContain("runAmbientV2_2Shadow");
   });
 
@@ -306,6 +308,134 @@ describe("Ambient V2.2 test-group Shadow", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("correlates Shadow entry, Shadow terminal, and V1 completion for one run", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const run = vi.fn(async () => providerResponse({
+      operations: [],
+      abnormalities: [{ detail: "咳嗽", quantity: null }],
+    }));
+    await runProductionAmbientExtraction(
+      { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-allowed" },
+      shadowEnv(run),
+      [bufferedMessage("金雞測試場有咳嗽")],
+      async () => v1Result(),
+      (item) => emitted.push(item),
+    );
+
+    expect(emitted.map((item) => item.phase)).toEqual([
+      "SHADOW_ENTERED",
+      "SHADOW_TERMINAL",
+      "V1_TERMINAL",
+    ]);
+    expect(new Set(emitted.map((item) => item.correlation_id)).size).toBe(1);
+    expect(emitted.at(-1)).toMatchObject({
+      phase: "V1_TERMINAL",
+      v1_terminal_status: "COMPLETED",
+      safe_failure_class: null,
+    });
+  });
+
+  it("creates a new opaque correlation for each eligible run", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const run = vi.fn(async () => providerResponse({ operations: [], abnormalities: [] }));
+    const environment = { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-allowed" };
+    await runProductionAmbientExtraction(environment, shadowEnv(run), [bufferedMessage("金雞測試場有咳嗽")], async () => v1Result(), (item) => emitted.push(item));
+    await runProductionAmbientExtraction(environment, shadowEnv(run), [bufferedMessage("金雞測試場有咳嗽", "group-allowed", "line-message-2")], async () => v1Result(), (item) => emitted.push(item));
+
+    const entries = emitted.filter((item) => item.phase === "SHADOW_ENTERED");
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.correlation_id).toBeTruthy();
+    expect(entries[0]?.correlation_id).not.toBe(entries[1]?.correlation_id);
+  });
+
+  it("does not create correlation telemetry when Shadow is disabled or not allowlisted", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const run = vi.fn(async () => providerResponse({ operations: [], abnormalities: [] }));
+    const selected = [bufferedMessage("金雞測試場有咳嗽")];
+    await runProductionAmbientExtraction({}, shadowEnv(run), selected, async () => v1Result(), (item) => emitted.push(item));
+    await runProductionAmbientExtraction(
+      { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-other" },
+      shadowEnv(run),
+      selected,
+      async () => v1Result(),
+      (item) => emitted.push(item),
+    );
+
+    expect(emitted).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("proves Shadow provider failure still reaches V1 completion on the same run", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const providerRun = vi.fn(async () => { throw new Error("shadow-provider-private"); });
+    await runProductionAmbientExtractionForTest(
+      providerRun,
+      emitted,
+      async () => v1Result(),
+    );
+
+    const correlationIds = new Set(emitted.map((item) => item.correlation_id));
+    expect(correlationIds.size).toBe(1);
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: "SHADOW_TERMINAL", shadow_terminal_status: "FAILED", safe_failure_class: "PROVIDER_FAILURE" }),
+      expect.objectContaining({ phase: "V1_TERMINAL", v1_terminal_status: "COMPLETED" }),
+    ]));
+    expect(JSON.stringify(emitted)).not.toContain("shadow-provider-private");
+  });
+
+  it("proves Shadow structural failure still reaches V1 completion", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const providerRun = vi.fn(async () => providerResponse({ operations: [] }));
+    await runProductionAmbientExtractionForTest(
+      providerRun,
+      emitted,
+      async () => v1Result(),
+    );
+
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: "SHADOW_TERMINAL", shadow_terminal_status: "FAILED", structural_status: "FAIL" }),
+      expect.objectContaining({ phase: "V1_TERMINAL", v1_terminal_status: "COMPLETED" }),
+    ]));
+  });
+
+  it("keeps deterministic and relation-only runs correlated without AI", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const run = vi.fn(async () => providerResponse({ operations: [], abnormalities: [] }));
+    const environment = { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-allowed" };
+    await runProductionAmbientExtraction(environment, shadowEnv(run), [bufferedMessage("金雞測試場剛剛死2隻")], async () => v1Result(), (item) => emitted.push(item));
+    await runProductionAmbientExtraction(environment, shadowEnv(run), [bufferedMessage("那個死亡3隻先記著，不是新增一筆", "group-allowed", "relation")], async () => v1Result(), (item) => emitted.push(item));
+
+    const shadowTerminals = emitted.filter((item) => item.phase === "SHADOW_TERMINAL");
+    expect(shadowTerminals).toHaveLength(2);
+    expect(shadowTerminals.every((item) => item.ai_attempted === false)).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+    expect(emitted.filter((item) => item.phase === "V1_TERMINAL").every((item) => item.v1_terminal_status === "COMPLETED")).toBe(true);
+  });
+
+  it("records V1 failure without changing its propagation", async () => {
+    const emitted: AmbientV2_2ShadowTelemetry[] = [];
+    const v1Error = new Error("v1-private-error");
+    await expect(runProductionAmbientExtraction(
+      { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-allowed" },
+      shadowEnv(),
+      [bufferedMessage("金雞測試場有咳嗽")],
+      async () => { throw v1Error; },
+      (item) => emitted.push(item),
+    )).rejects.toBe(v1Error);
+
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: "V1_TERMINAL", v1_terminal_status: "FAILED", safe_failure_class: "V1_FAILURE" }),
+    ]));
+    expect(JSON.stringify(emitted)).not.toContain("v1-private-error");
+  });
+
+  it("keeps the live tail event family queryable with phase and correlation", () => {
+    const source = readFileSync(resolve(import.meta.dirname, "ambient-extraction-v2-2-shadow.ts"), "utf8");
+    expect(source).toContain('event: "ambient_v2_2_shadow"');
+    expect(source).toContain("phase");
+    expect(source).toContain("correlation_id");
+  });
+
   it("does not add a semantic dedupe or business-write seam", () => {
     const shadowSource = readFileSync(resolve(import.meta.dirname, "ambient-extraction-v2-2-shadow.ts"), "utf8");
     expect(shadowSource).not.toContain("collapseAmbientV2_2TechnicalDuplicates");
@@ -313,3 +443,17 @@ describe("Ambient V2.2 test-group Shadow", () => {
     expect(shadowSource).not.toContain("env.DB");
   });
 });
+
+async function runProductionAmbientExtractionForTest(
+  providerRun: (model: string, input: Record<string, unknown>) => Promise<unknown>,
+  emitted: AmbientV2_2ShadowTelemetry[],
+  v1: NonNullable<Parameters<typeof runProductionAmbientExtraction>[3]>,
+): Promise<void> {
+  await runProductionAmbientExtraction(
+    { AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST: "group-allowed" },
+    shadowEnv(providerRun),
+    [bufferedMessage("金雞測試場有咳嗽")],
+    v1,
+    (item) => emitted.push(item),
+  );
+}

@@ -22,13 +22,18 @@ const SHADOW_TEMPERATURE = 0 as const;
 const SAFE_GROUP_ID = /^[A-Za-z0-9_-]{1,128}$/u;
 
 export type AmbientV2_2ShadowStructuralStatus = "PASS" | "FAIL" | "NOT_RUN";
+export type AmbientV2_2ShadowTelemetryPhase = "SHADOW_ENTERED" | "SHADOW_TERMINAL" | "V1_TERMINAL";
+export type AmbientV2_2ShadowTerminalStatus = "COMPLETED" | "FAILED" | "NOT_RUN";
 
 export interface AmbientV2_2ShadowTelemetry {
   event: "ambient_v2_2_shadow";
+  phase: AmbientV2_2ShadowTelemetryPhase;
+  correlation_id: string;
+  shadow_terminal_status: AmbientV2_2ShadowTerminalStatus;
   wire_contract_version: typeof AMBIENT_V2_2_WIRE_CONTRACT_VERSION;
   shadow_enabled: true;
   allowlist_match: true;
-  route_class: AmbientV2MessageRoute;
+  route_class: AmbientV2MessageRoute | "NOT_RUN";
   deterministic_operation_count: number;
   deterministic_abnormality_count: 0;
   ai_required: boolean;
@@ -40,10 +45,12 @@ export interface AmbientV2_2ShadowTelemetry {
   response_class: AmbientV2_2ResponseClass | "NOT_RUN";
   safe_failure_class: string | null;
   production_v1_unchanged: true;
+  v1_terminal_status?: "COMPLETED" | "FAILED";
 }
 export interface AmbientV2_2ShadowOptions {
   groupId: string | null | undefined;
   allowlist: string | undefined;
+  correlationId?: string;
   emit?: (telemetry: AmbientV2_2ShadowTelemetry) => void;
 }
 
@@ -99,13 +106,21 @@ function emitShadowTelemetry(
   }
 }
 
+export function createAmbientV2_2ShadowCorrelationId(): string {
+  return crypto.randomUUID();
+}
+
 function baseTelemetry(
-  route: AmbientV2MessageRoute,
+  route: AmbientV2MessageRoute | "NOT_RUN",
   operationCount: number,
   aiRequired: boolean,
+  correlationId: string,
 ): AmbientV2_2ShadowTelemetry {
   return {
     event: "ambient_v2_2_shadow",
+    phase: "SHADOW_TERMINAL",
+    correlation_id: correlationId,
+    shadow_terminal_status: "NOT_RUN",
     wire_contract_version: AMBIENT_V2_2_WIRE_CONTRACT_VERSION,
     shadow_enabled: true,
     allowlist_match: true,
@@ -122,6 +137,26 @@ function baseTelemetry(
     safe_failure_class: null,
     production_v1_unchanged: true,
   };
+}
+
+function enteredTelemetry(correlationId: string): AmbientV2_2ShadowTelemetry {
+  return {
+    ...baseTelemetry("NOT_RUN", 0, false, correlationId),
+    phase: "SHADOW_ENTERED",
+  };
+}
+
+export function emitAmbientV2_2V1TerminalTelemetry(
+  correlationId: string,
+  status: "COMPLETED" | "FAILED",
+  emit?: (telemetry: AmbientV2_2ShadowTelemetry) => void,
+): void {
+  emitShadowTelemetry({
+    ...baseTelemetry("NOT_RUN", 0, false, correlationId),
+    phase: "V1_TERMINAL",
+    v1_terminal_status: status,
+    safe_failure_class: status === "FAILED" ? "V1_FAILURE" : null,
+  }, emit);
 }
 
 function structuredRequest(message: AmbientV2MessageInput): AmbientAiRequestInput {
@@ -147,41 +182,54 @@ export async function runAmbientV2_2Shadow(
   const allowlistMatch = ambientV2_2ShadowGroupMatches(options.groupId, options.allowlist);
   if (!allowlistMatch) return { enabled: false, allowlistMatch: false, providerAttempts: 0, telemetry: [] };
 
+  const correlationId = options.correlationId ?? createAmbientV2_2ShadowCorrelationId();
+  emitShadowTelemetry(enteredTelemetry(correlationId), options.emit);
   const telemetry: AmbientV2_2ShadowTelemetry[] = [];
   let providerAttempts = 0;
-  for (const [index, buffered] of messages.entries()) {
-    const message = ambientV2MessageForShadow(buffered, index + 1);
-    const claim = claimAmbientV2_2DeterministicOperations(message);
-    const aiRequired = claim.residualRequiresAi;
-    const item = baseTelemetry(claim.route, claim.operations.length, aiRequired);
-    if (!aiRequired) {
-      item.semantic_status = claim.operations.length ? "resolved" : "none";
+  try {
+    for (const [index, buffered] of messages.entries()) {
+      const message = ambientV2MessageForShadow(buffered, index + 1);
+      const claim = claimAmbientV2_2DeterministicOperations(message);
+      const aiRequired = claim.residualRequiresAi;
+      const item = baseTelemetry(claim.route, claim.operations.length, aiRequired, correlationId);
+      if (!aiRequired) {
+        item.semantic_status = claim.operations.length ? "resolved" : "none";
+        item.shadow_terminal_status = "COMPLETED";
+        telemetry.push(item);
+        emitShadowTelemetry(item, options.emit);
+        continue;
+      }
+
+      item.ai_attempted = true;
+      providerAttempts += 1;
+      try {
+        const residualMessage = { ...message, text: claim.residualMessage };
+        const result = await runAmbientAiRequestInput(env, PRODUCTION_AI_MODEL, structuredRequest(residualMessage));
+        const boundary = parseAmbientV2_2ResponseBoundary(result);
+        const parsed = boundary.parsed;
+        item.response_class = boundary.responseClass;
+        item.structural_status = parsed.structuralStatus === "pass" ? "PASS" : "FAIL";
+        item.semantic_status = parsed.semanticStatus;
+        item.operation_count = claim.operations.length + parsed.operations.length;
+        item.abnormality_count = parsed.abnormalities.length;
+        item.safe_failure_class = parsed.structuralStatus === "pass"
+          ? parsed.semanticStatus === "resolved" || parsed.semanticStatus === "none" ? null : "SEMANTIC_FAILURE"
+          : boundary.responseClass === "PROVIDER_JSON_MODE_ERROR"
+            ? "PROVIDER_JSON_MODE_ERROR"
+            : parsed.diagnostics.structuralSubtype ?? "STRUCTURAL_FAILURE";
+        item.shadow_terminal_status = item.safe_failure_class ? "FAILED" : "COMPLETED";
+      } catch (error) {
+        item.safe_failure_class = safeFailureClass(error);
+        item.semantic_status = "NOT_RUN";
+        item.shadow_terminal_status = "FAILED";
+      }
       telemetry.push(item);
       emitShadowTelemetry(item, options.emit);
-      continue;
     }
-
-    item.ai_attempted = true;
-    providerAttempts += 1;
-    try {
-      const residualMessage = { ...message, text: claim.residualMessage };
-      const result = await runAmbientAiRequestInput(env, PRODUCTION_AI_MODEL, structuredRequest(residualMessage));
-      const boundary = parseAmbientV2_2ResponseBoundary(result);
-      const parsed = boundary.parsed;
-      item.response_class = boundary.responseClass;
-      item.structural_status = parsed.structuralStatus === "pass" ? "PASS" : "FAIL";
-      item.semantic_status = parsed.semanticStatus;
-      item.operation_count = claim.operations.length + parsed.operations.length;
-      item.abnormality_count = parsed.abnormalities.length;
-      item.safe_failure_class = parsed.structuralStatus === "pass"
-        ? parsed.semanticStatus === "resolved" || parsed.semanticStatus === "none" ? null : "SEMANTIC_FAILURE"
-        : boundary.responseClass === "PROVIDER_JSON_MODE_ERROR"
-          ? "PROVIDER_JSON_MODE_ERROR"
-          : parsed.diagnostics.structuralSubtype ?? "STRUCTURAL_FAILURE";
-    } catch (error) {
-      item.safe_failure_class = safeFailureClass(error);
-      item.semantic_status = "NOT_RUN";
-    }
+  } catch (error) {
+    const item = baseTelemetry("NOT_RUN", 0, false, correlationId);
+    item.safe_failure_class = safeFailureClass(error);
+    item.shadow_terminal_status = "FAILED";
     telemetry.push(item);
     emitShadowTelemetry(item, options.emit);
   }

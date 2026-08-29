@@ -321,3 +321,162 @@ LINE_SEND = 0
 MIGRATION = NONE
 PRODUCTION_DEPLOYMENT = NOT_DONE
 ```
+
+## Test-group Shadow deployment review — 2026-08-29
+
+This section is a read-only deployment review. It does not deploy the Worker,
+set the Shadow allowlist, send LINE, call Workers AI, change source/config, or
+mutate Production. Earlier transport failures, parity evidence, and the
+Shadow implementation result above remain historical evidence.
+
+```text
+TEST_GROUP_SHADOW_IMPLEMENTATION = PASS
+TEST_GROUP_SHADOW_DEPLOYMENT_REVIEW = FAIL
+TEST_GROUP_SHADOW_DEPLOYED = NO
+REAL_LINE_SHADOW_OBSERVED = NO
+WORKER_ROOT_HEAD = 7e19587c6eb93cb7953a8f361adbe338d8315af0
+RUNTIME_SOURCE_DIRTY = NO
+UNRELATED_SOURCE_CHANGES_IN_DEPLOYMENT = NO
+STRUCTURED_OUTPUT_BINDING_PARITY = PASS
+REAL_AI_CALLS = 0
+PROVIDER_ATTEMPTS = 0
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+The Production manifest remains `wrangler.jsonc`, with Worker
+`chicken-line-production`, entry `src/index.ts`, D1 `DB`, Queue `EVENTS`, AI
+`AI`, three existing cron expressions, and no Shadow allowlist value. The
+canonical command is `npm run deploy` (`wrangler deploy`); the parity manifest
+is not a Production deployment input. Commit `7e19587` adds the intentional
+Shadow runtime seam. `5084568` leaves a guarded parity validator import in the
+main bundle; `b02d62e` and `146d453` are dedicated parity-worker/config changes
+and are not selected by `wrangler.jsonc`.
+
+The Shadow configuration source is the Worker environment variable
+`AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST`. Missing or empty values disable it, and
+the parser performs exact fail-closed token matching; the current parser also
+accepts multiple exact tokens, so a one-entry deployment value is not enforced
+by source. No confirmed Shadow-designated LINE group ID is present. The
+developer-command group value is not reused as proof of Shadow authorization.
+The kill switch is a redeployment with this variable unset/empty. The local
+deployment record identifies pre-Shadow Worker version
+`62b51851-ac9a-49f3-93c2-44e76341d05d`; its source-commit binding is not proven.
+Installed Wrangler supports rollback to an existing version without uploading
+new code, but live target verification was intentionally not performed.
+
+Installed Wrangler supports the bounded live query
+`wrangler tail chicken-line-production --format json --search ambient_v2_2_shadow`.
+The current Shadow console event safely exposes route, bounded counts,
+AI-required/attempted, structural/semantic status, and safe failure class.
+However it has no exact Ambient-run/correlation identifier and does not itself
+prove the corresponding V1 terminal result. Therefore live observability is
+not release-ready even though no persistent Shadow storage is required for a
+short tail window. The next gate is
+`SHADOW_OBSERVABILITY_IMPLEMENTATION_REVIEW`; test-group selection remains a
+separate required decision after that gap is closed.
+
+```text
+SHADOW_GATE_CONFIGURATION_METHOD_PROVEN = YES
+SHADOW_GATE_CHANGE_REQUIRES_DEPLOYMENT = YES
+SHADOW_GATE_CHANGE_CREATES_NEW_WORKER_VERSION = YES
+CONFIRMED_TEST_GROUP_ID_AVAILABLE = NO
+TEST_GROUP_SELECTION_REQUIRED = YES
+SHADOW_KILL_SWITCH_READY = YES
+FULL_WORKER_ROLLBACK_READY = YES_WITH_SOURCE_COMMIT_PROVENANCE_GAP
+LIVE_SHADOW_TELEMETRY_QUERY_METHOD_PROVEN = YES
+PERSISTENT_LOG_STORAGE_REQUIRED = NO
+OBSERVABILITY_READY = NO
+SHADOW_BUSINESS_WRITES = 0
+SHADOW_FAILURE_QUEUE_RETRY = 0
+MIGRATION_REQUIRED = NO
+PRODUCTION_D1_SCHEMA_CHANGE = NO
+PRODUCTION_QUEUE_CHANGE = NO
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = SHADOW_OBSERVABILITY_IMPLEMENTATION_REVIEW
+```
+
+The local gate did not perform a Workers AI request. No source, completion,
+credential, or provider prose was persisted.
+
+## Shadow observability implementation review — 2026-08-29 (latest)
+
+This gate added only bounded correlation telemetry. It did not deploy, send
+LINE, call Workers AI, add persistent storage, or change V2.2 semantics. The
+historical transport failure and all earlier V2.2 outcomes remain preserved.
+
+```text
+SHADOW_RUN_START_POINT = src/index.ts:runProductionAmbientExtraction
+SHADOW_TERMINAL_POINT = src/ambient-extraction-v2-2-shadow.ts:runAmbientV2_2Shadow
+V1_TERMINAL_SUCCESS_POINT = src/ambient.ts:runAmbientDigest:finishRun/onGroupTerminal
+V1_TERMINAL_FAILURE_POINT = src/ambient.ts:runAmbientDigest:finishRun failed status
+ONE_SHARED_SCOPE_CAN_SEE_BOTH_SHADOW_AND_V1 = YES
+CORRELATION_MECHANISM = crypto.randomUUID() after exact allowlist match; reused for bounded phases
+OPAQUE_CORRELATION_ID_IMPLEMENTED = YES
+CORRELATION_DERIVED_FROM_USER_DATA = NO
+NON_SHADOW_GROUP_CORRELATION_CREATED = NO
+SHADOW_DISABLED_CORRELATION_CREATED = NO
+SHADOW_AND_V1_SAME_RUN_CORRELATION = PASS
+DIFFERENT_RUN_CORRELATION_UNIQUENESS = PASS
+V1_TERMINAL_COMPLETION_OBSERVABLE = YES
+SHADOW_FAILURE_V1_COMPLETION_TEST = PASS
+STRUCTURAL_FAILURE_V1_COMPLETION_TEST = PASS
+DETERMINISTIC_CORRELATION_TEST = PASS
+RELATION_ONLY_CORRELATION_TEST = PASS
+AI_REQUIRED_MOCK_CORRELATION_TEST = PASS
+LIVE_CORRELATION_QUERY_POSSIBLE = YES
+LIVE_OBSERVATION_TRIGGER_MODEL = ordinary buffer selection followed by configured Ambient digest
+EARLIEST_SAFE_OBSERVATION_TRIGGER = next configured Ambient digest boundary plus completion drain
+MAX_EXPECTED_WAIT = up to 12 hours from arbitrary deployment timing
+NEW_PERSISTENT_STORAGE_REQUIRED = NO
+PERSISTENT_LOG_STORAGE_REQUIRED = NO
+RAW_TEXT_IN_TELEMETRY = NO
+ABNORMAL_DETAIL_IN_TELEMETRY = NO
+GROUP_ID_IN_TELEMETRY = NO
+USER_ID_IN_TELEMETRY = NO
+PRODUCTION_BOUNDED_TELEMETRY_CHANGED = YES
+PRODUCTION_BUSINESS_LOGIC_CHANGED = NO
+PRODUCTION_USER_VISIBLE_BEHAVIOR_CHANGED = NO
+PRODUCTION_WRITE_BEHAVIOR_CHANGED = NO
+```
+
+The existing `ambient_v2_2_shadow` console event now carries bounded
+`phase`, opaque `correlation_id`, and terminal status. Eligible runs emit
+`SHADOW_ENTERED`, `SHADOW_TERMINAL`, and then `V1_TERMINAL`; the V1 result and
+error propagation remain unchanged. Telemetry emission is best effort and
+cannot become a V1 or Queue failure boundary.
+
+```text
+TARGETED_OBSERVABILITY_TESTS = PASS (20)
+EXISTING_SHADOW_TESTS = PASS
+ORDINARY_PRODUCTION_PATH_TEST = PASS
+TELEMETRY_PRIVACY_TEST = PASS
+SIDE_EFFECT_GUARD_TEST = PASS
+V1_GOLDEN_BEHAVIOR_TEST = PASS
+V2_2_REGRESSION = PASS
+PROVIDER_PARITY_REGRESSION = PASS
+FULL_VITEST = PASS (741 passed / 11 skipped)
+TYPESCRIPT = PASS
+GIT_DIFF_CHECK = PASS
+REAL_AI_CALLS = 0
+PROVIDER_ATTEMPTS = 0
+LINE_SEND = 0
+OFFICIAL_WRITE = 0
+CANDIDATE_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+STALE_DEV_SMOKE_FINAL_CONCLUSION = CORRECTED
+OBSERVABILITY_READY = YES
+OBSERVABILITY_CONFIDENCE = HIGH
+SHADOW_DEPLOYMENT_REVIEW = PASS_WITH_TEST_GROUP_SELECTION_REQUIRED
+TEST_GROUP_SHADOW_DEPLOYED = NO
+REAL_LINE_SHADOW_OBSERVED = NO
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = TEST_GROUP_ID_SELECTION
+```
+
+The live tail query remains the existing bounded mechanism:
+`wrangler tail chicken-line-production --format json --search ambient_v2_2_shadow`.
+No persistent log store or new D1 table was introduced.

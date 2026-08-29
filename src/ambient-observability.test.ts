@@ -146,6 +146,19 @@ describe("durable Ambient stage observability", () => {
     expect(db.buffers[0]?.digestStatus).toBe("processed");
   });
 
+  it("notifies the existing full group terminal boundary exactly once", async () => {
+    const db = new FakeD1([message("大家吃飯了嗎")]);
+    const terminals: Array<{ organizationId: string; groupId: string; status: string }> = [];
+    await runAmbientDigest(env(db), {
+      now,
+      trigger: "cron",
+      extract: vi.fn(),
+      onGroupTerminal: (context) => terminals.push(context),
+    });
+
+    expect(terminals).toEqual([{ organizationId: "org-test", groupId: "group-test", status: "completed" }]);
+  });
+
   it("records AI timeout and leaves the source buffered for safe retry", async () => {
     const db = new FakeD1([message("金雞測試場死亡2隻")]);
     const run = await runAmbientDigest(env(db), {
