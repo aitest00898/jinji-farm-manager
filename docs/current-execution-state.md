@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-28 19:16 (Asia/Taipei)
+Last reviewed: 2026-08-28 20:24 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -872,3 +872,695 @@ PRODUCTION_DEPLOYMENT = NOT_DONE
 The local auth mechanism is ready for a future user-provisioned existing
 token. No token creation, login, rotation, Cloudflare request, Workers AI
 request, Production write, or deployment was performed in this task.
+
+## V2.2 DEV-SMOKE-8 single gate after auth pass — 2026-08-28 (latest)
+
+The required local gate passed before the one authorized smoke execution:
+TypeScript, V2.2 targeted tests (`44 passed / 3 skipped`), Full Vitest
+(`697 passed / 11 skipped`), and `git diff --check`. The run used the existing
+developer-only `.dev.secrets.local` loader, V2.2, the frozen Llama 3.2 3B
+model, serial execution, concurrency one, and zero retries. No Auth test or
+Auth modification was performed in this gate.
+
+The current V2.2 planner selected two residual provider calls: D03 and D04.
+D01/D08 used the no-event fast path, D02/D05 were deterministic, D06 was
+relation-only local, and D07 was deterministic local. The two residual calls
+both terminated with bounded `NETWORK_FAILURE` before an HTTP response or
+provider confirmation. D03 is the first failed case; D04 was also not
+semantically evaluated. This is transport evidence only, not model semantic
+evidence.
+
+```text
+AUTH_SOURCE = DEV_SECRETS_LOCAL
+WIRE_CONTRACT_VERSION = 2.2
+MODEL = @cf/meta/llama-3.2-3b-instruct
+REAL_AI_CALLS = 2
+RETRIES = 0
+MAX_CONCURRENT_AI_CALLS = 1
+D03_PROVIDER_CALLS = 1
+D03_HTTP = NOT_REACHED
+D03_STRUCTURAL_STATUS = NOT_RUN
+D03_FACT_EXTRACTION_PASS = NOT_EVALUATED
+D04_PROVIDER_CALLS = 1
+D04_HTTP = NOT_REACHED
+D04_STRUCTURAL_STATUS = NOT_RUN
+D04_FACT_EXTRACTION_PASS = NOT_EVALUATED
+D04_QUANTITY_ATTRIBUTION_STATUS = NOT_EVALUATED
+D06_PROVIDER_CALLS = 0
+D06_RELATION_ONLY_PASS = YES
+D07_PROVIDER_CALLS = 0
+D07_FACT_EXTRACTION_PASS = YES
+DEV_SMOKE_8 = FAIL
+DEV_SMOKE_PASS_COUNT = 6
+DEV_SMOKE_TOTAL = 8
+DEV_SMOKE_FAILED_CASE = D03
+DEV_SMOKE_FAILURE_LAYER = TRANSPORT
+FACT_COLLECTION_SUBSTITUTION_COUNT = 0
+EXTRA_FACT_COUNT = 0
+CHAT_CONTAMINATION_COUNT = 0
+UNSAFE_QUANTITY_PROPAGATION = 0
+RELATION_FALSE_NEW_EVENT = 0
+ATTEMPT_START_COUNT = 2
+ATTEMPT_TERMINAL_COUNT = 2
+ORPHAN_ATTEMPTS = 0
+```
+
+The smoke wrapper marker was present, the durable ledger had two terminal
+records and zero orphan attempts, and the wrapper stopped on acceptance
+failure. No retry or second smoke run was made. No raw source, completion,
+credential, or provider prose was retained.
+
+The smoke gate remains blocked at the transport boundary. No semantic patch,
+Auth work, model change, Prompt change, Ground Truth change, Fresh Unseen
+run, human LINE acceptance, Production write, or deployment is authorized by
+this result. The next action requires a separate explicit gate.
+
+```text
+PRODUCTION_D1_WRITE = 0
+BUFFER_CONSUME = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+READY_FOR_HUMAN_LINE_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+```
+
+## V2.2 bounded transport observability follow-up — 2026-08-28 (latest)
+
+The generic `NETWORK_FAILURE` catch boundary now preserves only bounded
+transport subtypes and safe runtime error fields. The internal timeout remains
+30000 ms and is still classified as `PROVIDER_TIMEOUT`; retries, Auth,
+Prompt, schema, model, and Production paths were unchanged. Local validation
+passed and the change was committed as `e18ef8d` (`fix: preserve bounded
+provider transport subtype`).
+
+The one authorized follow-up V2.2 DEV-SMOKE-8 ran serially with zero retries.
+It used `.dev.secrets.local`, the frozen Llama 3.2 3B model, and the existing
+V2.2 planner. D03 and D04 were the only provider attempts; both returned HTTP
+200 with provider confirmation, structural pass, and fact extraction pass.
+D06 remained relation-only with zero provider calls, and D07 remained local
+deterministic with zero provider calls. D04 attribution remains the frozen
+bounded `UNRESOLVED` status and was not changed.
+
+```text
+AUTH_SOURCE = DEV_SECRETS_LOCAL
+WIRE_CONTRACT_VERSION = 2.2
+MODEL = @cf/meta/llama-3.2-3b-instruct
+MAX_CONCURRENT_AI_CALLS = 1
+RETRIES = 0
+PROVIDER_ATTEMPTS = 2
+HTTP_RESPONSES = 2
+PROVIDER_CONFIRMATIONS = 2
+CONFIRMED_INFERENCE_CALLS = 2
+TRANSPORT_FAILURES = 0
+D03_HTTP = 200
+D03_STRUCTURAL_STATUS = PASS
+D03_FACT_EXTRACTION_PASS = YES
+D04_HTTP = 200
+D04_STRUCTURAL_STATUS = PASS
+D04_FACT_EXTRACTION_PASS = YES
+D04_QUANTITY_ATTRIBUTION_STATUS = UNRESOLVED
+D06_PROVIDER_CALLS = 0
+D06_RELATION_ONLY_PASS = YES
+D07_PROVIDER_CALLS = 0
+D07_FACT_EXTRACTION_PASS = YES
+DEV_SMOKE_8 = PASS
+DEV_SMOKE_PASS_COUNT = 8
+DEV_SMOKE_TOTAL = 8
+DEV_SMOKE_FAILED_CASE = NONE
+ATTEMPT_START_COUNT = 2
+ATTEMPT_TERMINAL_COUNT = 2
+ORPHAN_ATTEMPTS = 0
+WRAPPER_STATUS = PASS
+```
+
+No additional provider call, retry, raw completion/source retention, or
+Production side effect occurred. The V2.2 DEV-SMOKE-8 gate is complete and
+stops here. Current next authorized gate: human LINE acceptance; Production
+activation remains not authorized and not done.
+
+```text
+READY_FOR_HUMAN_LINE_ACCEPTANCE = YES
+READY_FOR_PRODUCTION_ACTIVATION = NO
+WORKERS_AI_INFERENCE_CALLS = 2
+PRODUCTION_D1_WRITE = 0
+BUFFER_CONSUME = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+## V2.2 provider parity gate — 2026-08-28 (latest)
+
+The developer-only V2.2 Worker-binding request boundary was implemented in
+commit `5084568`. It accepts only the pinned V2.2 structured request and
+forwards the validated request unchanged through `runAmbientAiRequestInput` to
+`env.AI.run`; Production Ambient V1 request construction and processing remain
+unchanged.
+
+The local gate passed: TypeScript, 37 targeted Provider Parity/V2.2 tests,
+full Vitest (`715 passed / 11 skipped`), and `git diff --check`.
+
+The one real Worker-binding request was not sent. The repository has a
+historical ephemeral `wrangler dev --remote` route, but no current dedicated
+non-Production environment or launcher. The current Wrangler configuration
+exposes remote Production resources, and the project security policy does not
+permit passing the developer credential through a child environment or using
+an unapproved Wrangler credential path. Consequently Worker-binding parity
+remains `NOT_PROVEN`; no Production Worker deployment occurred.
+
+```text
+PROVIDER_PARITY_IMPLEMENTATION = COMPLETE_DEVELOPER_ONLY
+PROVIDER_PARITY_COMMIT = 5084568
+WORKER_BINDING_REQUEST_SENT = NO
+PROVIDER_ATTEMPTS = 0
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+PARITY_EXECUTION_BLOCKER = SAFE_NON_PRODUCTION_REMOTE_LAUNCHER_NOT_PROVEN
+DEV_SMOKE_8 = PASS
+DEV_SMOKE_PASS_COUNT = 8/8
+PRODUCTION_D1_WRITE = 0
+QUEUE_BUSINESS_WRITE = 0
+LINE_SEND = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+```
+
+The next single gate is an explicitly approved, genuinely isolated
+non-Production Worker-binding execution mechanism. This state does not
+authorize another provider request, Shadow, Active Route, human LINE
+acceptance, or Production activation.
+
+## V2.2 local Worker + remote AI-only parity attempt — 2026-08-28 (latest)
+
+The dedicated parity configuration and AI-only entrypoint are committed in
+`b02d62e2bc9e1c2033dbff81792cfed79474c7b9`. Read-only isolation audits and
+local tests passed. Wrangler loaded `wrangler.parity.jsonc` with a local
+Worker and only the explicit remote `AI` binding; the listener was confirmed
+on `127.0.0.1:8787`, with no public tunnel. No Production D1, Queue, LINE,
+Candidate, official-write, finance, or cron binding was available in the
+parity config.
+
+The single localhost D03 route request was issued. Remote AI proxy
+initialization stopped at the bounded `REMOTE_BINDING_AUTH` boundary while
+waiting for authorization-code completion. `env.AI.run` was not reached, so
+there were zero provider attempts, zero HTTP responses, zero confirmations,
+and zero Workers AI usage. Direct REST versus Worker-binding parity remains
+`NOT_PROVEN`; the current effective DEV-SMOKE-8 remains the historical
+`PASS` 8/8 result.
+
+```text
+LOCAL_REMOTE_AI_PARITY_ISOLATION = NOT_PROVEN
+PARITY_CONFIG_ACTUALLY_LOADED = YES
+WORKER_EXECUTION_LOCATION = LOCAL
+DEV_SERVER_LISTENER = 127.0.0.1
+PUBLIC_TUNNEL_ACTIVE = NO
+REMOTE_BINDINGS = AI_ONLY
+REMOTE_AI_BINDING = YES
+REMOTE_D1_BINDING = NO
+REMOTE_QUEUE_BINDING = NO
+PROVIDER_ATTEMPTS = 0
+HTTP_RESPONSES = 0
+PROVIDER_CONFIRMATIONS = 0
+CONFIRMED_INFERENCE_CALLS = 0
+WORKER_BINDING_REQUEST_SENT = NO
+V2_2_RESPONSE_BOUNDARY_REACHED = NOT_RUN
+V2_2_STRUCTURAL_STATUS = NOT_RUN
+D03_FACT_EXTRACTION = NOT_RUN
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+PARITY_FAILURE_LAYER = REMOTE_BINDING_AUTH
+EXPECTED_PARITY_SIDE_EFFECT = NONE
+RETRIES = 0
+HISTORICAL_TRANSPORT_FAIL_PRESERVED = YES
+CURRENT_EFFECTIVE_DEV_SMOKE = PASS
+NEXT_SINGLE_GATE = WRANGLER_AUTH_DECISION
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+PRODUCTION_D1_WRITE = 0
+QUEUE_WRITE = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OPERATIONAL_OFFICIAL_WRITE = 0
+ABNORMAL_OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+This state does not authorize another provider request, Auth modification,
+Shadow, Active Route, human LINE acceptance, or Production activation.
+
+## V2.2 Wrangler device-login parity attempt — 2026-08-29 (latest)
+
+The project-local Wrangler version is `4.124.0`. The single authorized device
+login attempt failed before producing a device URL or user code because the
+current environment could not resolve Cloudflare's API hostname. No OAuth
+session was created or changed. No fallback login, token operation, Worker
+startup, localhost request, or provider request was performed.
+
+```text
+WRANGLER_DEVICE_LOGIN = FAIL
+WRANGLER_AUTH_SOURCE = OAUTH_DEVICE_FLOW_SESSION
+WRANGLER_REMOTE_BINDING_AUTH = NOT_RUN
+WRANGLER_OAUTH_SESSION_CHANGE = NO
+LOCAL_PARITY_ROUTE_REQUESTS = 0
+PROVIDER_ATTEMPTS = 0
+PROVIDER_CONFIRMATIONS = 0
+CONFIRMED_INFERENCE_CALLS = 0
+DIRECT_REST_VS_AI_BINDING_REQUEST_PARITY = NOT_PROVEN
+DIRECT_REST_VS_AI_BINDING_RESPONSE_PARITY = NOT_PROVEN
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+FAILURE_LAYER = WRANGLER_DEVICE_LOGIN
+RETRIES = 0
+CURRENT_EFFECTIVE_DEV_SMOKE = PASS
+NEXT_SINGLE_GATE = WRANGLER_DEVICE_LOGIN_FAILURE_ANALYSIS
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OPERATIONAL_OFFICIAL_WRITE = 0
+ABNORMAL_OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+CODE_CHANGED = NO
+CONFIG_CHANGED = NO
+```
+
+This state does not authorize a second login, fallback auth path, another
+provider request, Shadow, Active Route, human LINE acceptance, or Production
+activation.
+
+## V2.2 pre-auth DNS resolution analysis — 2026-08-29 (latest)
+
+The previous Wrangler device-flow failure occurred before authentication. The
+installed Wrangler path identifies its default device-flow auth domain as
+`dash.cloudflare.com`; no auth-domain override was present in the checked
+process. Read-only system resolution failed for the Cloudflare candidates,
+`www.cloudflare.com`, and `example.com`. Direct public DNS resolution through
+`1.1.1.1` and `8.8.8.8` also failed for the device-flow hostname.
+
+`scutil --dns` was unavailable in this environment, so resolver count and
+VPN-scoped resolver state are `UNKNOWN`. No enabled proxy/PAC or Cloudflare
+hosts override was found. No login, credential, API, Workers AI, or
+Production operation was performed.
+
+```text
+FAILED_HOSTNAME = dash.cloudflare.com
+FAILED_RESOLUTION_ERROR = DNS_RESOLUTION_FAILURE
+AUTHENTICATION_REACHED = NO
+CREDENTIAL_EVALUATED = NO
+OAUTH_SESSION_CHANGED = NO
+ACTIVE_DNS_RESOLVER_COUNT = UNKNOWN
+VPN_SCOPED_RESOLVER_PRESENT = UNKNOWN
+PROXY_ENABLED = NO
+PAC_ENABLED = NO
+HOSTS_OVERRIDE_PRESENT = NO
+FAILED_HOST_SYSTEM_RESOLUTION = FAIL
+CLOUDFLARE_DASH_RESOLUTION = FAIL
+CLOUDFLARE_WWW_RESOLUTION = FAIL
+GENERAL_CONTROL_RESOLUTION = FAIL
+CLOUDFLARE_PUBLIC_DNS = FAIL
+GOOGLE_PUBLIC_DNS = FAIL
+CURRENT_DNS_STATE = FAIL
+PREVIOUS_FAILURE_CLASS = GENERAL_DNS_FAILURE
+ROOT_CAUSE_CLASS = BROADER_NETWORK_OR_DNS_REACHABILITY
+CODE_CHANGED = NO
+CONFIG_CHANGED = NO
+AUTH_CHANGED = NO
+NETWORK_CONFIGURATION_CHANGED = NO
+WRANGLER_LOGIN_ATTEMPTS = 0
+PROVIDER_ATTEMPTS = 0
+WORKERS_AI_CALLS = 0
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+NEXT_SINGLE_GATE = LOCAL_NETWORK_RESOLUTION_REPAIR_DECISION
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+This state does not authorize DNS/network repair, another login attempt,
+provider parity, Shadow, Active Route, human LINE acceptance, or Production
+activation.
+
+## V2.2 one-time network-enabled Worker-AI parity execution — 2026-08-29 (latest)
+
+The host/network boundary was used after the DNS differential was confirmed.
+The single Wrangler device login completed successfully. The existing
+`wrangler.parity.jsonc` loaded with local Worker execution and only the
+explicit remote `AI` binding; no Production D1, Queue, LINE, route, or cron
+binding was loaded.
+
+The Worker failed during local runtime startup before opening a listener.
+workerd rejected the dedicated entrypoint because named constant exports were
+interpreted as service entries rather than handlers. This is an
+implementation issue requiring review. No source/config change, second login,
+second Worker start, localhost D03 request, or provider request was made.
+
+```text
+ROOT_CAUSE_PREVIOUS_NETWORK_FAILURE = CODEX_EXECUTION_NETWORK_BOUNDARY
+MAC_HOST_DNS = PASS
+HOST_NETWORK_ENABLED_EXECUTION_USED = YES
+DEVICE_FLOW_CODE_ISSUED = YES
+HUMAN_DEVICE_AUTH_COMPLETED = YES
+WRANGLER_DEVICE_LOGIN = PASS
+WRANGLER_AUTH_SOURCE = OAUTH_DEVICE_FLOW_SESSION
+DEV_SECRETS_LOCAL_USED_THIS_GATE = NO
+DIRECT_REST_AUTH_EVALUATED_THIS_GATE = NO
+PARITY_CONFIG_ACTUALLY_LOADED = YES
+WORKER_EXECUTION_LOCATION = LOCAL
+DEV_SERVER_LISTENER = NOT_RUN
+PUBLIC_TUNNEL_ACTIVE = NO
+REMOTE_BINDINGS = AI_ONLY
+REMOTE_AI_BINDING = YES
+REMOTE_D1_BINDING = NO
+REMOTE_QUEUE_BINDING = NO
+LOCAL_PARITY_ROUTE_REQUESTS = 0
+PROVIDER_ATTEMPTS = 0
+PROVIDER_CONFIRMATIONS = 0
+CONFIRMED_INFERENCE_CALLS = 0
+WORKER_BINDING_REQUEST_SENT = NO
+V2_2_RESPONSE_BOUNDARY_REACHED = NOT_RUN
+V2_2_STRUCTURAL_STATUS = NOT_RUN
+D03_FACT_EXTRACTION = NOT_RUN
+DIRECT_REST_VS_AI_BINDING_REQUEST_PARITY = NOT_PROVEN
+DIRECT_REST_VS_AI_BINDING_RESPONSE_PARITY = NOT_PROVEN
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+FAILURE_LAYER = LOCAL_WRANGLER_LAUNCH
+UNEXPECTED_IMPLEMENTATION_CHANGE_REQUIRED = YES
+RETRIES = 0
+WRANGLER_OAUTH_SESSION_CHANGE = YES
+WORKERS_AI_USAGE = 0
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OPERATIONAL_OFFICIAL_WRITE = 0
+ABNORMAL_OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+CODE_CHANGED = NO
+CONFIG_CHANGED = NO
+CURRENT_EFFECTIVE_DEV_SMOKE = PASS
+NEXT_SINGLE_GATE = PARITY_IMPLEMENTATION_REVIEW
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+```
+
+This state does not authorize the required source fix, a retry, another
+login, provider execution, Shadow, Active Route, LINE testing, or deployment.
+
+## V2.2 host vs Codex network-boundary confirmation — 2026-08-29 (latest)
+
+The earlier DNS failure was measured inside the restricted Codex command
+environment. One approved host-level read-only execution resolved both
+`example.com` and `dash.cloudflare.com` and confirmed available host resolver
+metadata. The host/sandbox differential confirms the failure is at the Codex
+execution network boundary, not a demonstrated macOS DNS failure.
+
+```text
+CODEX_SANDBOX_ACTIVE = YES
+CODEX_NETWORK_ACCESS = RESTRICTED
+CODEX_CAN_REQUEST_ONE_TIME_UNSANDBOXED_COMMAND = YES
+CODEX_SANDBOX_DNS = FAIL
+HOST_CONTROL_EXECUTED = YES
+HOST_CONTROL_EXECUTION_MODE = ONE_TIME_UNSANDBOXED
+HOST_EXAMPLE_COM_RESOLUTION = PASS
+HOST_DASH_CLOUDFLARE_COM_RESOLUTION = PASS
+HOST_DNS_RESOLVER_AVAILABLE = YES
+MAC_HOST_DNS = PASS
+NETWORK_BOUNDARY_DIFFERENTIAL = CONFIRMED
+ROOT_CAUSE_CLASS = CODEX_EXECUTION_NETWORK_BOUNDARY
+LOCAL_NETWORK_REPAIR_REQUIRED = NO
+AUTH_CHANGED = NO
+NETWORK_CONFIGURATION_CHANGED = NO
+WRANGLER_LOGIN_ATTEMPTS = 0
+PROVIDER_ATTEMPTS = 0
+WORKERS_AI_CALLS = 0
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+NEXT_SINGLE_GATE = ONE_TIME_NETWORK_ENABLED_PARITY_EXECUTION
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+PRODUCTION_DEPLOYMENT = NOT_DONE
+```
+
+No DNS, network, VPN, proxy, hosts, Auth, source, config, or Production state
+was changed. This state does not authorize another login, parity request,
+provider call, Shadow, Active Route, or deployment.
+
+## Wrangler local filesystem EPERM analysis — 2026-08-29 (latest)
+
+Read-only evidence identifies the first launch failure as `open` on the
+Wrangler debug-log file under `/Users/joe/Library/Preferences/.wrangler/logs`.
+The same launch later attempted an `open` in the dev-registry directory under
+`/Users/joe/Library/Preferences/.wrangler/registry` and was denied as well.
+The target files were absent; both parent directories existed with owner
+`joe`, mode `0755`, and no ACL marker. The project workspace is writable, but
+the Wrangler home directory is outside the Codex managed writable roots.
+
+Installed Wrangler 4.124.0 recognizes `WRANGLER_LOG_PATH` and
+`WRANGLER_REGISTRY_PATH`; the CLI's programmatic `disableDevRegistry` API
+exists, but no CLI flag or config disable switch was found. The parity config
+contains only the remote `AI` binding and no service binding, so cross-worker
+discovery is not required; the current CLI nevertheless attempted its registry
+write. The evidence supports `ROOT_CAUSE_CLASS =
+CODEX_FILESYSTEM_SANDBOX_BOUNDARY`, not host permission corruption.
+
+```text
+EPERM_SYSCALL = open
+EPERM_PATH_CLASS = WRANGLER_LOG
+SECONDARY_EPERM_PATH_CLASS = WRANGLER_DEV_REGISTRY
+WRANGLER_LOG_PATH_SUPPORTED = YES
+DEV_REGISTRY_ENABLED = YES
+DEV_REGISTRY_WRITE_REQUIRED_BY_CURRENT_CLI = YES
+PARITY_WORKER_HAS_SERVICE_BINDINGS = NO
+PARITY_WORKER_NEEDS_CROSS_WORKER_DISCOVERY = NO
+DISABLE_DEV_REGISTRY_API_EXISTS = YES
+CLI_DISABLE_DEV_REGISTRY_OPTION_EXISTS = NO
+CONFIG_DISABLE_DEV_REGISTRY_OPTION_EXISTS = NO
+OWNER_IS_CURRENT_USER = YES
+CURRENT_USER_POSIX_WRITE_BIT = YES
+ACL_PRESENT = NO
+PROJECT_WORKSPACE_WRITE_ALLOWED = YES
+EPERM_PARENT_INSIDE_ALLOWED_WRITE_ROOT = NO
+CODEX_FILESYSTEM_RESTRICTION_CAN_EXPLAIN_EPERM = YES
+MULTIPLE_WRANGLER_HOME_WRITE_PATHS_AT_RISK = YES
+PROJECT_LOCAL_LOG_REDIRECT_FEASIBLE = YES
+SUPPORTED_REGISTRY_PATH_OVERRIDE = YES
+ROOT_CAUSE_CLASS = CODEX_FILESYSTEM_SANDBOX_BOUNDARY
+SOURCE_CHANGED = NO
+CONFIG_CHANGED = NO
+FILESYSTEM_CHANGED = NO
+AUTH_CHANGED = NO
+NETWORK_REQUESTS = 0
+WRANGLER_WORKER_START_ATTEMPTS = 0
+PROVIDER_ATTEMPTS = 0
+WORKERS_AI_CALLS = 0
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = PROJECT_LOCAL_WRANGLER_LOG_PARITY_EXECUTION
+```
+
+No override, permission change, cleanup, Worker restart, provider request,
+Auth operation, source/config change, or Production operation was performed.
+
+## V2.2 post-fix Worker-AI parity execution — 2026-08-29 (latest)
+
+The approved one-time host/network execution used the existing `146d453` fix.
+Preflight found no new source or Wrangler config change. The dedicated parity
+configuration loaded with local Worker execution and only the explicit remote
+`AI` binding. The Worker exited during local Wrangler startup because the
+environment denied Wrangler's local log/registry writes, before a listener was
+created. The prior named-export runtime error did not recur. No localhost D03
+request and no `env.AI.run` call occurred; the process exited and no background
+Worker remains.
+
+```text
+PARITY_FIX_PRESENT = YES
+WORKTREE_HAS_NEW_SOURCE_OR_CONFIG_CHANGE = NO
+EXECUTION_APPROVAL = APPROVED
+HOST_NETWORK_ENABLED_EXECUTION_USED = YES
+WRANGLER_DEVICE_LOGIN_REPEATED = NO
+WRANGLER_AUTH_SOURCE = OAUTH_DEVICE_FLOW_SESSION
+PARITY_WORKER_START_ATTEMPTS = 1
+PARITY_WORKER_STARTUP = FAIL
+PARITY_ENTRYPOINT_NAMED_EXPORT_RUNTIME_ERROR = NO
+PARITY_CONFIG_ACTUALLY_LOADED = YES
+WORKER_EXECUTION_LOCATION = LOCAL
+DEV_SERVER_LISTENER = NOT_RUN
+PUBLIC_TUNNEL_ACTIVE = NO
+REMOTE_BINDINGS = AI_ONLY
+REMOTE_AI_BINDING = YES
+REMOTE_D1_BINDING = NO
+REMOTE_QUEUE_BINDING = NO
+REMOTE_OTHER_WRITE_BINDING = NO
+LOCAL_PARITY_ROUTE_REQUESTS = 0
+PROVIDER_ATTEMPTS = 0
+PROVIDER_CONFIRMATIONS = 0
+CONFIRMED_INFERENCE_CALLS = 0
+STRUCTURED_OUTPUT_BINDING_PARITY = NOT_PROVEN
+FAILURE_LAYER = LOCAL_WRANGLER_LAUNCH
+RETRIES = 0
+WORKERS_AI_USAGE = 0
+PARITY_WORKER_STOPPED = YES
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OPERATIONAL_OFFICIAL_WRITE = 0
+ABNORMAL_OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+CODE_CHANGED = NO
+CONFIG_CHANGED = NO
+CURRENT_EFFECTIVE_DEV_SMOKE = PASS
+READY_FOR_TEST_GROUP_SHADOW = BLOCKED
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = PARITY_LOCAL_RUNTIME_FAILURE_ANALYSIS
+```
+
+Current blocker: local Wrangler runtime write permission. This does not prove
+or disprove Worker-binding structured-output parity. No second Worker start,
+provider request, Shadow, Active Route, LINE test, or deployment is authorized
+by this result.
+
+## V2.2 bounded Wrangler filesystem + network parity execution — 2026-08-29 (latest)
+
+The authorized recursive Wrangler-home write access and host network access
+were used for exactly one parity Worker start. The existing `146d453` fix was
+used without source/config changes. Wrangler loaded the dedicated parity config
+with only the remote `AI` binding, created its expected local state, and opened
+the local listener. Exactly one frozen D03 request reached `env.AI.run`; the
+Worker returned a structured object, reached the V2.2 response boundary, passed
+structural validation and bounded D03 fact extraction, and then shut down.
+
+```text
+FILESYSTEM_APPROVAL = APPROVED
+WRANGLER_HOME_WRITE_ACCESS = READ_WRITE_RECURSIVE
+HOST_NETWORK_ENABLED_EXECUTION_USED = YES
+EXPECTED_WRANGLER_LOCAL_STATE_WRITE = YES
+LOCAL_TEST_EVIDENCE_REUSED = YES
+CODE_CHANGED_THIS_GATE = NO
+CONFIG_CHANGED_THIS_GATE = NO
+WRANGLER_DEVICE_LOGIN_REPEATED = NO
+WRANGLER_AUTH_SOURCE = OAUTH_DEVICE_FLOW_SESSION
+PARITY_WORKER_START_ATTEMPTS = 1
+PARITY_WORKER_STARTUP = PASS
+PARITY_ENTRYPOINT_NAMED_EXPORT_RUNTIME_ERROR = NO
+PARITY_CONFIG_ACTUALLY_LOADED = YES
+WORKER_EXECUTION_LOCATION = LOCAL
+DEV_SERVER_LISTENER = LOCALHOST
+PUBLIC_TUNNEL_ACTIVE = NO
+REMOTE_BINDINGS = AI_ONLY
+REMOTE_AI_BINDING = YES
+REMOTE_D1_BINDING = NO
+REMOTE_QUEUE_BINDING = NO
+REMOTE_OTHER_WRITE_BINDING = NO
+LOCAL_PARITY_ROUTE_REQUESTS = 1
+PROVIDER_ATTEMPTS = 1
+PROVIDER_CONFIRMATIONS = 1
+CONFIRMED_INFERENCE_CALLS = 1
+WORKER_BINDING_REQUEST_SENT = YES
+PROVIDER_RESPONSE_CONFIRMED = YES
+REQUEST_RESPONSE_FORMAT_PRESENT = YES
+REQUEST_RESPONSE_FORMAT_PRESERVED = YES
+WORKER_BINDING_RESPONSE_VALUE_TYPE = OBJECT
+V2_2_RESPONSE_BOUNDARY_REACHED = YES
+V2_2_RESPONSE_CLASS = STRUCTURED_OBJECT_RESPONSE
+V2_2_STRUCTURAL_STATUS = PASS
+D03_FACT_EXTRACTION = PASS
+DIRECT_REST_VS_AI_BINDING_REQUEST_PARITY = PROVEN
+DIRECT_REST_VS_AI_BINDING_RESPONSE_PARITY = PROVEN
+STRUCTURED_OUTPUT_BINDING_PARITY = PASS
+FAILURE_LAYER = NONE
+RETRIES = 0
+WORKERS_AI_USAGE = 1
+PARITY_WORKER_STOPPED = YES
+PRODUCTION_D1_REMOTE_ACCESS = 0
+PRODUCTION_QUEUE_REMOTE_ACCESS = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OPERATIONAL_OFFICIAL_WRITE = 0
+ABNORMAL_OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+PRODUCTION_DEPLOYMENT = NOT_DONE
+CURRENT_EFFECTIVE_DEV_SMOKE = PASS
+READY_FOR_TEST_GROUP_SHADOW = YES
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = IMPLEMENT_TEST_GROUP_SHADOW
+```
+
+Current effective parity result: PASS. This does not authorize Shadow
+implementation, Active Route, LINE acceptance, or Production activation.
+
+## V2.2 test-group Shadow implementation — 2026-08-29 (latest)
+
+The V2.2 ordinary-line Shadow implementation gate completed locally. The
+ordinary Production path remains V1-controlled: after the existing quiet
+interaction gate, Ambient buffer selection, group selection, and prefilter,
+`runProductionAmbientDigest` invokes the explicit Shadow side observation
+before returning to the existing V1 extractor result. The Shadow branch is
+default-off and only matches the exact value of
+`AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST`; no real group value was configured.
+
+```text
+STRUCTURED_OUTPUT_BINDING_PARITY = PASS
+TEST_GROUP_SHADOW_IMPLEMENTATION = PASS
+TEST_GROUP_SHADOW_DEPLOYED = NO
+REAL_LINE_SHADOW_OBSERVED = NO
+PRODUCTION_SOURCE_CHANGED = YES
+PRODUCTION_BEHAVIOR_CHANGED_WHEN_SHADOW_DISABLED = NO
+NEW_PERSISTENT_STORAGE_REQUIRED = NO
+SHADOW_FAILURE_REACHES_V1 = NO
+SHADOW_BUSINESS_WRITES = 0
+REAL_AI_CALLS = 0
+PROVIDER_ATTEMPTS = 0
+LINE_SEND = 0
+CANDIDATE_WRITE = 0
+OFFICIAL_WRITE = 0
+FINANCE_WRITE = 0
+MIGRATION = NONE
+TYPESCRIPT = PASS
+TARGETED_SHADOW_TESTS = PASS
+V2_2_REGRESSION = PASS
+PROVIDER_PARITY_REGRESSION = PASS
+FULL_VITEST = PASS (733 passed / 11 skipped)
+GIT_DIFF_CHECK = PASS
+READY_FOR_HUMAN_PRODUCTION_PATH_ACCEPTANCE = NO
+READY_FOR_PRODUCTION_ACTIVATION = NO
+NEXT_SINGLE_GATE = TEST_GROUP_SHADOW_DEPLOYMENT_REVIEW
+```
+
+This is implementation and automated validation only. No Worker deployment,
+real LINE message, real Workers AI request, Production D1/Queue access,
+Candidate mutation, official write, or activation occurred. The next gate must
+review the exact test-group value, effective deployment diff, bounded shadow
+side-effect boundary, observability, and rollback before any deployment.

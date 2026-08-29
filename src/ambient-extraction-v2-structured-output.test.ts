@@ -342,9 +342,11 @@ describe("Ambient V2 structured-output developer boundary", () => {
     expect(bounded).not.toContain("腳傷");
   });
 
-  it("keeps Production Ambient processing free of developer structured execution while retaining a gated parity endpoint", () => {
+  it("keeps V1 controlling while the ordinary-line V2.2 Shadow is explicit and gated", () => {
     const productionSource = readFileSync(resolve(import.meta.dirname, "index.ts"), "utf8");
-    expect(productionSource).not.toMatch(/(?:extract|plan|canonicalize|resolve)AmbientV2_2/u);
+    expect(productionSource).toContain("runAmbientV2_2Shadow");
+    expect(productionSource).toContain("AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST");
+    expect(productionSource).toContain("extractAmbientCandidates");
     expect(productionSource).toContain('url.pathname === "/__codex/runtime/ambient-semantic-ai"');
     expect(productionSource).toContain('env.RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED !== "1"');
   });

@@ -115,14 +115,17 @@ import {
   type AmbientCandidateEvidence,
   type AmbientCandidateBundle,
   type AmbientBufferedMessage,
+  type AmbientEnv,
   type AmbientMentionee,
   type AmbientDigestRunOptions,
+  type AmbientExtractionResult,
 } from "./ambient";
 import {
   developmentAmbientAuthorization,
   handleDevelopmentAmbientCommand,
   parseDevelopmentAmbientCommand,
 } from "./ambient-dev";
+import { runAmbientV2_2Shadow } from "./ambient-extraction-v2-2-shadow";
 import { validateAmbientV2_2WorkerParityRequest } from "./ambient-extraction-v2-2-provider-parity";
 import {
   handleLineAbnormalInput,
@@ -261,6 +264,8 @@ export interface Env {
   RUNTIME_DEV_AMBIENT_AI_STUB_JSON?: string;
   /** Explicit remote-dev-only gate for the real Ambient semantic eval adapter. */
   RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED?: string;
+  /** Explicit, default-off allowlist for ordinary-line V2.2 shadow only. */
+  AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST?: string;
 }
 
 /**
@@ -9147,12 +9152,36 @@ async function runtimeOrganizationId(env: Env): Promise<string | null> {
   return row?.id ?? null;
 }
 
+/**
+ * Production Ambient extraction seam. V1 remains the returned result; the
+ * V2.2 branch is an explicit, default-off, read-only shadow side observation.
+ */
+export async function runProductionAmbientExtraction(
+  env: Pick<Env, "AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST">,
+  ambientEnv: AmbientEnv,
+  messages: AmbientBufferedMessage[],
+  v1Extractor?: NonNullable<AmbientDigestRunOptions["extract"]>,
+): Promise<AmbientExtractionResult> {
+  try {
+    await runAmbientV2_2Shadow(ambientEnv, messages, {
+      groupId: messages[0]?.lineGroupId ?? null,
+      allowlist: env.AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST,
+    });
+  } catch {
+    // The Shadow helper already contains its provider boundary. Keep this
+    // outer guard so a future telemetry/runtime defect cannot reach V1.
+  }
+  const extract = v1Extractor ?? ((serviceEnv: AmbientEnv, selectedMessages: AmbientBufferedMessage[]) =>
+    extractAmbientCandidates(serviceEnv, selectedMessages, SEMANTIC_AI_MODEL));
+  return extract(ambientEnv, messages);
+}
+
 async function runProductionAmbientDigest(env: Env, now: Date): Promise<void> {
   try {
     await runAmbientDigest(env, {
       trigger: "cron",
       now,
-      extract: (ambientEnv, messages) => extractAmbientCandidates(ambientEnv, messages, SEMANTIC_AI_MODEL),
+      extract: (ambientEnv, messages) => runProductionAmbientExtraction(env, ambientEnv, messages),
       push: async (groupId, candidateId, bundle) => {
         const group = await groupState(env, groupId);
         const quickReply = group.organizationId ? await ambientDigestQuickReply(env, group.organizationId, candidateId, bundle) : null;

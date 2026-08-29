@@ -17,8 +17,9 @@ import {
 } from "./ambient-extraction-v2";
 
 /**
- * Developer-only V2.2 fact wire. This module is intentionally not imported by
- * the Production Worker path and does not perform provider calls.
+ * V2.2 fact wire. Production V1 remains the controlling path; only the
+ * explicit, default-off Shadow may import these pure planner/validation
+ * helpers. This module itself does not perform provider calls.
  */
 export const AMBIENT_V2_2_WIRE_CONTRACT_VERSION = "2.2" as const;
 export const AMBIENT_V2_2_OPERATION_TYPES = ["mortality", "cull"] as const;

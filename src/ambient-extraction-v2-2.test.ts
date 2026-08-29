@@ -706,9 +706,11 @@ describe("Ambient V2.2 orthogonal fact wire", () => {
     expect(aggregate.facts.operations).toEqual([{ type: "mortality", quantity: 2 }]);
   });
 
-  it("keeps V2.2 out of Production Ambient processing while retaining a gated parity endpoint", () => {
+  it("keeps V1 controlling while the ordinary-line V2.2 Shadow is explicit and gated", () => {
     const productionSource = readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
-    expect(productionSource).not.toMatch(/(?:extract|plan|canonicalize|resolve)AmbientV2_2/u);
+    expect(productionSource).toContain("runAmbientV2_2Shadow");
+    expect(productionSource).toContain("AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST");
+    expect(productionSource).toContain("extractAmbientCandidates");
     expect(productionSource).toContain('url.pathname === "/__codex/runtime/ambient-semantic-ai"');
     expect(productionSource).toContain('env.RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED !== "1"');
   });
