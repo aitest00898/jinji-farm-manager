@@ -3902,3 +3902,94 @@ NEXT_SAFE_ACTION = USER_SIGN_IN_TO_THE_CURRENT_PAGES_SESSION, THEN_REQUEST_CONTI
 No password/token was entered, no authenticated API was called, no AI
 inference or `ai_reports` write was attempted, and no source/config/Production
 state changed.
+
+## Web Final Human Acceptance Part A — 2026-08-30 — authenticated read-only result
+
+The previously blocked Part A was resumed only after the user explicitly
+confirmed that the supplied management password could be entered in the
+visible Codex In-app Browser. The password was used only at form-fill time and
+was not printed, persisted, or inspected as a token/header. The live Pages app
+accepted the login and remained on the authenticated management shell.
+
+The authenticated Part A checks covered the required non-business-mutating
+routes. Dashboard, Operations, AI page load, Pending, Audit, and return to
+Dashboard all rendered without a page error. The AI page was opened only; its
+question input remained empty and the analysis button remained disabled, so no
+Workers AI request was made.
+
+Dashboard values were cross-checked against one read-only remote D1 query set
+for the single organization: 9 active farms (8 production, 1 test), 1 active
+flock, current stock 963, today mortality 5, and production net income
+429,338.6. The live Operations page showed the corresponding current test-farm
+death event of 5 on 2026-08-30. Remote D1 reported `rows_written=0` and
+`changed_db=false`.
+
+Audit acceptance reached real historical content. The remote read-only shape
+check found one legacy `changed_fields_json` row whose first item is an object:
+the system update at `2026-08-23 13:44:22` for
+`line_group_ai_conversation`. The live Audit page located and expanded that
+same record and rendered `conversationV2Enabled` with `false` → `true`; no
+render error occurred. This proves the legacy object-array compatibility path
+on the live Web page for the observed record.
+
+Responsive checks used a desktop viewport of 1440×900 and an iPhone-sized
+390×844 viewport in the same visible in-app Browser. The mobile Dashboard
+rendered the current data, the navigation drawer opened and closed, and both
+desktop and mobile checks had no horizontal overflow. No source defect was
+found and no source/test/config change was required.
+
+```text
+TASK_RESULT = PASS_READ_ONLY_PART_A
+START_HANDOFF_HEAD = f0e76ae4877f4b4f1c3661da2927d0b276badf30
+MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+PAGES_HTTP = 200
+PAGES_APP_SHELL = PASS
+WORKER_HEALTH = PASS; HTTP 200
+WORKER_READY = PASS; HTTP 200
+LOGIN = PASS; authenticated management shell visible
+AUTH_SESSION = PASS; existing normal Web session used in visible In-app Browser
+DASHBOARD = PASS
+DASHBOARD_DATA_CONSISTENCY = PASS; live UI matches read-only D1 summary
+OPERATIONS = PASS; current records rendered; write controls not used
+OPERATIONS_DATA_CONSISTENCY = PASS; current 5-death record agrees with Dashboard/D1
+AUDIT_PAGE = PASS
+AUDIT_LEGACY_ROW_RENDER = PASS; live legacy object-array row rendered
+AUDIT_REAL_WEB_ACCEPTANCE = PASS
+AI_PAGE_LOAD = PASS
+AI_INPUT_AVAILABLE = PASS
+AI_INFERENCE_SENT = NO
+PENDING_PAGE = PASS; read-only pending rows rendered
+NAVIGATION = PASS; Dashboard → Operations → AI → Pending → Audit → Dashboard
+DESKTOP_VIEWPORT = 1440x900; HORIZONTAL_OVERFLOW = NO
+MOBILE_VIEWPORT = 390x844; DRAWER = PASS; HORIZONTAL_OVERFLOW = NO
+MOBILE_WEBKIT_ACCEPTANCE = PARTIAL; iPhone-sized in-app viewport verified, actual iOS WebKit not separately proven
+PAGE_CONSOLE_ERRORS_OR_WARNINGS = 0
+HUMAN_ONLY_UI_ITEMS_REMAINING = NONE_FOR_PART_A; business mutations and AI submission remain outside Part A
+SOURCE_DEFECT_FOUND = NO
+L1_L2_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md only
+TARGETED_TESTS = NOT_RUN; source unchanged and this was browser acceptance
+WEB_BUILD = NOT_RUN; source unchanged
+
+PRODUCTION_BUSINESS_DATA_WRITES = 0
+PRODUCTION_D1_WRITES = 0
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+AI_REPORT_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+REAL_WEB_ACCEPTANCE_PART_A = PASS
+PART_B_L3_REQUIRED = YES
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+TRUE_REMAINING_BLOCKER = NONE_FOR_READ_ONLY_PART_A
+NEXT_SAFE_ACTION = STOP; Part B or any business/AI submission requires its own explicit scope and approval
+```
+
+No source/config/Production state changed. No password, token, cookie, or
+Authorization header was written to the repository or report.
