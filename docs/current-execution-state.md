@@ -3831,3 +3831,74 @@ NEXT_SAFE_ACTION = STOP; any live Cron mutation, deployment, or durable-fallback
 No source/config change, migration, deployment, Cron mutation, manual Ambient
 execution, LINE send, Queue write, AI call, or Production data write was
 performed in this closure.
+
+## Web Final Human Acceptance Part A — 2026-08-30 — stopped at login boundary
+
+This bounded read-only Part A check loaded the current GitHub Pages app in the
+Codex In-app Browser. The Pages app shell loaded at HTTP 200, the login form
+rendered without a fatal browser console error, and the unauthenticated live
+Worker checks returned HTTP 200 for both `/health` and `/ready`.
+
+The browser session available to this run was not authenticated. No safe
+existing user tab/session was available to claim, and no password, token,
+cookie, or Authorization header was read or entered. Per the acceptance
+boundary, the run stopped before any authenticated navigation. Dashboard,
+Operations, Audit, Pending, AI-page load, menu navigation, and mobile
+authenticated acceptance therefore remain untested; Part B was not entered.
+
+```text
+TASK_RESULT = BLOCKED_AT_HUMAN_LOGIN_BOUNDARY
+START_HANDOFF_HEAD = 61bed1354cdf452f5754389178146e02f63ce26c
+PAGES_HTTP = 200
+PAGES_APP_SHELL = PASS
+PAGE_CONSOLE_ERRORS = 0
+WORKER_HEALTH = PASS; HTTP 200
+WORKER_READY = PASS; HTTP 200
+LOGIN_PAGE = PASS
+LOGIN_HTTP = NOT_SENT
+AUTH_SESSION = NOT_AVAILABLE
+POST_LOGIN_NAVIGATION = NOT_APPLICABLE
+HUMAN_LOGIN_REQUIRED = YES
+DASHBOARD = NOT_CHECKED
+DASHBOARD_DATA_CONSISTENCY = NOT_CHECKED
+OPERATIONS = NOT_CHECKED
+OPERATIONS_DATA_CONSISTENCY = NOT_CHECKED
+AUDIT_PAGE = NOT_CHECKED
+AUDIT_LEGACY_ROW_RENDER = NOT_CHECKED
+AUDIT_REAL_WEB_ACCEPTANCE = NOT_REACHED
+AI_PAGE_LOAD = NOT_REACHED
+AI_INPUT_AVAILABLE = NOT_REACHED
+AI_INFERENCE_SENT = NO
+PENDING_PAGE = NOT_CHECKED
+NAVIGATION = NOT_REACHED
+MOBILE_DRAWER = NOT_REACHED
+MOBILE_WEBKIT_ACCEPTANCE = NOT_REACHED
+HUMAN_ONLY_UI_ITEMS_REMAINING = AUTHENTICATED_WEB_ACCEPTANCE_PART_A
+SOURCE_DEFECT_FOUND = NO
+L1_L2_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md only
+TARGETED_TESTS = NOT_RUN; source unchanged and acceptance stopped before authenticated UI
+WEB_BUILD = NOT_RUN; source unchanged
+
+PRODUCTION_BUSINESS_DATA_WRITES = 0
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+AI_REPORT_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+REAL_WEB_ACCEPTANCE_PART_A = BLOCKED_HUMAN_LOGIN_REQUIRED
+PART_B_L3_REQUIRED = YES
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+TRUE_REMAINING_BLOCKER = AUTHENTICATED_WEB_SESSION_UNAVAILABLE; HUMAN_LOGIN_REQUIRED
+NEXT_SAFE_ACTION = USER_SIGN_IN_TO_THE_CURRENT_PAGES_SESSION, THEN_REQUEST_CONTINUATION
+```
+
+No password/token was entered, no authenticated API was called, no AI
+inference or `ai_reports` write was attempted, and no source/config/Production
+state changed.
