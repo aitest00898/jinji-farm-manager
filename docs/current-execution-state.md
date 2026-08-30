@@ -2332,3 +2332,21 @@ structured-response validation, and `ai_reports` persistence failures to the
 same 503. No Production AI request was made, so no narrower sublayer or AI fix
 is claimed. Pages/Worker deployment and real iPhone acceptance remain pending
 and were intentionally not performed in this L1/L2 task.
+
+## GitHub handoff synchronization — 2026-08-30
+
+The verified local repair commit was synchronized to the existing GitHub
+repository on a non-`main` handoff branch. The `main` branch was not changed,
+so the Pages workflow and Production deployment were not triggered.
+
+```text
+GITHUB_HANDOFF_REPOSITORY = aitest00898/jinji-farm-manager
+GITHUB_HANDOFF_BRANCH = web-defect-repair-2026-08-30
+GITHUB_HANDOFF_SHA = f9bd39d8ed4cb14f40c162915301fb89792d607a
+GITHUB_MAIN_SHA = 590bafb96525c7bd1c0e9111da32b1de1a164b50
+GITHUB_HANDOFF_PUSH = YES
+GITHUB_MAIN_CHANGED = NO
+PAGES_DEPLOYMENT = NOT_TRIGGERED
+PRODUCTION_DEPLOYMENT = NOT_DONE
+NEXT_SAFE_ACTION = REVIEW_HANDOFF_BRANCH_AND_SEPARATELY_APPROVE_L3_DEPLOYMENT
+```
