@@ -4124,3 +4124,70 @@ caretaker data was changed. No deployment, migration, Cron change, LINE send,
 Queue write, Prompt/model/schema change, or raw completion persistence was
 performed. The two approved test-farm state transitions and their Audit rows
 are intentionally retained as acceptance evidence.
+
+## GitHub main / Pages source-of-truth convergence — 2026-08-30
+
+The explicitly authorized fast-forward convergence gate completed after
+rechecking the remote refs. `origin/main` was `33cf98d5fd7fe37341f00eaf458a2be4506045a1`
+and `origin/web-defect-repair-2026-08-30` was
+`15456ee9f26b273d9e9d1e6388b9f3c660a235c0`. The merge base was the former,
+with `HANDOFF_BEHIND_BY=0`, `HANDOFF_AHEAD_BY=22`, and a pure fast-forward
+available. The actual source diff contained only the eight previously
+validated AI/analysis, Web API/test, and current-state files; no migration,
+Cron, workflow, secret, or unrelated Production change was present.
+
+Pre-release verification passed: Web tests `13/13`, Web build PASS, and
+Backend TypeScript plus Vitest `764 passed / 11 skipped`. The existing Worker
+was read-only checked before release as version
+`b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6`; `/health` and `/ready` both returned
+HTTP 200. No Worker deployment occurred.
+
+The remote `main` was updated once by a non-force fast-forward from
+`33cf98d5...` to `15456ee9...`. GitHub Pages workflow
+`33316557194` was triggered by that exact release SHA; its Web test, build,
+artifact, and `actions/deploy-pages@v4` jobs all passed. The corresponding
+GitHub Pages deployment used SHA `15456ee9...`, and the public root
+`https://aitest00898.github.io/jinji-farm-manager/` returned HTTP 200.
+
+The minimal visible-browser smoke loaded the published app shell without a
+fatal render. The fresh browser tab had no naturally continued authenticated
+session, so Dashboard, Audit, and AI route navigation showed the normal login
+guard; no re-login, AI request, farm edit, or business-data operation was
+performed. This is recorded as `PAGES_SMOKE=PASS_WITH_AUTH_SESSION_NOT_CONTINUED`,
+not as a release failure. The prior authenticated Part A/B acceptance remains
+the source-backed Web acceptance evidence.
+
+After the first Pages deployment, this section was committed with the exact
+message `[skip ci] Record main convergence and final Web acceptance` and
+will be fast-forwarded to both remote branches. The docs-only completion must
+not create another Pages run; the expected final remote state is exact
+`main`/handoff SHA alignment with no source diff. The local checkout's old
+divergent `main` pointer was not reset or discarded; remote refs are the
+source-of-truth for this convergence.
+
+```text
+TASK_RESULT = PASS
+SOURCE_RELEASE_SHA = 15456ee9f26b273d9e9d1e6388b9f3c660a235c0
+MAIN_FAST_FORWARD = YES
+PAGES_WORKFLOW_RUN = 33316557194
+PAGES_WORKFLOW_SOURCE_SHA = 15456ee9f26b273d9e9d1e6388b9f3c660a235c0
+PAGES_WORKFLOW = PASS
+PAGES_DEPLOYMENT = PASS; ONE THIS GATE
+PAGES_HTTP = PASS; HTTP 200
+PAGES_SMOKE = PASS_WITH_AUTH_SESSION_NOT_CONTINUED
+WORKER_VERSION_BEFORE = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
+WORKER_VERSION_AFTER = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
+WORKER_UNCHANGED = YES
+WORKER_DEPLOYMENTS_THIS_GATE = 0
+PRODUCTION_D1_WRITES = 0
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+PROMPT_CHANGED = NO
+MODEL_CHANGED = NO
+SCHEMA_CHANGED = NO
+SECOND_PAGES_DEPLOYMENT = NOT_YET_VERIFIED
+```
