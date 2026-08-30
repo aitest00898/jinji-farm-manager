@@ -3147,3 +3147,85 @@ configuration, Prompt, model, schema, Production data, Queue, LINE, Cron,
 migration, or deployment state was changed by the diagnostic. The next
 Production verification remains one separately approved deployment and one
 bounded request only.
+
+## Balanced JSON extractor Production verify — 2026-08-30 — 19:36 CST
+
+This explicit L3 Worker-only verification deployed the already tested handoff
+source exactly once. Health and readiness both passed. A short-lived session
+was created through the existing Web authentication API in process memory;
+the authenticated rehearsal returned parseable JSON. One forced normal
+analysis request was then made to ensure the AI path was actually exercised;
+no retry was made.
+
+The request returned the new bounded error
+`ai_response_schema_required_field_missing`. This code is emitted only after
+`extractJsonResult` succeeds and strict `StructuredAnalysis` validation finds
+a missing required field. Therefore the balanced extractor passed this live
+Production response, while the end-to-end AI analysis still failed at the
+unchanged schema layer. No Prompt, model, response format, or schema change
+was made or authorized by this Gate.
+
+```text
+TASK_RESULT = FAIL_BOUNDED_SCHEMA_FAILURE
+START_HANDOFF_HEAD = bfb1b3a856178e4b3b900629679583433d4be572
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+
+WORKER_PREVIOUS_VERSION = 3bd90ffd-79a1-48a5-9ae6-c94de10b99ef
+WORKER_NEW_VERSION = ad10ec94-2682-469c-ac13-8fe28a14917c
+WORKER_DEPLOYMENT = PASS
+HEALTH = PASS; HTTP_200
+READY = PASS; HTTP_200
+
+AUTH_LOGIN_HTTP_STATUS = 200
+AUTHENTICATED_HTTP_CAPTURE = PASS
+REHEARSAL_ENDPOINT = /api/web/auth/session
+REHEARSAL_HTTP_STATUS = 200
+REHEARSAL_JSON_CAPTURE = PASS
+REHEARSAL_PRODUCTION_WRITES = 0
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 1
+AI_HTTP_STATUS = 503
+AI_BOUNDED_ERROR_CODE = ai_response_schema_required_field_missing
+AI_RESPONSE_FAILURE_SUBTYPE = SCHEMA_REQUIRED_FIELD_MISSING
+AI_LIVE_VERIFY = FAIL
+BALANCED_EXTRACTOR_CURRENT_PRODUCTION_REQUEST = PASS
+AI_REPORT_WRITE_OCCURRED = NO
+AI_REPORT_WRITES = 0
+
+RAW_COMPLETION_CAPTURED = NO
+RAW_PROVIDER_RESPONSE_CAPTURED = NO
+TOKEN_EXPOSED = NO
+AUTH_HEADER_INSPECTED = NO
+AUTH_SESSION_METADATA_WRITES = ALLOWED_BY_GATE
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+RESPONSE_FORMAT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECOND_AI_REQUEST = NOT_DONE
+SECOND_WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+ROLLBACK_REQUIRED = NO
+ROLLBACK_EXECUTED = NO
+
+CAUSAL_L1_L2_FIX_PROVEN_AFTER_VERIFY = YES_FOR_BALANCED_EXTRACTOR
+SOURCE_FIX_IMPLEMENTED_AFTER_VERIFY = NO_ALREADY_DEPLOYED
+L3_AI_CONTRACT_DECISION_REQUIRED = YES
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+TRUE_REMAINING_BLOCKER = STRICT_SCHEMA_REQUIRED_FIELD_FAILURE_AFTER_EXTRACTION
+NEXT_SAFE_ACTION = STOP; SEPARATE_L3_AI_CONTRACT_DECISION_REQUIRED_BEFORE_ANY_FURTHER_PRODUCTION_ACTION
+```
+
+The schema failure does not justify rollback: health/readiness passed and no
+new deployment-caused regression was observed. The prior JSON extraction
+failure is now live-verified as fixed for this request, but long-term model
+JSON reliability and the remaining schema failure are not resolved.
