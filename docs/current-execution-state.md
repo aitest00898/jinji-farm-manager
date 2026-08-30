@@ -3510,3 +3510,62 @@ NEXT_SAFE_ACTION = STOP; FUTURE REQUEST-CONTRACT DECISION REQUIRES A SEPARATE EX
 
 No retry was made, and no paid fallback, schema relaxation, Prompt change,
 model switch, deployment, or Production operation followed this result.
+
+## Minimal official JSON Mode probe — 2026-08-30 — 20:36 CST
+
+The one-shot bounded probe used the same developer-only account,
+authentication, direct Workers AI REST family, and candidate model, while
+using the existing harness's raw slash-separated model path. The request used
+only synthetic prompt data and the exact minimal official-style JSON Schema
+with `name`, `status`, and `notes`, without additional JSON Schema keywords.
+
+Cloudflare accepted the request and returned HTTP 200. The provider result was
+an object and the in-memory bounded shape check confirmed `name` and `status`
+as strings and `notes` as a string array. No result content was retained.
+This proves the account/model/raw transport/JSON Mode combination works for a
+minimal schema on the Free-only path. It does not prove the full
+StructuredAnalysis schema or production readiness.
+
+The previous full-schema HTTP 400 comparison is now most consistent with a
+non-canonical URL-encoded model-path probe artifact, but full-schema
+compatibility is still not proven because the prior request also used a
+different schema. No further Workers AI call is authorized in this task.
+
+```text
+TASK_RESULT = PASS_BOUNDED_MINIMAL_JSON_MODE
+START_HEAD = 4689a903b8a5411c11464fcbaae838bc1241fa56
+
+CANDIDATE_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+REAL_WORKERS_AI_CALLS = 1
+FREE_ONLY_REQUIREMENT = ENFORCED
+FREE_MODEL_ACCESS_LIVE_VERIFIED = YES
+FREE_QUOTA_EXHAUSTED = NO
+
+JSON_MODE_MINIMAL_SCHEMA_ACCEPTED = YES
+AI_HTTP_STATUS = 200
+CLOUDFLARE_ERROR_CODE = NONE
+CLOUDFLARE_ERROR_TYPE = NONE
+PROVIDER_RESULT_RETURNED = YES
+MINIMAL_SCHEMA_VALIDATION = PASS; OBJECT; name=STRING; status=STRING; notes=STRING_ARRAY
+
+PREVIOUS_FULL_SCHEMA_400_REINTERPRETATION = LIKELY_NONCANONICAL_URL_ENCODING_ARTIFACT; FULL_SCHEMA_COMPATIBILITY_NOT_PROVEN
+
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+AI_REPORT_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+MIGRATION = NONE
+CRON_CHANGED = NO
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_MODEL_CHANGED = NO
+
+SOURCE_CHANGED = NO
+FILES_CHANGED = docs/current-execution-state.md; temporary probe removed
+GITHUB_HANDOFF = PENDING_DOC_COMMIT_AND_PUSH
+
+TRUE_REMAINING_BLOCKER = FULL_STRUCTURED_ANALYSIS_SCHEMA_COMPATIBILITY_NOT_PROVEN
+NEXT_SAFE_ACTION = STOP; OFFLINE SCHEMA-KEYWORD REVIEW REQUIRES A SEPARATE TASK
+```
