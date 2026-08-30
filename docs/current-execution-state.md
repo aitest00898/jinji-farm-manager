@@ -3724,3 +3724,110 @@ NEXT_SAFE_ACTION = STOP; HUMAN REAL-WORLD ACCEPTANCE REMAINS SEPARATE
 No second AI request, second deployment, Pages deployment, migration, Cron or
 Queue change, LINE message, business write, paid fallback, Prompt/model change,
 or validator relaxation was performed.
+
+## Cron / Scheduled Digest closure — 2026-08-30 — 21:18 CST
+
+This bounded L1/L2 closure checked the repository Cron baseline and dispatcher,
+read-only live Worker metadata, and retained Production Ambient/Daily Review
+ledger evidence. No scheduled handler or Ambient digest was manually triggered,
+and no new event or observation was created.
+
+The repository baseline is exact and internally routed:
+
+- Ambient Digest: `0 1,4,7,10,22 * * *` UTC, or 06:00/09:00/12:00/15:00/18:00
+  Asia/Taipei.
+- Daily Review: `0 13 * * *` UTC, or 21:00 Asia/Taipei.
+- LINE event recovery: `*/2 * * * *`.
+- Scheduled Weather is absent.
+
+`scheduledJobForCron` maps only those three expressions to
+`ambient_digest`, `daily_review`, and `recovery`; unknown expressions log an
+unknown-cron event and do not fall through to another job. The repository
+schedule tests pass this exact three-entry configuration and the local-time
+boundary cases.
+
+Wrangler 4.124.0 `triggers` exposes deployment, not a read-only trigger-list;
+`deployments list/status` exposed the current Worker version
+`b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6` at 100% but no live Cron expressions.
+Therefore full live expression parity remains `UNKNOWN_NOT_BLOCKER`; it is not
+inferred from deployment metadata.
+
+Existing remote D1 evidence, selected with masked ID suffixes and no source
+payloads, provides real scheduled Ambient execution evidence:
+
+- `2026-08-30T07:00:37Z` (`15:00` Asia/Taipei) has a `cron` invocation that
+  completed with one group run. The correlated run completed through source,
+  prefilter, AI, validation, candidate write, buffer consume, and
+  `delivery_status=sent` at `2026-08-30T07:00:46.555Z`.
+- `2026-08-30T04:00:37Z` (`12:00` Asia/Taipei) completed with zero groups and
+  zero group runs, matching the already closed no-eligible-group observation;
+  it is not treated as a failure or as a LINE delivery.
+- In the retained `2026-08-24T00:00Z` onward query window, 27 Cron invocation
+  rows were `completed`; 20 correlated group-run rows were terminal (2
+  `completed`, 18 `failed`). The 18 failed rows retained an error stage/class
+  and completion time. Delivery state was bounded as 2 `sent` and 18
+  `not_requested`.
+- Daily Review has independent real delivery evidence, including the
+  `2026-08-30` row with `delivery_status=sent`, one attempt, and a UTC send
+  time of `13:00:20Z`. This is Daily Review evidence, not Ambient evidence.
+
+Failure visibility is now sufficient for normal D1 observability operation but
+not an absolute guarantee during an observability-storage outage. Invocation
+start/terminal state, group-run start/terminal state, bounded failure stage and
+error class, and Ambient aggregate delivery (`sent`/`failed`) are durably
+represented when their existing D1 writes succeed. The current source catches
+observability write failures in `create/updateAmbientDigestInvocation` and
+`create/updateAmbientDigestRunObservability`, logs only a bounded ephemeral
+error, and deliberately keeps business processing non-blocking. Ambient push
+also records an aggregate run delivery state after `pushLine`; it does not add
+a separate per-attempt receipt ledger.
+
+This leaves a `PARTIAL_NON_BLOCKING` conditional visibility caveat, not a Cron
+routing or observed scheduled-execution blocker. Closing that caveat would
+require a new durable fallback or a change to the existing business/failure
+boundary, which is outside this L1/L2 closure and was not implemented.
+
+```text
+TASK_RESULT = PASS_BOUNDED_CRON_CLOSURE
+START_HANDOFF_HEAD = bef20778f1855f2ae71e5e9f6e7f919900dc405d
+MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+SOURCE_CRON_ROUTING_PARITY = PASS
+LIVE_CRON_READ_METHOD = Wrangler deployments list/status; trigger expressions unavailable
+LIVE_CRON_LIST_OBTAINED = NO
+LIVE_CRON_PARITY = UNKNOWN_NOT_BLOCKER
+SCHEDULED_AMBIENT_REAL_EXECUTION_EVIDENCE = PASS; 2026-08-30T07:00:37Z cron invocation and correlated run
+SCHEDULED_AMBIENT_REAL_LINE_DELIVERY_EVIDENCE = PASS; correlated run delivery_status=sent
+CURRENT_FAILURE_VISIBILITY = PARTIAL_NON_BLOCKING
+INVOCATION_VISIBLE = YES
+RUN_START_VISIBLE = YES
+RUN_TERMINAL_VISIBLE = YES
+FAILURE_CLASS_VISIBLE = YES
+LINE_DELIVERY_VISIBLE = BOUNDED_SENT_OR_FAILED
+DURABLE_POSTMORTEM_EVIDENCE = YES_WHEN_EXISTING_D1_OBSERVABILITY_WRITES_SUCCEED
+SCHEDULED_AMBIENT_FAILURE_VISIBILITY_GAP = PARTIAL_NON_BLOCKING_CONDITIONAL
+CURRENT_GAP_LOSS_POINT = OBSERVABILITY_D1_WRITE_FAILURE_IS_CAUGHT_AND_ONLY_EPHEMERALLY_LOGGED; AMBIENT DELIVERY IS AGGREGATE RUN STATE
+L1_L2_FIX_REQUIRED = NO_SAFE_SOURCE_ONLY_FIX
+L1_L2_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md only
+TARGETED_TESTS = PASS; schedule.test.ts + ambient-observability.test.ts + ambient-failure-retention.test.ts; 26 passed
+REGRESSION = NOT_RUN; source/config unchanged and targeted scheduled/observability coverage passed
+L3_REQUIRED = NO_FOR_THIS_READ_ONLY_CLOSURE; YES_FOR_LIVE_CRON_MUTATION/DEPLOYMENT OR A_NEW_DURABLE_FALLBACK
+PRODUCTION_DEPLOYMENT = NOT_DONE
+CRON_CHANGED = NO
+PRODUCTION_CONFIG_CHANGED = NO
+PRODUCTION_D1_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_AI_CALLS = 0
+MIGRATION = NONE
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+CRON_CLOSURE = PASS_BOUNDED; live trigger expression parity remains unknown but is not an L1/L2 blocker
+TRUE_REMAINING_BLOCKER = NONE_FOR_THIS_CLOSURE
+NEXT_SAFE_ACTION = STOP; any live Cron mutation, deployment, or durable-fallback design requires a separate explicit L3 decision
+```
+
+No source/config change, migration, deployment, Cron mutation, manual Ambient
+execution, LINE send, Queue write, AI call, or Production data write was
+performed in this closure.
