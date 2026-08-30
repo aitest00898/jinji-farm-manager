@@ -1,0 +1,1874 @@
+[
+  {
+    "id": "mortality-explicit-001",
+    "input": "洪秀美死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-002",
+    "input": "洪秀美場死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-003",
+    "input": "死亡5 洪秀美",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-004",
+    "input": "洪秀美 死亡 5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-005",
+    "input": "洪秀美：死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-006",
+    "input": "洪秀美死亡：5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-007",
+    "input": "林志騰二林場死亡8隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰二林場",
+      "quantity": 8,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-008",
+    "input": "林志騰東勢場 死亡 3 隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰東勢場",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-009",
+    "input": "廖纔藝場死2",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "廖纔藝場",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-010",
+    "input": "陳駿榜龍潭場死亡11",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "陳駿榜龍潭場",
+      "quantity": 11,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-011",
+    "input": "黃惠玲太保場死4隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "黃惠玲太保場",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-012",
+    "input": "林楷威場死亡1",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林楷威場",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-013",
+    "input": "洪嘉卿場死亡6隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪嘉卿場",
+      "quantity": 6,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-014",
+    "input": "金雞測試場死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "金雞測試場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-015",
+    "input": "東勢場死亡7",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢場",
+      "quantity": 7,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-explicit-016",
+    "input": "太保場死亡9隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "太保場",
+      "quantity": 9,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "explicit-format"
+  },
+  {
+    "id": "mortality-natural-001",
+    "input": "洪秀美今天死了5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-002",
+    "input": "洪秀美那邊今天死五隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-003",
+    "input": "洪秀美場今天有5隻死掉",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-004",
+    "input": "今天洪秀美那邊死亡5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-005",
+    "input": "洪秀美今天又掛了5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-006",
+    "input": "金雞測試場今天死了3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "金雞測試場",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-007",
+    "input": "金雞測試場今天又掛了2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "金雞測試場",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-008",
+    "input": "林志騰東勢場今天有三隻死掉",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰東勢場",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-009",
+    "input": "廖纔藝場今天死亡十二隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "廖纔藝場",
+      "quantity": 12,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-010",
+    "input": "陳駿榜龍潭場那邊今天掛掉4隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "陳駿榜龍潭場",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-011",
+    "input": "黃惠玲太保場今天死掉兩隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "黃惠玲太保場",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-012",
+    "input": "今天林楷威場死了七隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林楷威場",
+      "quantity": 7,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-013",
+    "input": "洪嘉卿今天又少了3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪嘉卿",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-014",
+    "input": "今天洪秀美場有一隻掛掉",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-015",
+    "input": "五隻死在洪秀美場",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-natural-016",
+    "input": "洪秀美場今天死5隻，其中2隻腳有問題",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "natural-language"
+  },
+  {
+    "id": "mortality-colloquial-001",
+    "input": "洪秀美今天掛5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-002",
+    "input": "東勢今天掛3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-003",
+    "input": "太保今天死掉兩隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "太保",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-004",
+    "input": "洪秀美那邊今天掛掉5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-005",
+    "input": "林楷威那場又死了4隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林楷威",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-006",
+    "input": "嘉卿那邊掛一隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "嘉卿",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-007",
+    "input": "二林今天少5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "二林",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-008",
+    "input": "洪秀美今天抓掉3隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "洪秀美",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-009",
+    "input": "太保今天有兩隻不見了",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "太保",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "mortality-colloquial-010",
+    "input": "東勢那邊雞數對不起來少了3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "taiwan-colloquial"
+  },
+  {
+    "id": "numbers-001",
+    "input": "洪秀美死五隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-002",
+    "input": "東勢死亡十二隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢",
+      "quantity": 12,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-003",
+    "input": "掛兩隻在太保",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "太保",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-004",
+    "input": "洪嘉卿場死亡二十隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪嘉卿場",
+      "quantity": 20,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-005",
+    "input": "廖纔藝場死十一隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "廖纔藝場",
+      "quantity": 11,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-006",
+    "input": "二林飼料八百公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "二林",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-007",
+    "input": "太保飲水兩千三百公升",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "太保",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "numbers-008",
+    "input": "金雞測試場喝水兩點三噸",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "金雞測試場",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "chinese-numbers"
+  },
+  {
+    "id": "word-order-001",
+    "input": "今天死5隻的是洪秀美場",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-002",
+    "input": "5隻死在洪秀美場",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-003",
+    "input": "洪秀美場5隻死亡",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-004",
+    "input": "今天洪秀美場有死亡5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-005",
+    "input": "死亡5隻的是東勢場",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢場",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-006",
+    "input": "800公斤飼料進太保場",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "太保場",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-007",
+    "input": "2300L飲水用在黃惠玲太保場",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "黃惠玲太保場",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "word-order"
+  },
+  {
+    "id": "word-order-008",
+    "input": "3隻淘汰在洪秀美場",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "洪秀美場",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "word-order"
+  },
+  {
+    "id": "alias-001",
+    "input": "二林死亡3",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "二林",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-002",
+    "input": "二林場今天死4隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "二林場",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-003",
+    "input": "東勢死亡2",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-004",
+    "input": "東勢場今天掛6隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢場",
+      "quantity": 6,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-005",
+    "input": "龍潭死亡8",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "龍潭",
+      "quantity": 8,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-006",
+    "input": "龍潭場今天飼料800公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "龍潭場",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-007",
+    "input": "太保死亡3",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "太保",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-008",
+    "input": "太保場今天飲水2300L",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "太保場",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-009",
+    "input": "洪秀美今天死亡4",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-010",
+    "input": "洪嘉卿死亡2",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪嘉卿",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-011",
+    "input": "嘉卿場今天死1隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "嘉卿場",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "alias-012",
+    "input": "楷威場今天死亡7隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "楷威場",
+      "quantity": 7,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "canonical-alias"
+  },
+  {
+    "id": "typo-001",
+    "input": "洪秀梅今天死5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀梅",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-002",
+    "input": "洪秀妹那邊掛2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀妹",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-003",
+    "input": "洪嘉清今天死亡2",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪嘉清",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-004",
+    "input": "洪家卿場死3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪家卿場",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-005",
+    "input": "金雞側市場今天死1隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "金雞側市場",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-006",
+    "input": "林志騰東市今天掛4隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰東市",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-007",
+    "input": "黃惠玲太保場錯成太寶死亡2",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "黃惠玲太保場錯成太寶",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "typo-008",
+    "input": "廖才藝場今天死2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "廖才藝場",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "typo-homophone"
+  },
+  {
+    "id": "ambiguous-001",
+    "input": "林志騰今天死3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "ambiguous-002",
+    "input": "林志騰那場死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林志騰",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "ambiguous-003",
+    "input": "林志騰今天餵800公斤料",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "林志騰",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "ambiguous-004",
+    "input": "林志騰場飲水2300L",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "林志騰場",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "ambiguous-005",
+    "input": "洪家今天掛2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪家",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "ambiguous-006",
+    "input": "林場死亡4",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "林場",
+      "quantity": 4,
+      "unit": "bird"
+    },
+    "expectedSafety": "ambiguous",
+    "category": "ambiguous-farm"
+  },
+  {
+    "id": "missing-farm-001",
+    "input": "死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": null,
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-002",
+    "input": "今天死3隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": null,
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-003",
+    "input": "掛了2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": null,
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-004",
+    "input": "飼料800公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": null,
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-005",
+    "input": "飲水2300L",
+    "expected": {
+      "intent": "record_water",
+      "farmText": null,
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-006",
+    "input": "今天淘汰3隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": null,
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-007",
+    "input": "出雞12000隻",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": null,
+      "quantity": 12000,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "missing-farm-008",
+    "input": "今天有五隻死掉",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": null,
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "missing-farm"
+  },
+  {
+    "id": "feed-001",
+    "input": "東勢今天餵800公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "東勢",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-002",
+    "input": "東勢今天用了800公斤料",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "東勢",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-003",
+    "input": "太保進料500公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "太保",
+      "quantity": 500,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-004",
+    "input": "洪秀美今天飼料用了20包",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "洪秀美",
+      "quantity": 20,
+      "unit": "kg"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "feed"
+  },
+  {
+    "id": "feed-005",
+    "input": "金雞測試場今天餵了1.2噸飼料",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "金雞測試場",
+      "quantity": 1200,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-006",
+    "input": "林楷威場飼料800kg",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "林楷威場",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-007",
+    "input": "洪嘉卿場今天料用了450公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "洪嘉卿場",
+      "quantity": 450,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-008",
+    "input": "廖纔藝場進飼料300千克",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "廖纔藝場",
+      "quantity": 300,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-009",
+    "input": "龍潭今天餵料600公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "龍潭",
+      "quantity": 600,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "feed-010",
+    "input": "二林場今天補料900公斤",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "二林場",
+      "quantity": 900,
+      "unit": "kg"
+    },
+    "expectedSafety": "direct",
+    "category": "feed"
+  },
+  {
+    "id": "water-001",
+    "input": "太保今天飲水2300L",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "太保",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-002",
+    "input": "太保今天喝水2.3噸",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "太保",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-003",
+    "input": "今天太保用水2.3噸",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "太保",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-004",
+    "input": "黃惠玲太保場飲水2300公升",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "黃惠玲太保場",
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-005",
+    "input": "東勢場喝水1800L",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "東勢場",
+      "quantity": 1800,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-006",
+    "input": "金雞測試場用水一千公升",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "金雞測試場",
+      "quantity": 1000,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-007",
+    "input": "龍潭今天飲水1噸",
+    "expected": {
+      "intent": "record_water",
+      "farmText": "龍潭",
+      "quantity": 1000,
+      "unit": "L"
+    },
+    "expectedSafety": "direct",
+    "category": "water"
+  },
+  {
+    "id": "water-008",
+    "input": "飲水2.3噸",
+    "expected": {
+      "intent": "record_water",
+      "farmText": null,
+      "quantity": 2300,
+      "unit": "L"
+    },
+    "expectedSafety": "waiting_farm",
+    "category": "water"
+  },
+  {
+    "id": "cull-001",
+    "input": "洪秀美今天淘汰3隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "洪秀美",
+      "quantity": 3,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "cull"
+  },
+  {
+    "id": "cull-002",
+    "input": "東勢今天淘汰兩隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "東勢",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "cull"
+  },
+  {
+    "id": "cull-003",
+    "input": "太保場抓掉2隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "太保場",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "cull"
+  },
+  {
+    "id": "cull-004",
+    "input": "林楷威場今天淘汰1羽",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "林楷威場",
+      "quantity": 1,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "cull"
+  },
+  {
+    "id": "cull-005",
+    "input": "金雞測試場今天淘汰十隻",
+    "expected": {
+      "intent": "record_cull",
+      "farmText": "金雞測試場",
+      "quantity": 10,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "cull"
+  },
+  {
+    "id": "shipment-001",
+    "input": "太保今天出雞12000隻",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": "太保",
+      "quantity": 12000,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "shipment"
+  },
+  {
+    "id": "shipment-002",
+    "input": "太保今天出了12000隻雞",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": "太保",
+      "quantity": 12000,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "shipment"
+  },
+  {
+    "id": "shipment-003",
+    "input": "洪秀美場今天出欄8000羽",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": "洪秀美場",
+      "quantity": 8000,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "shipment"
+  },
+  {
+    "id": "shipment-004",
+    "input": "東勢場出雞3000隻",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": "東勢場",
+      "quantity": 3000,
+      "unit": "bird"
+    },
+    "expectedSafety": "direct",
+    "category": "shipment"
+  },
+  {
+    "id": "shipment-005",
+    "input": "太保今天出了12000",
+    "expected": {
+      "intent": "record_shipment",
+      "farmText": "太保",
+      "quantity": 12000,
+      "unit": "bird"
+    },
+    "expectedSafety": "reject",
+    "category": "shipment"
+  },
+  {
+    "id": "query-001",
+    "input": "今天死亡",
+    "expected": {
+      "intent": "query_today_mortality",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-002",
+    "input": "今天哪場死亡最多",
+    "expected": {
+      "intent": "query_today_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-003",
+    "input": "今天哪一場死最多",
+    "expected": {
+      "intent": "query_today_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-004",
+    "input": "洪秀美今天死多少",
+    "expected": {
+      "intent": "query_farm_mortality",
+      "farmText": "洪秀美",
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-005",
+    "input": "洪秀美今天死亡幾隻",
+    "expected": {
+      "intent": "query_farm_mortality",
+      "farmText": "洪秀美",
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-006",
+    "input": "最近哪場死亡比較高",
+    "expected": {
+      "intent": "query_recent_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "needsClarification",
+    "category": "query"
+  },
+  {
+    "id": "query-007",
+    "input": "近期哪個雞場死最多",
+    "expected": {
+      "intent": "query_recent_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "needsClarification",
+    "category": "query"
+  },
+  {
+    "id": "query-008",
+    "input": "今天哪場死最多？",
+    "expected": {
+      "intent": "query_today_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "direct",
+    "category": "query"
+  },
+  {
+    "id": "query-009",
+    "input": "洪秀梅今天死多少",
+    "expected": {
+      "intent": "query_farm_mortality",
+      "farmText": "洪秀梅",
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "query"
+  },
+  {
+    "id": "query-010",
+    "input": "最近死亡比較多的是哪一場",
+    "expected": {
+      "intent": "query_recent_mortality_top",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "needsClarification",
+    "category": "query"
+  },
+  {
+    "id": "multi-001",
+    "input": "洪秀美今天死亡3隻淘汰2隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "multiple-events"
+  },
+  {
+    "id": "multi-002",
+    "input": "洪秀美今天死亡3隻飼料用了800公斤",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "multiple-events"
+  },
+  {
+    "id": "multi-003",
+    "input": "東勢死亡2隻飲水2300L",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "multiple-events"
+  },
+  {
+    "id": "multi-004",
+    "input": "太保今天死3隻又出雞1000隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "multiple-events"
+  },
+  {
+    "id": "multi-005",
+    "input": "金雞測試場飼料800公斤飲水2300L",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "multiple-events"
+  },
+  {
+    "id": "negation-001",
+    "input": "洪秀美今天沒有死亡",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "negation"
+  },
+  {
+    "id": "negation-002",
+    "input": "洪秀美今天沒死雞",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "negation"
+  },
+  {
+    "id": "negation-003",
+    "input": "東勢今天沒有死5隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "negation"
+  },
+  {
+    "id": "negation-004",
+    "input": "不是洪秀美死亡5，是洪嘉卿",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "negation"
+  },
+  {
+    "id": "negation-005",
+    "input": "太保沒有淘汰3隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "negation"
+  },
+  {
+    "id": "correction-001",
+    "input": "洪秀美死亡5，不對，是3隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "correction"
+  },
+  {
+    "id": "correction-002",
+    "input": "剛才講錯了，洪秀美是死3隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "correction"
+  },
+  {
+    "id": "correction-003",
+    "input": "不是二林，是東勢死亡4隻",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "correction"
+  },
+  {
+    "id": "uncertain-001",
+    "input": "洪秀美好像死5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "uncertain"
+  },
+  {
+    "id": "uncertain-002",
+    "input": "洪秀美應該死了5隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "uncertain"
+  },
+  {
+    "id": "uncertain-003",
+    "input": "聽說洪秀美今天死亡5",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "洪秀美",
+      "quantity": 5,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "uncertain"
+  },
+  {
+    "id": "uncertain-004",
+    "input": "東勢可能掛了2隻",
+    "expected": {
+      "intent": "record_mortality",
+      "farmText": "東勢",
+      "quantity": 2,
+      "unit": "bird"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "uncertain"
+  },
+  {
+    "id": "uncertain-005",
+    "input": "太保大概用了800公斤飼料",
+    "expected": {
+      "intent": "record_feed",
+      "farmText": "太保",
+      "quantity": 800,
+      "unit": "kg"
+    },
+    "expectedSafety": "needsConfirmation",
+    "category": "uncertain"
+  },
+  {
+    "id": "unknown-001",
+    "input": "今天天氣很好",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-002",
+    "input": "晚餐吃什麼",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-003",
+    "input": "你叫什麼名字",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-004",
+    "input": "幫我寫一首歌",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-005",
+    "input": "雞一直拉肚子要用什麼藥",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-006",
+    "input": "幫我決定抗生素劑量",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-007",
+    "input": "生日是哪一天",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  },
+  {
+    "id": "unknown-008",
+    "input": "附近有什麼餐廳",
+    "expected": {
+      "intent": "unknown",
+      "farmText": null,
+      "quantity": null,
+      "unit": null
+    },
+    "expectedSafety": "reject",
+    "category": "unknown-safety"
+  }
+]

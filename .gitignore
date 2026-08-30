@@ -4,3 +4,30 @@ dist/
 .env.*
 !.env.example
 test-results/
+
+# Backend dependencies and Cloudflare generated state.
+/backend/node_modules/
+/backend/dist/
+/backend/build/
+/backend/coverage/
+/backend/test-results/
+/backend/.wrangler/
+
+# Backend local credentials and developer variables.
+/backend/.dev.secrets.local
+/backend/.dev.vars
+/backend/.dev.vars.*
+!/backend/.dev.vars.example
+
+# Backend runtime-only logs, ledgers, temporary files, and local databases.
+*.log
+/backend/logs/
+/backend/tmp/
+/backend/temp/
+*.tmp
+*.bak
+*.sqlite*
+/backend/forensics/runtime/
+
+# macOS metadata.
+.DS_Store
