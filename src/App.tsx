@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent } from "react";
 import {
   ApiClient,
+  aiFailurePresentation,
   type Alias,
   type AbnormalEvent,
   type AnalysisResult,
+  type AiFailurePresentation,
   type AmbientPreview,
   type AuditRow,
   type Caretaker,
@@ -333,6 +335,7 @@ export default function App() {
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiResult, setAiResult] = useState<AnalysisResult | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiFailure, setAiFailure] = useState<AiFailurePresentation | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [chart, setChart] = useState<ChartResponse | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
@@ -353,7 +356,7 @@ export default function App() {
   const current = useMemo(() => NAV_ITEMS.find((item) => item.key === page) ?? NAV_ITEMS[0], [page]);
 
   async function loadAll() {
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setAiFailure(null);
     try {
       const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, lineGroupData, testData, technicalData] = await Promise.all([
         api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.testTools(), api.technicalInfo(),
@@ -422,12 +425,14 @@ export default function App() {
   async function askAi(question: string, force = false) {
     const value = question.trim();
     if (!value) return;
-    setAiBusy(true); setError("");
+    setAiBusy(true); setError(""); setAiFailure(null);
     try {
       const result = await api.aiAnalyze(value, { type: "organization", id: "organization" }, force);
       setAiResult(result.result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI 分析目前無法使用。");
+      const failure = aiFailurePresentation(err);
+      setAiFailure(failure);
+      setError(failure?.message ?? (err instanceof Error ? err.message : "AI 分析目前無法使用。"));
     } finally { setAiBusy(false); }
   }
 
@@ -450,7 +455,7 @@ export default function App() {
     <main className="content" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
-      {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert">{error}<button aria-label="關閉錯誤" onClick={() => setError("")}>×</button></div>}
+      {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}
       {page === "dashboard" && <DashboardView dashboard={dashboard} farms={farms} flocks={flocks} onNavigate={navigateTo} />}
       {page === "organization" && <OrganizationView organization={organization} farms={farms} />}
       {page === "farms" && <FarmsView farms={farms} onCreate={(body) => runMutation(() => api.createFarm(body))} onUpdate={(id, body) => runMutation(() => api.updateFarm(id, body))} onRecord={(farmId) => openAbnormalComposer({ farmId })} />}

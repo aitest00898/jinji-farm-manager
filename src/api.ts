@@ -3,6 +3,31 @@ export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined
 
 export interface ApiError extends Error { status: number; code?: string }
 
+export type AiFailureLayer = "context" | "provider" | "response_validation" | "persistence" | "unknown";
+
+export interface AiFailurePresentation {
+  layer: AiFailureLayer;
+  label: string;
+  message: string;
+}
+
+const AI_FAILURE_PRESENTATIONS: Record<string, AiFailurePresentation> = {
+  ai_context_unavailable: { layer: "context", label: "分析資料讀取", message: "分析資料暫時無法讀取。" },
+  ai_provider_unavailable: { layer: "provider", label: "AI 服務", message: "AI 服務暫時無法使用。" },
+  ai_response_invalid: { layer: "response_validation", label: "AI 回覆格式", message: "AI 回覆格式不符合系統要求。" },
+  ai_cache_unavailable: { layer: "persistence", label: "分析結果儲存", message: "分析結果暫時無法儲存。" },
+  ai_report_persistence_failed: { layer: "persistence", label: "分析結果儲存", message: "分析結果暫時無法儲存。" },
+  ai_analysis_unavailable: { layer: "unknown", label: "AI 分析", message: "AI 分析目前無法使用。" },
+};
+
+export function aiFailurePresentation(error: unknown): AiFailurePresentation | null {
+  if (!error || typeof error !== "object") return null;
+  const status = (error as { status?: unknown }).status;
+  const code = (error as { code?: unknown }).code;
+  if (status !== 503 || typeof code !== "string") return null;
+  return AI_FAILURE_PRESENTATIONS[code] ?? AI_FAILURE_PRESENTATIONS.ai_analysis_unavailable;
+}
+
 export interface Farm {
   id: string; name: string; siteName: string | null; active: boolean; environment: "production" | "test";
   structureMode: "whole_farm" | "multi_house"; note: string | null; version: number;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_BASE, ApiClient, queryString } from "./api";
+import { API_BASE, ApiClient, aiFailurePresentation, queryString } from "./api";
 import { NAV_GROUPS, NAV_ITEMS } from "./navigation";
 
 describe("mobile navigation information architecture", () => {
@@ -75,6 +75,33 @@ describe("Web management safety contract", () => {
     const client = new ApiClient();
     await expect(client.login("test-only-fixture")).rejects.toMatchObject({ status: 401, code: "invalid_credentials" });
     expect(client.hasToken()).toBe(false);
+  });
+
+  it("preserves bounded AI failure codes and maps them to safe UI categories", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "ai_provider_unavailable", message: "目前無法完成 AI 分析；D1 查詢與異常紀錄不受影響。" }), { status: 503 })));
+    const client = new ApiClient();
+    const error = await client.aiAnalyze("這一批最近有哪些異常？").catch((value) => value as { status: number; code?: string; message: string });
+    expect(error).toMatchObject({ status: 503, code: "ai_provider_unavailable" });
+    expect(aiFailurePresentation(error)).toEqual({ layer: "provider", label: "AI 服務", message: "AI 服務暫時無法使用。" });
+    expect(aiFailurePresentation(error)?.message).not.toContain("ai_provider_unavailable");
+  });
+
+  it("classifies every bounded AI layer without exposing raw internal errors", () => {
+    const cases = [
+      ["ai_context_unavailable", "context", "分析資料讀取", "分析資料暫時無法讀取。"],
+      ["ai_provider_unavailable", "provider", "AI 服務", "AI 服務暫時無法使用。"],
+      ["ai_response_invalid", "response_validation", "AI 回覆格式", "AI 回覆格式不符合系統要求。"],
+      ["ai_cache_unavailable", "persistence", "分析結果儲存", "分析結果暫時無法儲存。"],
+      ["ai_report_persistence_failed", "persistence", "分析結果儲存", "分析結果暫時無法儲存。"],
+      ["ai_analysis_unavailable", "unknown", "AI 分析", "AI 分析目前無法使用。"],
+    ] as const;
+    for (const [code, layer, label, message] of cases) {
+      const result = aiFailurePresentation(Object.assign(new Error("provider-internal-secret"), { status: 503, code }));
+      expect(result).toEqual({ layer, label, message });
+      expect(result?.message).not.toContain("provider-internal-secret");
+      expect(result?.message).not.toContain(code);
+    }
+    expect(aiFailurePresentation(Object.assign(new Error("bad request"), { status: 400, code: "invalid_analysis_question" }))).toBeNull();
   });
 
   it("編修沿用登入狀態，不再要求再次輸入管理密碼", async () => {

@@ -2481,3 +2481,55 @@ or browser console, so the exact provider, response-validation, or persistence
 sublayer remains unproven. No second request, raw completion capture, or manual
 `ai_reports` write was performed. The production Pages page returned HTTP 200,
 but no Pages deployment was triggered.
+
+## Web AI 503 bounded code acquisition repair — 2026-08-30
+
+This L1/L2 follow-up traced the already-deployed bounded Worker response through
+the existing Web API client and AI error path. The Worker contract and
+`ApiError.code` propagation were already present. The bounded code was lost in
+`App.askAi` when the caught `ApiError` was reduced to the shared string-only
+error state. The Web now maps known 503 codes to safe user-facing categories and
+keeps the failure layer available on the existing alert without exposing raw
+internal codes, provider output, prompts, credentials, or D1 data.
+
+```text
+TASK_RESULT = PASS
+START_HANDOFF_HEAD = 3283cce983a7646200bd86885b85c2e18b3b88ff
+BOUNDED_CODE_BACKEND_RESPONSE_CONTRACT = PROVEN
+BOUNDED_CODE_API_CLIENT_PROPAGATION = PROVEN
+BOUNDED_CODE_UI_ERROR_HANDLING = FIXED_SAFE_CATEGORY_AND_LAYER
+BOUNDED_CODE_LOSS_POINT = APP_ASK_AI_CATCH_DISCARDED_APIERROR_CODE
+AI_ROOT_CAUSE = WEB_UI_ERROR_STATE_DROPPED_BOUNDED_ERROR_CODE
+SOURCE_CHANGE_REQUIRED = YES_WEB_ONLY
+PRODUCT_UI_CHANGED = YES_SAFE_CLASSIFICATION_ONLY
+RAW_INTERNAL_ERROR_EXPOSED = NO
+TARGETED_TESTS = 13_PASS
+WEB_BUILD = PASS
+BACKEND_REGRESSION = 745_PASS_11_SKIPPED
+
+PRODUCTION_AI_REQUESTS = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_D1_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MIGRATION = NONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+AUDIT_FIX_STATE = PRESERVED
+
+NEXT_PRODUCTION_DIAGNOSTIC_CAN_CAPTURE_CODE = YES
+NEXT_PRODUCTION_DIAGNOSTIC_REQUIRES_WORKER_DEPLOY = NO
+NEXT_PRODUCTION_DIAGNOSTIC_REQUIRES_PAGES_DEPLOY = YES_FOR_NORMAL_WEB_UI_PATH
+L3_APPROVAL_REQUIRED = YES_FOR_NEXT_PAGES_ONLY_RELEASE_AND_SINGLE_REQUEST
+TRUE_REMAINING_BLOCKER = UPDATED_WEB_UI_REQUIRES_PAGES_RELEASE_BEFORE_NORMAL_CAPTURE
+NEXT_SAFE_ACTION = STOP_FOR_EXPLICIT_L3_PAGES_ONLY_RELEASE_APPROVAL
+
+GITHUB_HANDOFF_REPOSITORY = aitest00898/jinji-farm-manager
+GITHUB_HANDOFF_BRANCH = web-defect-repair-2026-08-30
+GITHUB_HANDOFF_STATE = SYNCED_WITH_THIS_CHECKPOINT
+GITHUB_MAIN_CHANGED = NO
+```
+
+No Production AI request, Worker call, deployment, D1 write, or new
+observability framework was performed in this follow-up. The existing Audit
+fix remains preserved and ready for a later combined release review.
