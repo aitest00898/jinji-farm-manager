@@ -4,7 +4,7 @@ import {
   type AbnormalClassification,
 } from "./abnormal";
 import { taipeiDate } from "./master-data";
-import { extractJsonValue } from "./ai-json";
+import { extractJsonResult, extractJsonValue } from "./ai-json";
 
 export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
 
@@ -68,13 +68,38 @@ export interface AnalysisRunResult {
 
 export type AnalysisFailureLayer = "context" | "provider" | "response_validation" | "persistence" | "unknown";
 
+export const ANALYSIS_RESPONSE_FAILURE_CODES = {
+  response_text_missing: "ai_response_text_missing",
+  json_extraction_failed: "ai_response_json_extraction_failed",
+  schema_top_level_invalid: "ai_response_schema_top_level_invalid",
+  schema_required_field_missing: "ai_response_schema_required_field_missing",
+  schema_field_type_invalid: "ai_response_schema_field_type_invalid",
+  schema_possible_causes_invalid: "ai_response_schema_possible_causes_invalid",
+  schema_evidence_enum_invalid: "ai_response_schema_evidence_enum_invalid",
+  schema_constraint_invalid: "ai_response_schema_constraint_invalid",
+} as const;
+
+export type AnalysisResponseFailureSubtype = keyof typeof ANALYSIS_RESPONSE_FAILURE_CODES;
+type AnalysisResponseFailureCode = (typeof ANALYSIS_RESPONSE_FAILURE_CODES)[AnalysisResponseFailureSubtype];
+
 export interface AnalysisFailureClassification {
   layer: AnalysisFailureLayer;
-  code: "ai_context_unavailable" | "ai_provider_unavailable" | "ai_response_invalid" | "ai_cache_unavailable" | "ai_report_persistence_failed" | "ai_analysis_unavailable";
+  code: "ai_context_unavailable" | "ai_provider_unavailable" | "ai_response_invalid" | AnalysisResponseFailureCode | "ai_cache_unavailable" | "ai_report_persistence_failed" | "ai_analysis_unavailable";
+}
+
+function isAnalysisResponseFailureSubtype(value: string): value is AnalysisResponseFailureSubtype {
+  return Object.prototype.hasOwnProperty.call(ANALYSIS_RESPONSE_FAILURE_CODES, value);
 }
 
 export function classifyAnalysisFailure(error: unknown): AnalysisFailureClassification {
   const code = error instanceof Error ? error.message : "";
+  const responseFailurePrefix = "analysis_response_invalid:";
+  if (code.startsWith(responseFailurePrefix)) {
+    const subtype = code.slice(responseFailurePrefix.length);
+    if (isAnalysisResponseFailureSubtype(subtype)) {
+      return { layer: "response_validation", code: ANALYSIS_RESPONSE_FAILURE_CODES[subtype] };
+    }
+  }
   if (code === "analysis_context_unavailable") return { layer: "context", code: "ai_context_unavailable" };
   if (code === "analysis_ai_unavailable") return { layer: "provider", code: "ai_provider_unavailable" };
   if (code === "analysis_schema_invalid") return { layer: "response_validation", code: "ai_response_invalid" };
@@ -130,16 +155,25 @@ function jsonValue(raw: string): unknown {
   return extractJsonValue(raw);
 }
 
-function textList(value: unknown, maxItems = 8): string[] | null {
-  if (!Array.isArray(value) || value.length > maxItems) return null;
+type AnalysisSchemaFailureSubtype = Exclude<AnalysisResponseFailureSubtype, "response_text_missing" | "json_extraction_failed">;
+type StructuredAnalysisParseResult =
+  | { ok: true; report: StructuredAnalysis }
+  | { ok: false; subtype: AnalysisSchemaFailureSubtype };
+type TextListParseResult =
+  | { ok: true; value: string[] }
+  | { ok: false; subtype: "schema_field_type_invalid" | "schema_constraint_invalid" };
+
+function textListResult(value: unknown, maxItems = 8): TextListParseResult {
+  if (!Array.isArray(value)) return { ok: false, subtype: "schema_field_type_invalid" };
+  if (value.length > maxItems) return { ok: false, subtype: "schema_constraint_invalid" };
   const values: string[] = [];
   for (const item of value) {
-    if (typeof item !== "string") return null;
+    if (typeof item !== "string") return { ok: false, subtype: "schema_field_type_invalid" };
     const text = item.trim();
-    if (!text || text.length > 500) return null;
+    if (!text || text.length > 500) return { ok: false, subtype: "schema_constraint_invalid" };
     values.push(text);
   }
-  return values;
+  return { ok: true, value: values };
 }
 
 /** Finance values in this system are TWD. Normalize legacy/model wording at
@@ -150,30 +184,65 @@ function normalizeCurrencyText(value: string): string {
     .replace(/(^|[^A-Za-z])\$\s*(?=\d)/gu, "$1NT$");
 }
 
-export function parseStructuredAnalysis(value: unknown): StructuredAnalysis | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+const REQUIRED_ANALYSIS_FIELDS = ["currentStatus", "findings", "possibleCauses", "risks", "recommendations", "limitations"] as const;
+
+function parseStructuredAnalysisResult(value: unknown): StructuredAnalysisParseResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return { ok: false, subtype: "schema_top_level_invalid" };
   const record = value as Record<string, unknown>;
-  if (typeof record.currentStatus !== "string" || !record.currentStatus.trim() || record.currentStatus.length > 1200) return null;
-  const findings = textList(record.findings);
-  const risks = textList(record.risks);
-  const recommendations = textList(record.recommendations);
-  const limitations = textList(record.limitations);
-  if (!findings || !risks || !recommendations || !limitations || !Array.isArray(record.possibleCauses) || record.possibleCauses.length > 8) return null;
+  for (const field of REQUIRED_ANALYSIS_FIELDS) {
+    if (record[field] === undefined) return { ok: false, subtype: "schema_required_field_missing" };
+  }
+  if (typeof record.currentStatus !== "string") return { ok: false, subtype: "schema_field_type_invalid" };
+  if (!record.currentStatus.trim() || record.currentStatus.length > 1200) return { ok: false, subtype: "schema_constraint_invalid" };
+
+  const findings = textListResult(record.findings);
+  if (!findings.ok) return findings;
+  const risks = textListResult(record.risks);
+  if (!risks.ok) return risks;
+  const recommendations = textListResult(record.recommendations);
+  if (!recommendations.ok) return recommendations;
+  const limitations = textListResult(record.limitations);
+  if (!limitations.ok) return limitations;
+
+  if (!Array.isArray(record.possibleCauses)) return { ok: false, subtype: "schema_possible_causes_invalid" };
+  if (record.possibleCauses.length > 8) return { ok: false, subtype: "schema_constraint_invalid" };
   const possibleCauses: StructuredAnalysis["possibleCauses"] = [];
   for (const item of record.possibleCauses) {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) return null;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return { ok: false, subtype: "schema_possible_causes_invalid" };
     const cause = item as Record<string, unknown>;
-    if (typeof cause.text !== "string" || !cause.text.trim() || cause.text.length > 500 || typeof cause.evidence !== "string" || !ANALYSIS_EVIDENCE.has(cause.evidence)) return null;
+    if (typeof cause.text !== "string" || typeof cause.evidence !== "string") return { ok: false, subtype: "schema_possible_causes_invalid" };
+    if (!cause.text.trim() || cause.text.length > 500) return { ok: false, subtype: "schema_constraint_invalid" };
+    if (!ANALYSIS_EVIDENCE.has(cause.evidence)) return { ok: false, subtype: "schema_evidence_enum_invalid" };
     possibleCauses.push({ text: cause.text.trim(), evidence: cause.evidence as "strong" | "medium" | "weak" });
   }
   return {
-    currentStatus: normalizeCurrencyText(record.currentStatus.trim()),
-    findings: findings.map(normalizeCurrencyText),
-    possibleCauses: possibleCauses.map((cause) => ({ ...cause, text: normalizeCurrencyText(cause.text) })),
-    risks: risks.map(normalizeCurrencyText),
-    recommendations: recommendations.map(normalizeCurrencyText),
-    limitations: limitations.map(normalizeCurrencyText),
+    ok: true,
+    report: {
+      currentStatus: normalizeCurrencyText(record.currentStatus.trim()),
+      findings: findings.value.map(normalizeCurrencyText),
+      possibleCauses: possibleCauses.map((cause) => ({ ...cause, text: normalizeCurrencyText(cause.text) })),
+      risks: risks.value.map(normalizeCurrencyText),
+      recommendations: recommendations.value.map(normalizeCurrencyText),
+      limitations: limitations.value.map(normalizeCurrencyText),
+    },
   };
+}
+
+export function parseStructuredAnalysis(value: unknown): StructuredAnalysis | null {
+  const result = parseStructuredAnalysisResult(value);
+  return result.ok ? result.report : null;
+}
+
+export type AnalysisResponseParseResult =
+  | { ok: true; report: StructuredAnalysis }
+  | { ok: false; subtype: AnalysisResponseFailureSubtype };
+
+export function parseAnalysisResponse(result: unknown): AnalysisResponseParseResult {
+  const raw = aiText(result);
+  if (!raw.trim()) return { ok: false, subtype: "response_text_missing" };
+  const json = extractJsonResult(raw);
+  if (!json.ok) return { ok: false, subtype: "json_extraction_failed" };
+  return parseStructuredAnalysisResult(json.value);
 }
 
 async function hashJson(value: unknown): Promise<string> {
@@ -372,9 +441,9 @@ async function invokeAnalysisAi(env: AnalysisEnv, question: string, context: Ana
   } catch {
     throw new Error("analysis_ai_unavailable");
   }
-  const report = parseStructuredAnalysis(jsonValue(aiText(result)));
-  if (!report) throw new Error("analysis_schema_invalid");
-  return report;
+  const parsed = parseAnalysisResponse(result);
+  if (!parsed.ok) throw new Error(`analysis_response_invalid:${parsed.subtype}`);
+  return parsed.report;
 }
 
 export async function runReadOnlyAnalysis(

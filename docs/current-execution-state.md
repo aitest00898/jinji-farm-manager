@@ -2655,3 +2655,53 @@ AI request was made. The missing `.dev.secrets.local` developer credential
 means the existing developer-only real-AI path was not available; no alternate
 authentication path was created. This checkpoint must be handed off on the
 existing non-deploying `web-defect-repair-2026-08-30` branch only.
+
+## Web AI bounded response-validation subtype instrumentation — 2026-08-30
+
+This L1/L2 change refines the existing analysis failure boundary without
+changing the accepted `StructuredAnalysis` contract. The analysis path now
+keeps the same fail-closed decision while classifying only bounded structure:
+response text presence, JSON extraction, top-level shape, required fields,
+field types, possible-cause shape, evidence enum, and value/count constraints.
+The API returns only the bounded internal code; the Web maps every new code to
+the existing safe `AI 回覆格式不符合系統要求。` presentation.
+
+```text
+TASK_RESULT = PASS
+START_HANDOFF_HEAD = 7b21d560656989607336e13569fd4263597c913e
+CURRENT_RESPONSE_VALIDATION_CLASSIFICATION_CAPABILITY = PASS_LOCAL_HANDOFF_ONLY
+AVAILABLE_SUBTYPES = response_text_missing, json_extraction_failed, schema_top_level_invalid, schema_required_field_missing, schema_field_type_invalid, schema_possible_causes_invalid, schema_evidence_enum_invalid, schema_constraint_invalid
+RESPONSE_TEXT_FAILURE_DISTINGUISHABLE = YES
+JSON_EXTRACTION_FAILURE_DISTINGUISHABLE = YES
+SCHEMA_VALIDATION_FAILURE_DISTINGUISHABLE = YES
+SCHEMA_VALIDATION_SUBTYPE_GRANULARITY = ACTIONABLE_BOUNDED_CATEGORIES
+FAIL_CLOSED_PRESERVED = YES
+RAW_COMPLETION_REQUIRED = NO
+RAW_COMPLETION_PERSISTED = NO
+RAW_PROVIDER_ERROR_EXPOSED = NO
+SOURCE_FILES_CHANGED = backend/src/ai-json.ts, backend/src/analysis.ts, backend/src/analysis.test.ts, src/api.ts, src/App.test.tsx
+TARGETED_TESTS = backend analysis 8/8 PASS; Web UI 13/13 PASS
+BACKEND_REGRESSION = 64_FILES; 746_PASS; 11_SKIPPED
+WEB_BUILD = PASS
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_D1_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MIGRATION = NONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+GITHUB_HANDOFF_BRANCH = web-defect-repair-2026-08-30
+READY_FOR_SINGLE_PRODUCTION_SUBTYPE_VERIFY = YES_AFTER_EXPLICIT_L3_DEPLOYMENT
+L3_APPROVAL_REQUIRED = YES_FOR_FUTURE_WORKER_DIAGNOSTIC_DEPLOYMENT_AND_SINGLE_PRODUCTION_REQUEST
+TRUE_REMAINING_BLOCKER = NEW_CLASSIFICATION_IS_NOT_DEPLOYED; LIVE_SUBTYPE_REQUIRES_A_FUTURE_APPROVED_DIAGNOSTIC_RELEASE
+NEXT_SAFE_ACTION = STOP; DO_NOT_DEPLOY_OR_CALL_PRODUCTION_AI_IN_THIS_TURN
+```
+
+The change adds no telemetry store, endpoint, migration, framework, Prompt,
+model, or product-schema relaxation. Existing broad failure handling and safe
+user-facing classification remain compatible. This checkpoint is ready for a
+future single bounded Production subtype verification only after its separate
+L3 approval; it does not claim that the AI semantic failure is fixed.

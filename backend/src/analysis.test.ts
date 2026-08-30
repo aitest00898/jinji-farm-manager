@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ANALYSIS_TOOL_NAMES,
+  ANALYSIS_RESPONSE_FAILURE_CODES,
   PRODUCTION_AI_MODEL,
   classifyAnalysisFailure,
   isReadOnlyAnalysisQuestion,
+  parseAnalysisResponse,
   parseStructuredAnalysis,
   runReadOnlyAnalysis,
   type AnalysisEnv,
@@ -12,16 +14,21 @@ import {
 } from "./analysis";
 
 const analysisScope = { type: "organization", id: "organization" } as const;
-const validAnalysisResponse = {
-  response: JSON.stringify({
-    currentStatus: "目前資料正常。",
-    findings: [],
-    possibleCauses: [],
-    risks: [],
-    recommendations: [],
-    limitations: [],
-  }),
+const validStructuredAnalysis = {
+  currentStatus: "目前資料正常。",
+  findings: [],
+  possibleCauses: [],
+  risks: [],
+  recommendations: [],
+  limitations: [],
 };
+const validAnalysisResponse = {
+  response: JSON.stringify(validStructuredAnalysis),
+};
+
+function analysisResponse(overrides: Record<string, unknown> = {}) {
+  return { response: JSON.stringify({ ...validStructuredAnalysis, ...overrides }) };
+}
 
 function fakeAnalysisDb(options: { cacheError?: Error; insertError?: Error } = {}) {
   let writes = 0;
@@ -108,11 +115,43 @@ describe("read-only AI analysis boundary", () => {
     expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.2-3b-instruct");
   });
 
+  it("classifies response-validation subtypes without relaxing the schema", () => {
+    expect(parseAnalysisResponse(validAnalysisResponse).ok).toBe(true);
+
+    const cases: Array<[unknown, keyof typeof ANALYSIS_RESPONSE_FAILURE_CODES]> = [
+      [null, "response_text_missing"],
+      [{ response: "not-json" }, "json_extraction_failed"],
+      [{ response: "[]" }, "schema_top_level_invalid"],
+      [analysisResponse({ limitations: undefined }), "schema_required_field_missing"],
+      [analysisResponse({ findings: [1] }), "schema_field_type_invalid"],
+      [analysisResponse({ possibleCauses: ["高溫"] }), "schema_possible_causes_invalid"],
+      [analysisResponse({ possibleCauses: [{ text: "高溫", evidence: "high" }] }), "schema_evidence_enum_invalid"],
+      [analysisResponse({ currentStatus: "   " }), "schema_constraint_invalid"],
+    ];
+    for (const [value, subtype] of cases) {
+      expect(parseAnalysisResponse(value)).toEqual({ ok: false, subtype });
+    }
+
+    expect(parseStructuredAnalysis({
+      ...validStructuredAnalysis,
+      possibleCauses: [{ text: "高溫", evidence: "high" }],
+    })).toBeNull();
+  });
+
   it("classifies the bounded analysis failure stages without exposing runtime details", () => {
     expect(classifyAnalysisFailure(new Error("analysis_ai_unavailable"))).toEqual({ layer: "provider", code: "ai_provider_unavailable" });
     expect(classifyAnalysisFailure(new Error("analysis_schema_invalid"))).toEqual({ layer: "response_validation", code: "ai_response_invalid" });
     expect(classifyAnalysisFailure(new Error("analysis_report_persistence_failed"))).toEqual({ layer: "persistence", code: "ai_report_persistence_failed" });
     expect(classifyAnalysisFailure(new Error("provider-internal-secret"))).toEqual({ layer: "unknown", code: "ai_analysis_unavailable" });
+    expect(classifyAnalysisFailure(new Error("analysis_response_invalid:json_extraction_failed"))).toEqual({
+      layer: "response_validation",
+      code: ANALYSIS_RESPONSE_FAILURE_CODES.json_extraction_failed,
+    });
+    expect(classifyAnalysisFailure(new Error("analysis_response_invalid:schema_evidence_enum_invalid"))).toEqual({
+      layer: "response_validation",
+      code: ANALYSIS_RESPONSE_FAILURE_CODES.schema_evidence_enum_invalid,
+    });
+    expect(classifyAnalysisFailure(new Error("analysis_response_invalid:provider-internal-secret"))).toEqual({ layer: "unknown", code: "ai_analysis_unavailable" });
   });
 
   it("isolates fake D1 context, AI response, and report persistence stages", async () => {
@@ -128,7 +167,7 @@ describe("read-only AI analysis boundary", () => {
     expect(provider.db.writes).toBe(0);
 
     const invalidResponse = fakeAnalysisEnv({ ai: { run: vi.fn(async () => ({ response: "not-json" })) } as unknown as NonNullable<AnalysisEnv["AI"]> });
-    await expect(runReadOnlyAnalysis(invalidResponse.env, "org-test", analysisScope, "最近有哪些異常？")).rejects.toThrow("analysis_schema_invalid");
+    await expect(runReadOnlyAnalysis(invalidResponse.env, "org-test", analysisScope, "最近有哪些異常？")).rejects.toThrow("analysis_response_invalid:json_extraction_failed");
     expect(invalidResponse.db.writes).toBe(0);
 
     const cacheFailure = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]>, cacheError: new Error("cache unavailable") });

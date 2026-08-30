@@ -20,11 +20,23 @@ const AI_FAILURE_PRESENTATIONS: Record<string, AiFailurePresentation> = {
   ai_analysis_unavailable: { layer: "unknown", label: "AI 分析", message: "AI 分析目前無法使用。" },
 };
 
+const AI_RESPONSE_VALIDATION_CODES = new Set([
+  "ai_response_text_missing",
+  "ai_response_json_extraction_failed",
+  "ai_response_schema_top_level_invalid",
+  "ai_response_schema_required_field_missing",
+  "ai_response_schema_field_type_invalid",
+  "ai_response_schema_possible_causes_invalid",
+  "ai_response_schema_evidence_enum_invalid",
+  "ai_response_schema_constraint_invalid",
+]);
+
 export function aiFailurePresentation(error: unknown): AiFailurePresentation | null {
   if (!error || typeof error !== "object") return null;
   const status = (error as { status?: unknown }).status;
   const code = (error as { code?: unknown }).code;
   if (status !== 503 || typeof code !== "string") return null;
+  if (AI_RESPONSE_VALIDATION_CODES.has(code)) return AI_FAILURE_PRESENTATIONS.ai_response_invalid;
   return AI_FAILURE_PRESENTATIONS[code] ?? AI_FAILURE_PRESENTATIONS.ai_analysis_unavailable;
 }
 
