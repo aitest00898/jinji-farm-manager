@@ -3993,3 +3993,134 @@ NEXT_SAFE_ACTION = STOP; Part B or any business/AI submission requires its own e
 
 No source/config/Production state changed. No password, token, cookie, or
 Authorization header was written to the repository or report.
+
+## Web Final Human Acceptance Part B — 2026-08-30 — completed
+
+This Part B used the existing authenticated Web session in the visible Codex
+In-app Browser. The Worker health and readiness endpoints both returned HTTP
+200. The only approved master-data mutation was performed through the normal
+Web UI on `金雞測試場`; no direct D1 write was used.
+
+The test farm was confirmed as `environment=test`, active, and
+`structureMode=whole_farm` at version 5. Its original note was non-empty and
+was retained only in process memory. The Web UI temporary note edit succeeded
+at version 6 and the UI immediately showed the temporary value. A read-only
+remote D1 check confirmed that the edit Audit was `source=web`,
+`changed_fields_json=["note"]`, and that all non-note and protected fields were
+unchanged.
+
+The live Audit page located and expanded the edit row, showing the note-only
+before/after change. The note was then restored through the same Web UI. The
+final farm state is version 7 with the original note restored. A read-only D1
+check confirmed the original-note match, unchanged name/environment/active/
+structure mode, and a second note-only Web Audit row. Both temporary state
+transitions remain in the append-only Audit history as required.
+
+Exactly one normal Web AI analysis was submitted after restoration. The
+current Web UI exposes organization scope as its supported analysis scope, so
+the request used that existing scope while asking about the current batch; no
+new selector or source change was introduced. The UI rendered all six
+StructuredAnalysis sections and displayed the current analysis model
+`@cf/meta/llama-3.1-8b-instruct-fast` with `本次分析`, not cache. The response
+was safe and schema-valid but contained an empty findings/causes/risks/
+recommendations result and repeated neutral limitations; this is recorded as
+a non-blocking content-quality observation, not repaired in this acceptance
+Gate.
+
+The report row was verified by read-only D1 metadata after NFKC question
+normalization: organization scope, the analysis model, valid JSON, and the
+required top-level field types/array limits were present. Raw completion,
+Prompt, validated context, token, password, and headers were not read or
+stored.
+
+Final read-only consistency matched the Part A baseline: 9 active farms (8
+production, 1 test), 1 active flock, current stock 963, today mortality 5,
+production net income 429,338.6, and the test farm restored. Remote D1
+verification queries reported `rows_written=0` and `changed_db=false`.
+
+```text
+TASK_RESULT = PASS_PART_B
+START_HANDOFF_HEAD = 7992cfcc06496c134b0920a60e78f2cf95633202
+MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+MAIN_UNCHANGED = YES
+WORKER_VERSION = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
+HEALTH = PASS; HTTP 200
+READY = PASS; HTTP 200
+AUTH_SESSION = PASS; visible authenticated In-app Browser session
+
+TEST_FARM_CONFIRMED = YES; 金雞測試場
+TEST_FARM_ENVIRONMENT = test
+ORIGINAL_NOTE_STATE = NON_EMPTY
+ORIGINAL_VERSION = 5
+TEMP_NOTE_WRITE = PASS; Web UI only; version 6
+TEMP_NOTE_VISIBLE_WEB = PASS
+TEMP_NOTE_VISIBLE_BACKEND = PASS
+TEST_FARM_NOTE_EDIT_AUDIT = PASS
+EDIT_AUDIT_SOURCE = web
+EDIT_AUDIT_CHANGED_FIELDS = note only
+
+NOTE_RESTORE = PASS; Web UI only
+RESTORED_NOTE_MATCHES_ORIGINAL = YES
+FINAL_VERSION = 7
+TEST_FARM_NOTE_RESTORE_AUDIT = PASS
+RESTORE_AUDIT_SOURCE = web
+RESTORE_AUDIT_CHANGED_FIELDS = note only
+TEST_FARM_EFFECTIVE_STATE_RESTORED = YES
+
+PRODUCTION_AI_REQUESTS = 1
+WORKERS_AI_CALLS = 1
+AI_HTTP_STATUS = 200
+AI_WEB_RENDER = PASS; all six StructuredAnalysis sections rendered
+AI_RESULT_CACHED = NO; UI marked 本次分析
+AI_REPORT_WRITES = 1
+ANALYSIS_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+JSON_MODE_PRODUCTION = PASS
+STRICT_VALIDATOR_PRODUCTION = PASS
+AI_SCOPE = organization; only current Web UI-supported scope
+AI_CURRENT_STATUS_RENDER = PASS
+AI_FINDINGS_RENDER = PASS; empty safe result
+AI_POSSIBLE_CAUSES_RENDER = PASS; empty safe result
+AI_RISKS_RENDER = PASS; empty safe result
+AI_RECOMMENDATIONS_RENDER = PASS; empty safe result
+AI_LIMITATIONS_RENDER = PASS; rendered in Traditional Chinese
+TRADITIONAL_CHINESE_QUALITY = PASS_WITH_EMPTY_SAFE_RESULT
+UNSUPPORTED_CLAIMS_OBSERVED = NONE
+VETERINARY_SAFETY_BOUNDARY = PASS
+AI_CONTENT_QUALITY_NOTE = SAFE_BUT_LOW_INFORMATION; non-blocking, no repair in this Gate
+
+PRODUCTION_BUSINESS_EFFECTIVE_STATE = TEST_FARM_NOTE_RESTORED
+PRODUCTION_8_FARMS_CHANGED = NO
+OPERATIONAL_STOCK_CHANGED = NO
+OPERATIONAL_EVENT_WRITES = 0
+ABNORMAL_EVENT_WRITES = 0
+FINANCE_CHANGED = NO
+CARETAKER_CHANGED = NO
+TEST_FARM_MASTER_DATA_WRITES = 2; temporary note and exact restore
+AUDIT_ROWS_CREATED = 2; edit and restore, plus normal login audit metadata
+AUTH_SESSION_METADATA_WRITES = YES; normal session/login/last-used metadata
+TOTAL_PRODUCTION_D1_WRITES_OBSERVED = 5 direct Part B feature writes plus normal auth metadata; read-only verification writes 0
+
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+PROMPT_CHANGED = NO
+MODEL_CHANGED = NO
+SCHEMA_CHANGED = NO
+SOURCE_CHANGED = NO
+
+REAL_WEB_ACCEPTANCE_PART_B = PASS
+REAL_WEB_FINAL_ACCEPTANCE = PASS_WITH_NON_BLOCKING_AI_CONTENT_QUALITY_NOTE
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+TRUE_REMAINING_BLOCKER = NONE_FOR_PART_B; organization-only scope and empty safe AI result are non-blocking observations
+NEXT_SAFE_ACTION = STOP; any AI content-quality change or finer-grained scope requires a separate task
+```
+
+No production farm, house, flock, stock, operational, abnormal, finance, or
+caretaker data was changed. No deployment, migration, Cron change, LINE send,
+Queue write, Prompt/model/schema change, or raw completion persistence was
+performed. The two approved test-farm state transitions and their Audit rows
+are intentionally retained as acceptance evidence.
