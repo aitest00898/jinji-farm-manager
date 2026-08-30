@@ -578,6 +578,18 @@ function safeJson(value: unknown, fallback: unknown): any {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+export function normalizeAuditChangedFields(value: unknown): string[] {
+  const parsed = typeof value === "string" ? safeJson(value, null) : value;
+  if (!Array.isArray(parsed)) return [];
+  const fields = parsed.flatMap((item: unknown) => {
+    if (typeof item === "string") return item.trim() ? [item.trim()] : [];
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+    const field = (item as Record<string, unknown>).field;
+    return typeof field === "string" && field.trim() ? [field.trim()] : [];
+  });
+  return [...new Set(fields)].slice(0, 50);
+}
+
 async function createCaretaker(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const body = await bodyJson(request);
   const name = stringValue(body?.name, 100);
@@ -1316,7 +1328,7 @@ async function auditList(request: Request, env: WebApiEnv, session: SessionRow):
   const values = rows.results.slice(0, limit);
   const last = values[values.length - 1];
   const nextCursor = rows.results.length > limit && last ? encodeCursor(JSON.stringify({ createdAt: last.createdAt, id: last.id })) : null;
-  return response(request, { auditLogs: values.map((row) => ({ ...row, before: safeJson(row.beforeJson, null), after: safeJson(row.afterJson, null), changedFields: safeJson(row.changedFieldsJson, []) })), nextCursor });
+  return response(request, { auditLogs: values.map((row) => ({ ...row, before: safeJson(row.beforeJson, null), after: safeJson(row.afterJson, null), changedFields: normalizeAuditChangedFields(row.changedFieldsJson) })), nextCursor });
 }
 
 async function aliasList(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {

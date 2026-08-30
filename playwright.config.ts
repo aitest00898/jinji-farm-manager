@@ -11,7 +11,10 @@ export default defineConfig({
     trace: "retain-on-failure",
     headless: true,
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "webkit-iphone", use: { ...devices["iPhone 13"] } },
+  ],
   webServer: {
     command: "npm run dev -- --host 127.0.0.1",
     url: "http://127.0.0.1:5173/jinji-farm-manager/",

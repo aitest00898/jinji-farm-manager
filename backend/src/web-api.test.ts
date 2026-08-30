@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedWebOrigin } from "./web-api";
+import { isAllowedWebOrigin, normalizeAuditChangedFields } from "./web-api";
 
 describe("Web API boundary", () => {
   it("allows only the Pages origin and local Vite origins", () => {
@@ -13,5 +13,13 @@ describe("Web API boundary", () => {
   it("does not permit wildcard origin semantics", () => {
     expect(isAllowedWebOrigin("*")).toBe(false);
     expect(isAllowedWebOrigin("https://aitest00898.github.io.evil.example")).toBe(false);
+  });
+
+  it("normalizes current and legacy audit changed-field shapes", () => {
+    expect(normalizeAuditChangedFields('["note"]')).toEqual(["note"]);
+    expect(normalizeAuditChangedFields('[{"field":"conversationV2Enabled","from":false,"to":true}]')).toEqual(["conversationV2Enabled"]);
+    expect(normalizeAuditChangedFields('[{"field":" note "},{"field":"note"},null,3]')).toEqual(["note"]);
+    expect(normalizeAuditChangedFields("not-json")).toEqual([]);
+    expect(normalizeAuditChangedFields({ field: "note" })).toEqual([]);
   });
 });

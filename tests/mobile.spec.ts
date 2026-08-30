@@ -21,6 +21,7 @@ const house = { id: "test-house", farmId: farm.id, name: "測試1舍", normalize
 const flock = { id: "test-flock", farmId: farm.id, houseId: house.id, batchCode: "TEST-BATCH-001", breed: null, chickInDate: "2026-08-19", initialCount: 1000, expectedShipmentDate: "2026-11-19", actualShipmentDate: null, status: "active", note: null, version: 1, ageDays: 1, shipmentReminder: "upcoming", farmName: farm.name, houseName: house.name };
 const operationalEvent = { id: "event-1", organizationId: "org-test", farmId: farm.id, farmName: farm.name, environment: "test", houseId: house.id, house: house.name, flockId: flock.id, intent: "mortality", quantity: 5, unit: "隻", eventDate: "2026-08-20", note: null, source: "web", sourceEventId: "fixture-event", pendingActionId: null, reversalOfEventId: null, correctionGroupId: null, reversedAt: null, createdAt: "2026-08-20T01:00:00Z" };
 const auditRow = { id: "audit-1", organizationId: "org-test", source: "web", action: "farm_note_updated", entityType: "farm", entityId: farm.id, actorType: "web_admin", actorId: "fixture-user", reason: "行動版測試", before: { note: null }, after: { note: "巡場完成" }, changedFields: ["note"], createdAt: "2026-08-20T01:10:00Z" };
+const legacyAuditRow = { id: "audit-legacy", organizationId: "org-test", source: "system", action: "line_group_ai_updated", entityType: "line_group_ai_conversation", entityId: "group-test", actorType: "system", actorId: null, reason: "歷史格式測試", before: { conversationV2Enabled: false }, after: { conversationV2Enabled: true }, changedFields: [{ field: "conversationV2Enabled", from: false, to: true }], createdAt: "2026-08-20T01:11:00Z" };
 const retainedBase = { eventId: "event-retained", eventIdShort: "tained01", correlationIdShort: "rel-0001", lifecycleStatus: "retained", businessStatus: "failed", replyStatus: "failed", receivedAt: "2026-08-20T02:00:00Z", queuedAt: "2026-08-20T02:00:01Z", processingStartedAt: "2026-08-20T02:00:02Z", businessCompletedAt: null, replyCompletedAt: null, queueAttempts: 3, processingAttempts: 3, replyAttempts: 0, lastErrorStage: "processing", lastErrorClass: "temporary_failure", lastErrorAt: "2026-08-20T02:01:00Z", nextRetryAt: null, resolutionStatus: "unresolved", retainedAcknowledgedAt: null, retainedAcknowledgedBy: null, resolvedAt: null, resolvedBy: null, resolutionReason: null, resolutionNote: null, manualRecordReference: null, payloadAvailable: false, payloadExpiresAt: "2026-08-20T02:05:00Z" };
 
 function reliabilityStatusFixture(state: MockState) {
@@ -70,7 +71,8 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/finance")) return fulfill(route, { totals: { allocated: 0, expense: 0, net: 0 }, investors: [], farms: [], distributions: [], allocations: [], farmInvestorEquity: [] });
     if (path.endsWith("/api/farm-aliases")) return fulfill(route, { aliases: [] });
     if (path.endsWith("/api/data-health")) return fulfill(route, { warnings: [], checks: [], checkedAt: "2026-08-20T00:00:00Z" });
-    if (path.endsWith("/api/audit")) return fulfill(route, { auditLogs: [auditRow], nextCursor: null });
+    if (path.endsWith("/api/audit")) return fulfill(route, { auditLogs: [legacyAuditRow, auditRow], nextCursor: null });
+    if (path.endsWith("/api/ai/analyze") && request.method() === "POST") return fulfill(route, { result: { report: { currentStatus: "目前資料可供唯讀分析。", findings: ["測試資料包含一筆近期異常。"], possibleCauses: [{ text: "測試原因", evidence: "medium" }], risks: ["請持續觀察。"], recommendations: ["依現場資料持續記錄。"], limitations: ["這是瀏覽器回歸測試資料。"] }, cached: false, contextHash: "fixture-context", model: "fixture-model", createdAt: "2026-08-20T01:12:00Z" }, readOnly: true });
     if (path.endsWith("/api/line-groups/group-test/ai-conversation") && request.method() === "PATCH") { state.lineGroupEnabled = Boolean(JSON.parse(request.postData() ?? "{}").enabled); return fulfill(route, { ok: true, changed: true, enabled: state.lineGroupEnabled, message: "已更新。" }); }
     if (path.endsWith("/api/line-groups")) return fulfill(route, { groups: [{ groupId: "group-test", groupIdShort: "grou…test", status: "unbound", farmName: null, farmId: null, conversationV2Enabled: state.lineGroupEnabled }] });
     if (path.includes("/api/charts/")) return fulfill(route, { metric: "mortality", from: "2026-07-21", to: "2026-08-20", granularity: "daily", unit: "隻", definition: "每日死亡事件數。", status: "ok", series: [{ date: "2026-08-19", value: 2 }, { date: "2026-08-20", value: 5 }] });
@@ -210,6 +212,8 @@ test.describe("mobile navigation information architecture", () => {
     await expect(page.locator(".mobile-card-list").last()).toHaveCSS("display", "grid");
     await expect(page.locator(".mobile-card").last()).toContainText("有效");
     await navigateByDrawer(page, "變更紀錄");
+    await expect(page.locator(".mobile-card").first()).toContainText("line_group_ai_updated");
+    await expect(page.locator(".mobile-card").first().getByText("查看修改差異")).toBeVisible();
     await expect(page.locator(".mobile-card").last()).toContainText("farm_note_updated");
     await expect(page.locator(".mobile-card").last().getByText("查看修改差異")).toBeVisible();
     await expectNoBodyOverflow(page);
@@ -227,6 +231,15 @@ test.describe("mobile navigation information architecture", () => {
     expect(chartBox?.x ?? -1).toBeGreaterThanOrEqual(0);
     expect((chartBox?.x ?? 0) + (chartBox?.width ?? 0)).toBeLessThanOrEqual(390);
     await expectNoBodyOverflow(page);
+  });
+
+  test("AI 助理 can submit a read-only question and render the report", async ({ page }) => {
+    await navigateByDrawer(page, "AI 助理");
+    await page.getByRole("button", { name: "這一批最近有哪些異常？", exact: true }).click();
+    await expect(page.locator("textarea")).toHaveValue("這一批最近有哪些異常？");
+    await page.getByRole("button", { name: "開始分析", exact: true }).click();
+    await expect(page.locator(".analysis-report")).toContainText("目前資料可供唯讀分析");
+    await expect(page.locator(".analysis-report")).toContainText("測試資料包含一筆近期異常");
   });
 });
 

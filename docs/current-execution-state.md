@@ -2262,3 +2262,73 @@ acceptance items not exercised by this event, including login, administrator
 edit, and Audit/change-history flows. This entry does not claim those flows
 pass, and it does not change source, tests, Production, Cron, Queue, model, or
 Prompt behavior.
+
+## Web defect repair checkpoint — 2026-08-30
+
+This entry records the bounded Web diagnosis and local repair requested after
+the reported real-iPhone failures. It does not reopen the completed LINE
+interaction-gate or Ambient observation, and it does not create a new Gate.
+
+```text
+WEB_REPAIR_SCOPE = AUDIT_RENDER_FAILURE_AND_WEB_AI_503
+START_LOCAL_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
+START_GITHUB_MAIN_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
+START_ALIGNED = YES
+
+AUDIT_ROOT_CAUSE = PROVEN_LEGACY_CHANGED_FIELDS_OBJECT_ARRAY_REACHED_WEB_UI
+AUDIT_FIX = LOCAL_IMPLEMENTED_API_NORMALIZATION_AND_UI_RUNTIME_GUARD
+AUDIT_REGRESSION = PASS_WITH_LEGACY_OBJECT_ARRAY_FIXTURE
+
+AI_WEB_FAILURE = CONFIRMED_USER_REPORTED_HTTP_503
+AI_CONTEXT_READS = PASS_REMOTE_D1_SELECT_ONLY
+AI_FAILURE_LAYER = NARROWED_AFTER_CONTEXT_BEFORE_SUCCESSFUL_ANALYSIS_RESPONSE
+AI_FAILURE_SUBLAYER = UNKNOWN_PROVIDER_OR_RESPONSE_VALIDATION_OR_REPORT_PERSISTENCE
+AI_FIX = NOT_CLAIMED; NO_PRODUCTION_AI_CALL_OR_MODEL/PROMPT_CHANGE_ALLOWED
+AI_FRONTEND_CONTRACT_REGRESSION = PASS_WITH_LOCAL_MOCK
+
+WEB_UNIT_TESTS = 11_PASS
+WEB_TYPECHECK = PASS
+WEB_BUILD = PASS
+BACKEND_CHECK = 743_PASS_11_SKIPPED
+WEB_E2E = 44_PASS (CHROMIUM_AND_IPHONE_WEBKIT)
+IPHONE_WEBKIT_REGRESSION = 21_PASS
+
+SOURCE_CHANGED = YES_LOCAL_ONLY
+TESTS_CHANGED = YES_LOCAL_ONLY
+TEST_CONFIG_CHANGED = YES_PLAYWRIGHT_WEBKIT_PROJECT_ONLY
+PRODUCTION_DATA_CHANGED = NO
+PRODUCTION_D1_WRITES = 0
+QUEUE_WRITES = 0
+LINE_SEND = 0
+WORKERS_AI_CALLS = 0
+MIGRATION = NONE
+PAGES_DEPLOYMENT = NOT_DONE
+WORKER_DEPLOYMENT = NOT_DONE
+CRON_CHANGED = NO
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+NEW_ARCHITECTURE = NO
+NEW_FRAMEWORK = NO
+NEW_LONG_TERM_OBSERVABILITY = NO
+
+CURRENT_EXECUTION_STATE_UPDATED = YES
+REAL_WEB_FIX_IMPLEMENTED = PARTIAL_AUDIT_FIXED_AI_UNRESOLVED
+REAL_WEB_ACCEPTANCE = PENDING_RETEST
+TRUE_REMAINING_BLOCKERS = AI_503_SUBLAYER_UNPROVEN; DEPLOYMENT_AND_HUMAN_IPHONE_RETEST_REQUIRED
+NEXT_SAFE_ACTION = STOP_AND_REQUEST_SEPARATE_L3_DEPLOYMENT_AND_CONTROLLED_WEB_RETEST
+```
+
+The Audit failure was a data-contract mismatch, not a missing route: the
+Production audit payload contains legacy entries shaped as
+`[{field, from, to}]`, while the Web renderer assumed `string[]` and could pass
+an object to React as a child. The API now normalizes both shapes and the UI
+guards the same boundary during a mixed-version rollout.
+
+The AI 503 is not proven to be a Web rendering failure. The current D1 context
+queries, Worker health/readiness, and existing stored report JSON were read
+successfully, but the existing backend catch maps Workers AI transport,
+structured-response validation, and `ai_reports` persistence failures to the
+same 503. No Production AI request was made, so no narrower sublayer or AI fix
+is claimed. Pages/Worker deployment and real iPhone acceptance remain pending
+and were intentionally not performed in this L1/L2 task.

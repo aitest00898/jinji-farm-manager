@@ -759,7 +759,19 @@ function AliasesView({ aliases }: { aliases: Alias[] }) { return <section classN
 
 function HealthView({ health }: { health: DataHealth | null }) { if (!health) return <Loading />; return <section className="page"><div className="panel"><PanelTitle title="資料健康檢查" /><p className="muted">只讀檢查，不會自動修正資料。檢查時間：{health.checkedAt}</p><DataTable headers={["檢查", "結果", "狀態"]}>{(health.checks ?? []).map((check) => <tr key={check.code}><td>{check.label}</td><td>{check.count}</td><td><StatusPill tone={check.count ? "warn" : "good"}>{check.count ? "需檢視" : "正常"}</StatusPill></td></tr>)}</DataTable>{health.warnings.length ? <div className="warning-list">{health.warnings.map((warning) => <p key={warning}>⚠️ {warning}</p>)}</div> : <div className="healthy"><span>✓</span><strong>所有目前檢查正常</strong></div>}</div></section>; }
 
-function AuditDiff({ row }: { row: AuditRow }) { const fields = row.changedFields.length ? row.changedFields : Array.from(new Set([...Object.keys(row.before ?? {}), ...Object.keys(row.after ?? {})])); return <details className="audit-detail"><summary>查看修改差異</summary><div className="diff-grid"><div><strong>修改前</strong>{fields.map((field) => <div className="diff-row" key={`before-${field}`}><span>{fieldLabel(field)}</span><code>{formatValue(row.before?.[field])}</code></div>)}</div><div><strong>修改後</strong>{fields.map((field) => <div className="diff-row" key={`after-${field}`}><span>{fieldLabel(field)}</span><code>{formatValue(row.after?.[field])}</code></div>)}</div></div><p className="muted">變更欄位：{fields.length ? fields.map(fieldLabel).join("、") : "—"}</p><details><summary>技術診斷原始 JSON</summary><pre>{JSON.stringify({ before: row.before, after: row.after, changedFields: row.changedFields }, null, 2)}</pre></details></details>; }
+function auditFieldNames(row: AuditRow): string[] {
+  const rawFields: unknown = row.changedFields;
+  if (!Array.isArray(rawFields)) return [];
+  const fields = rawFields.flatMap((item: unknown) => {
+    if (typeof item === "string") return item.trim() ? [item.trim()] : [];
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+    const field = (item as Record<string, unknown>).field;
+    return typeof field === "string" && field.trim() ? [field.trim()] : [];
+  });
+  return [...new Set(fields)];
+}
+
+function AuditDiff({ row }: { row: AuditRow }) { const changedFields = auditFieldNames(row); const fields = changedFields.length ? changedFields : Array.from(new Set([...Object.keys(row.before ?? {}), ...Object.keys(row.after ?? {})])); return <details className="audit-detail"><summary>查看修改差異</summary><div className="diff-grid"><div><strong>修改前</strong>{fields.map((field) => <div className="diff-row" key={`before-${field}`}><span>{fieldLabel(field)}</span><code>{formatValue(row.before?.[field])}</code></div>)}</div><div><strong>修改後</strong>{fields.map((field) => <div className="diff-row" key={`after-${field}`}><span>{fieldLabel(field)}</span><code>{formatValue(row.after?.[field])}</code></div>)}</div></div><p className="muted">變更欄位：{fields.length ? fields.map(fieldLabel).join("、") : "—"}</p><details><summary>技術診斷原始 JSON</summary><pre>{JSON.stringify({ before: row.before, after: row.after, changedFields: row.changedFields }, null, 2)}</pre></details></details>; }
 
 function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div className="mobile-card-head"><strong>{row.action}</strong><StatusPill>{sourceLabel(row.source)}</StatusPill></div><dl className="mobile-fields"><div><dt>時間／實體</dt><dd>{row.createdAt} · {row.entityType}</dd></div><div><dt>操作者</dt><dd>{row.actorType} · {row.actorId ?? "—"}</dd></div><div><dt>原因</dt><dd>{row.reason ?? "—"}</dd></div></dl><AuditDiff row={row} /></MobileCard>; }
 
