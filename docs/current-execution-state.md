@@ -2412,12 +2412,13 @@ identify which stage caused the reported Production 503.
 ## Web AI 503 Production diagnostic release — 2026-08-30
 
 This is the explicitly authorized bounded L3 diagnostic release. It deployed
-the already-tested Worker classification fix only. The existing Pages release
-was not changed because the single authorized Web AI request could not be
-submitted without a live Web admin session.
+the already-tested Worker classification fix only. After the user supplied an
+authenticated Web session, the single authorized Web AI request was submitted
+and returned HTTP 503. The existing Pages release was not changed because the
+Gate requires a successful AI request before Pages publication.
 
 ```text
-TASK_RESULT = BLOCKED_AT_AUTHENTICATION_BOUNDARY
+TASK_RESULT = PARTIAL_FAIL_EXACT_BOUNDED_CODE_NOT_OBTAINED
 START_HANDOFF_HEAD = c479c467b788e1dd3d390ef157a5664e1f0b652a
 START_MAIN_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
 
@@ -2431,13 +2432,15 @@ READY_UNFINISHED = 0
 READY_STALLED = 0
 READY_REPLY_FAILURES = 0
 
-CONTROLLED_PRODUCTION_AI_REQUESTS = 0
-AI_HTTP_STATUS = NOT_SENT_WEB_ADMIN_SESSION_REQUIRED
-AI_BOUNDED_ERROR_CODE = NOT_OBTAINED
-AI_FAILURE_LAYER = NOT_OBTAINED
-AI_PRODUCTION_RESULT = NOT_REACHED
-AI_REPORT_WRITE_OCCURRED = NO
+CONTROLLED_PRODUCTION_AI_REQUESTS = 1
+AI_HTTP_STATUS = 503
+AI_BOUNDED_ERROR_CODE = NOT_EXPOSED_BY_WEB_UI
+AI_FAILURE_LAYER = UNKNOWN_WITHIN_POST_CONTEXT
+AI_PRODUCTION_RESULT = FAIL_503
+AI_REPORT_WRITE_OCCURRED = NO_OBSERVED
 AI_REPORT_WRITES = 0
+AI_MATCHING_REPORT_ROWS_AFTER_REQUEST = 0
+AI_UI_ERROR = SAFE_AI_ANALYSIS_UNAVAILABLE_MESSAGE
 
 PRODUCTION_OPERATIONAL_WRITES = 0
 PRODUCTION_ABNORMAL_WRITES = 0
@@ -2462,15 +2465,19 @@ CURRENT_EXECUTION_STATE_UPDATED = YES
 GITHUB_MAIN_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
 GITHUB_HANDOFF_STATE = SYNCED_ON_HANDOFF_BRANCH
 
-READY_FOR_REAL_WEB_RETEST = NO_AUTH_REQUIRED_FIRST
-REAL_WEB_ACCEPTANCE = PENDING_HUMAN_LOGIN_AND_RETEST
-TRUE_REMAINING_BLOCKER = WEB_ADMIN_SESSION_UNAVAILABLE; AI_REQUEST_NOT_SENT
-NEXT_SAFE_ACTION = USER_SIGN_IN_TO_THE_EXISTING_PAGES_SESSION_THEN_RESUME_THIS_SINGLE_REQUEST
+READY_FOR_REAL_WEB_RETEST = NO_AI_503_REMAINS
+REAL_WEB_ACCEPTANCE = PENDING_HUMAN_RETEST
+TRUE_REMAINING_BLOCKER = BOUNDED_ERROR_CODE_NOT_VISIBLE_IN_WEB_UI; EXACT_POST_CONTEXT_SUBLAYER_UNPROVEN
+NEXT_SAFE_ACTION = RETURN_TO_L1_L2_FOR_BOUNDED_CODE_VISIBILITY_REVIEW; NO_SECOND_PRODUCTION_AI_REQUEST
 ```
 
 The Worker deployment was stable and did not introduce an obvious health or
-readiness regression. The production Pages page returned HTTP 200, but no
-Pages deployment was triggered. The Web UI exposed the normal management login
-page and no existing authenticated tab was available; no password, token, or
-alternate credential path was used. Therefore this diagnostic did not obtain
-the bounded AI error code and did not create an `ai_reports` row.
+readiness regression. After the user supplied an existing authenticated Web
+session, exactly one normal analysis request was submitted with the approved
+question. The UI returned the safe HTTP 503 message. A read-only Production D1
+SELECT found no matching `ai_reports` row for that question and reported zero
+rows written. The response's bounded error code was not visible in the Web UI
+or browser console, so the exact provider, response-validation, or persistence
+sublayer remains unproven. No second request, raw completion capture, or manual
+`ai_reports` write was performed. The production Pages page returned HTTP 200,
+but no Pages deployment was triggered.
