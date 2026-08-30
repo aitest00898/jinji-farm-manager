@@ -33,6 +33,11 @@ describe("bounded JSON response extraction", () => {
     expectExtracted(`prefix {"broken":} then ${JSON.stringify(value)} suffix`, value);
   });
 
+  it("keeps nested objects within the same outer candidate", () => {
+    const value = { status: "ok", details: { count: 3 } };
+    expectExtracted(`Model response: ${JSON.stringify(value)}`, value);
+  });
+
   it("ignores quoted braces while scanning an object", () => {
     const value = { message: "literal { brace } and } brace" };
     expectExtracted(`Model response: ${JSON.stringify(value)}`, value);
