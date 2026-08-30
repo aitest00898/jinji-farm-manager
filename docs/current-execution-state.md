@@ -3569,3 +3569,66 @@ GITHUB_HANDOFF = PENDING_DOC_COMMIT_AND_PUSH
 TRUE_REMAINING_BLOCKER = FULL_STRUCTURED_ANALYSIS_SCHEMA_COMPATIBILITY_NOT_PROVEN
 NEXT_SAFE_ACTION = STOP; OFFLINE SCHEMA-KEYWORD REVIEW REQUIRES A SEPARATE TASK
 ```
+
+## Full StructuredAnalysis JSON Mode live probe — 2026-08-30 — 20:43 CST
+
+The explicitly authorized single live probe reused the preceding minimal
+probe's successful raw slash-separated model path, account, authentication,
+direct Workers AI REST family, candidate model, and `temperature = 0`. The
+only contract change was from the minimal schema to the repository's exact
+`ANALYSIS_JSON_SCHEMA`; the current StructuredAnalysis Prompt was read from
+`backend/src/analysis.ts`. Synthetic context only was used.
+
+Cloudflare returned HTTP 200 with a confirmed provider result. The existing
+`parseAnalysisResponse` and strict StructuredAnalysis validator both passed,
+with no response failure subtype. No response content was retained. This
+proves the current full StructuredAnalysis schema is accepted on this live
+Free-only model/path combination for this bounded case; it is not a long-term
+reliability or Production deployment result.
+
+```text
+TASK_RESULT = PASS_BOUNDED_FULL_STRUCTURED_ANALYSIS_JSON_MODE
+START_HEAD = dd7444fb061ae436a850bd4e02b24d850e550a7f
+
+CANDIDATE_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+REAL_WORKERS_AI_CALLS = 1
+FREE_ONLY_REQUIREMENT = ENFORCED
+FREE_MODEL_ACCESS_PREVIOUSLY_PROVEN = YES
+FREE_QUOTA_EXHAUSTED = NO
+
+PROVEN_WORKING_RAW_MODEL_PATH_REUSED = YES
+FULL_STRUCTURED_ANALYSIS_SCHEMA_USED = YES; repository ANALYSIS_JSON_SCHEMA
+FULL_SCHEMA_REQUEST_ACCEPTED = YES
+AI_HTTP_STATUS = 200
+CLOUDFLARE_ERROR_CODE = NONE
+CLOUDFLARE_ERROR_TYPE = NONE
+PROVIDER_RESULT_RETURNED = YES
+STRICT_VALIDATOR_RESULT = PASS
+AI_RESPONSE_FAILURE_SUBTYPE = NONE
+FULL_STRUCTURED_ANALYSIS_JSON_MODE_COMPATIBILITY = PASS
+
+PREVIOUS_HTTP_400_REINTERPRETATION = STRONGLY_SUPPORTS_NONCANONICAL_REQUEST_PATH_ARTIFACT
+
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+AI_REPORT_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_MODEL_CHANGED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+SOURCE_CHANGED = NO
+FILES_CHANGED = docs/current-execution-state.md; temporary probe removed
+GITHUB_HANDOFF = PENDING_DOC_COMMIT_AND_PUSH
+
+READY_FOR_FREE_TIER_PRODUCTION_L3_REVIEW = YES
+TRUE_REMAINING_BLOCKER = EXPLICIT_L3_APPROVAL_REQUIRED_FOR_ANY_PRODUCTION_DEPLOYMENT_OR_MODEL_SWITCH
+NEXT_SAFE_ACTION = STOP
+```
+
+No retry, schema relaxation, Prompt change, model change, deployment, or
+Production operation followed this result.
