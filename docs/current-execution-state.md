@@ -2129,3 +2129,86 @@ LOCAL_GITHUB_ALIGNED = YES
 LAST_VERIFIED_GIT_HEAD = 6f00efd51096d58d7b09ffedf9f43cba9c9c4461
 LAST_VERIFIED_RUNTIME_STATE = UNCHANGED_FROM_PRIOR_OBSERVATION_RECORDS; NOT_RECHECKED_BY_THIS_REPOSITORY_TASK
 ```
+
+## Current live readiness snapshot — 2026-08-30
+
+This is a bounded L1 read-only readiness snapshot after repository
+consolidation. It does not reopen the completed Ambient observation, create a
+new Gate, trigger Ambient, send LINE, call Workers AI, or modify Production
+state. Live facts below supersede older deployment IDs and are not retroactive
+claims about prior observations.
+
+```text
+READINESS_SCOPE = L1_READ_ONLY_CURRENT_LIVE_STATE
+READINESS_DATE = 2026-08-30_ASIA_TAIPEI
+LOCAL_HEAD = 36ff233f40a472df4afda490b0d3e8fd84f2055f
+GITHUB_MAIN_HEAD = 36ff233f40a472df4afda490b0d3e8fd84f2055f
+LOCAL_GITHUB_ALIGNED = YES
+WORKTREE_STATUS = CLEAN
+
+CURRENT_WORKER = chicken-line-production
+CURRENT_WORKER_VERSION = 54211f90-c0ec-4f0c-aa3a-cdf5ebc2c836
+WORKER_EXISTS = YES
+CURRENT_DEPLOYMENT_VISIBLE = YES
+CURRENT_DEPLOYMENT_TRAFFIC = 100_PERCENT
+DEPLOYMENT_HANDLERS = fetch, queue, scheduled
+HEALTH_HTTP = 200
+READY_HTTP = 200
+READY_STATUS = NORMAL
+READY_COUNTS = unfinished=0; stalled=0; retrying=0; retained_open=0; reply_failures=0
+
+LIVE_CRON = UNKNOWN_NOT_BLOCKER
+LIVE_CRON_MATCHES_REPOSITORY = UNKNOWN_NOT_BLOCKER
+LIVE_CRON_SOURCE_BASELINE = 0 1,4,7,10,22 * * *; 0 13 * * *; */2 * * * *
+LIVE_CRON_REASON = Wrangler read-only deployment/version commands exposed the scheduled handler but not a live cron schedule listing; no trigger mutation was attempted.
+
+QUEUE_NAME = chicken-line-events
+PRODUCER_BINDING = EVENTS
+CONSUMER_PRESENT = YES
+LIVE_QUEUE_PRODUCERS = 1
+LIVE_QUEUE_CONSUMERS = 1
+QUEUE_BATCH_SETTINGS = SOURCE_CONFIG_ONLY (max_batch_size=10; max_batch_timeout=0; max_retries=3)
+
+REMOTE_D1_REACHABLE = YES
+LATEST_APPLIED_MIGRATION = 37 / 0037_ambient_dev_semantic_observability.sql / 2026-08-26 12:27:25
+PENDING_MIGRATIONS = NONE
+REMOTE_D1_WRITE_OCCURRED = NO
+REMOTE_D1_ROWS_WRITTEN = 0
+TEST_FARM_READ_ONLY_SNAPSHOT = initial=1000; adjustments=32; current_stock=968; event_count=14
+
+MODEL_CONFIG = @cf/meta/llama-3.2-3b-instruct
+MODEL_CONFIG_SOURCE = LIVE_CONVERSATION_MODEL_BINDING_AND_SOURCE_CONSTANT
+WORKERS_AI_CALLS = 0
+
+OFFICIAL_BUSINESS_CONTROL_PATH = V1
+SHADOW_CURRENT_STATE = LIVE_VERSION_HAS_ONE_TEST_GROUP_ALLOWLIST_BINDING; EFFECTIVE_SHADOW_EVENT_NOT_OBSERVED
+ACTIVE_ROUTE_V2_2 = UNKNOWN_NOT_BLOCKER
+SHADOW_BOUNDARY = V1_REMAINS_OFFICIAL_AND_BUSINESS_CONTROLLING; SHADOW_SIDE_ONLY
+
+PAGES_WORKFLOW = ACTIVE; LATEST_RELEVANT_RUN = SUCCESS; HEAD_SHA = 36ff233f40a472df4afda490b0d3e8fd84f2055f
+PAGES_LIVE_HTTP = 200
+PAGES_LIVE_STATE = PASS
+
+HUMAN_STEPS_STALE_FIELDS_FOUND = YES (historical Worker version; fixed 995 stock expectation)
+HUMAN_STEPS_UPDATED = YES
+CURRENT_EXECUTION_STATE_UPDATED = YES
+
+PRODUCTION_DEPLOYMENT = NOT_DONE
+PRODUCTION_D1_WRITES = 0
+QUEUE_WRITES = 0
+MIGRATION = NONE
+CRON_CHANGED = NO
+LINE_SEND = 0
+MANUAL_AMBIENT_TRIGGER = NO
+WORKERS_AI_CALLS = 0
+
+UNKNOWN_NOT_BLOCKER = LIVE_CRON_MATCH; EFFECTIVE_V2_2_SHADOW_EVENT_STATE
+REAL_ACCEPTANCE_READY = YES_FOR_NEXT_BOUNDED_HUMAN_STEP
+REAL_ACCEPTANCE_REMAINING = REAL_LINE_FARM_HOUSE_E2E; REAL_WEB_ACCEPTANCE
+NEXT_SAFE_ACTION = REAL_LINE_AND_WEB_ACCEPTANCE
+```
+
+The current Test Farm read is evidence for the next acceptance baseline only;
+it is not a new test event and no row changed. Human acceptance must verify the
+before/after stock delta for the recorded mortality quantity, rather than rely
+on the historical `995` value.
