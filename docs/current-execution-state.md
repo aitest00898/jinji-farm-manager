@@ -3632,3 +3632,95 @@ NEXT_SAFE_ACTION = STOP
 
 No retry, schema relaxation, Prompt change, model change, deployment, or
 Production operation followed this result.
+
+## Free-tier analysis model Production release and one AI verification — 2026-08-30 — 20:54 CST
+
+This explicitly approved L3 Worker-only release deployed the already validated
+analysis-model isolation and JSON Mode path exactly once. The analysis path now
+uses `@cf/meta/llama-3.1-8b-instruct-fast`; the general Production model and all
+unrelated AI call sites remain on `@cf/meta/llama-3.2-3b-instruct`. The prior
+Worker version was `83c0d572-80a3-430c-8caf-b92abacf107f`; the new deployment
+version is `b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6` at 100%. Health and readiness
+both returned HTTP 200.
+
+A new short-lived authenticated session was created through the existing Web
+login API. The login and `/api/web/auth/session` rehearsal both returned HTTP
+200 with parseable JSON; the Bearer value existed only in process memory and
+was not output or persisted. One forced normal analysis request used the
+existing organization scope and the approved question `這一批最近有哪些異常？`.
+It returned HTTP 200 with parseable JSON, `readOnly=true`, `cached=false`, and
+the isolated analysis model. The successful API response is downstream of the
+existing JSON extraction, strict StructuredAnalysis validator, and existing
+`ai_reports` upsert path; no raw completion, prompt, validated context, token,
+password, or authorization header was retained. The one approved persistence
+side effect was an `ai_reports` insert/upsert; no business data changed.
+
+```text
+TASK_RESULT = PASS
+START_HANDOFF_HEAD = 2847aaccbb13232bcd53bb64b567bcffec19e488
+START_MAIN_REMOTE_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+PREVIOUS_WORKER_VERSION = 83c0d572-80a3-430c-8caf-b92abacf107f
+CURRENT_WORKER_VERSION = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
+WORKER_DEPLOYMENTS_THIS_TASK = 1
+
+FREE_ONLY_REQUIREMENT = ENFORCED
+GENERAL_PRODUCTION_MODEL = @cf/meta/llama-3.2-3b-instruct
+ANALYSIS_PRODUCTION_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+ANALYSIS_MODEL_PRODUCTION_SWITCH = PASS
+GLOBAL_MODEL_BLAST_RADIUS_AVOIDED = YES
+
+HEALTH = PASS; HTTP 200
+READY = PASS; HTTP 200
+AUTH_LOGIN_HTTP_STATUS = 200
+AUTH_SESSION_HTTP_STATUS = 200
+AUTHENTICATED_HTTP_CAPTURE = PASS
+AUTH_TOKEN_PERSISTED = NO
+
+PRODUCTION_AI_REQUESTS = 1
+PRODUCTION_AI_QUESTION = APPROVED_NORMAL_QUESTION
+PRODUCTION_AI_SCOPE = organization:organization
+PRODUCTION_AI_FORCE = TRUE; EXISTING_API_FLAG; USED TO EXERCISE AI PATH
+AI_HTTP_STATUS = 200
+AI_RESPONSE_JSON_CAPTURE = YES
+AI_RESULT_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+AI_RESULT_CACHED = NO
+AI_READ_ONLY = YES
+AI_RESPONSE_FAILURE_SUBTYPE = NONE
+JSON_MODE_PRODUCTION = PASS
+STRICT_STRUCTURED_ANALYSIS_VALIDATOR = PASS; INFERRED FROM SUCCESSFUL API PATH
+AI_REPORT_PERSISTENCE = PASS
+AI_REPORT_WRITES = 1; APPROVED EXISTING ai_reports INSERT/UPSERT ONLY
+
+PRODUCTION_BUSINESS_DATA_CHANGED = NO
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_D1_WRITES = 1; ai_reports ONLY
+QUEUE_WRITES = 0
+LINE_SEND = 0
+WORKERS_AI_CALLS = 1; VIA PRODUCTION WORKER REQUEST
+PRODUCTION_AI_RETRIES = 0
+PAGES_DEPLOYMENT = NOT_DONE
+MIGRATION = NONE
+CRON_CHANGED = NO
+MODEL_CHANGED_OTHER_THAN_APPROVED_ANALYSIS_ISOLATION = NO
+PROMPT_CHANGED = NO
+SCHEMA_OR_VALIDATOR_RELAXED = NO
+RAW_COMPLETION_RETAINED = NO
+
+PREDEPLOY_TYPESCRIPT = PASS
+PREDEPLOY_BACKEND_REGRESSION = PASS; 65 FILES; 764 PASS; 11 SKIPPED
+WRANGLER_VERSION = 4.124.0
+ROLLBACK_INDICATED = NO; HEALTH/READY AND APPROVED AI PATH PASSED
+SOURCE_CHANGED = NO
+TESTS_CHANGED = NO
+CONFIG_CHANGED = NO
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+GITHUB_MAIN_REMOTE_CHANGED = NO
+READY_FOR_FREE_TIER_PRODUCTION = YES
+TRUE_REMAINING_BLOCKER = NONE_FOR_THIS_RELEASE; LONG-TERM MODEL RELIABILITY IS NOT CLAIMED
+NEXT_SAFE_ACTION = STOP; HUMAN REAL-WORLD ACCEPTANCE REMAINS SEPARATE
+```
+
+No second AI request, second deployment, Pages deployment, migration, Cron or
+Queue change, LINE message, business write, paid fallback, Prompt/model change,
+or validator relaxation was performed.
