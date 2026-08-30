@@ -3433,3 +3433,80 @@ Official references used for this bounded assessment:
 `https://developers.cloudflare.com/workers-ai/platform/pricing/`,
 `https://developers.cloudflare.com/changelog/product/workers-ai/`, and
 `https://developers.cloudflare.com/workers-ai/models/`.
+
+## Llama 3.1 8B Fast live JSON Mode compatibility — 2026-08-30 — 20:28 CST
+
+The explicitly authorized bounded live test used the existing developer-only
+Cloudflare REST adapter and authentication bridge. The token remained in
+process memory only. One real Workers AI inference request was sent directly
+to the candidate model with synthetic context, the current analysis Prompt,
+the current `ANALYSIS_RESPONSE_FORMAT`, `max_tokens = 1200`, and
+`temperature = 0`. It did not use `/api/ai/analyze`, Production D1, Worker
+bindings, Queue, LINE, or any write path.
+
+Cloudflare returned HTTP `400` with bounded error code `7000`. The existing
+adapter classified this as `INVALID_REQUEST`; no model result reached the
+strict StructuredAnalysis validator. The bounded evidence does not prove a
+local integration defect, so no schema, Prompt, model, or source repair was
+attempted and the remaining two calls were not used. This is an account/model
+request-acceptance failure for the exact tested contract, not evidence of free
+quota exhaustion or a paid-plan requirement.
+
+```text
+TASK_RESULT = FAIL_BOUNDED_LIVE_REQUEST_REJECTED
+START_HANDOFF_HEAD = 0bc60bb880fc60d3c23bb80adf6ae2b4eefd4f23
+SOURCE_HEAD_AT_LIVE_TEST = 0bc60bb880fc60d3c23bb80adf6ae2b4eefd4f23
+
+CANDIDATE_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+FREE_ONLY_REQUIREMENT = ENFORCED
+FREE_PLAN_COMPATIBLE = NOT_PROVEN
+ACCOUNT_FREE_MODEL_ACCESS_LIVE_VERIFIED = NOT_PROVEN
+FREE_QUOTA_EXHAUSTED = NO_EVIDENCE
+
+OFFICIAL_JSON_MODE_PATH_USED = YES
+JSON_MODE_REQUEST_ACCEPTED = NO; HTTP_400; CLOUDFLARE_ERROR_CODE_7000; INVALID_REQUEST
+REAL_WORKERS_AI_CALLS = 1
+TEST_1_BASIC_STRUCTURE = FAIL_HTTP_400_CODE_7000
+TEST_2_REALISTIC_ABNORMAL = NOT_RUN; STOP_AFTER_FIRST_BOUNDED_REQUEST_FAILURE
+TEST_3_INSUFFICIENT_DATA = NOT_RUN; STOP_AFTER_FIRST_BOUNDED_REQUEST_FAILURE
+
+STRICT_VALIDATOR_PASS_COUNT = 0
+STRICT_VALIDATOR_TOTAL_LIVE_CASES = 0; PROVIDER_RESULT_NOT_RETURNED
+JSON_MODE_COULD_NOT_BE_MET_COUNT = 0; NOT_INDICATED_BY_BOUNDED_ERROR
+SCHEMA_REQUIRED_FIELD_FAILURES = 0
+SCHEMA_FIELD_TYPE_FAILURES = 0
+OTHER_SCHEMA_FAILURES = 0
+OTHER_PROVIDER_REQUEST_FAILURES = 1
+
+TRADITIONAL_CHINESE_QUALITY = NOT_EVALUATED
+UNSUPPORTED_CLAIMS_OBSERVED = NOT_EVALUATED
+VETERINARY_SAFETY_BOUNDARY = NOT_EVALUATED
+
+INTEGRATION_BUG_FOUND = NOT_PROVEN
+INTEGRATION_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md; temporary live test removed; no source change
+
+TARGETED_TESTS = NOT_RE-RUN; prior analysis + ai-callsite = 17_PASS
+BACKEND_REGRESSION = NOT_RE-RUN; source unchanged; prior 65_FILES; 764_PASS; 11_SKIPPED
+
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS_FOR_TEST = 0
+PRODUCTION_D1_WRITES = 0
+AI_REPORT_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_MODEL_CHANGED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+GITHUB_HANDOFF = PENDING_DOC_COMMIT_AND_PUSH
+LLAMA_3_1_8B_FAST_LIVE_COMPATIBILITY = FAIL_BOUNDED_HTTP_400
+READY_FOR_FREE_TIER_PRODUCTION_L3_REVIEW = NO; REQUEST_ACCEPTANCE_NOT_PROVEN
+TRUE_REMAINING_BLOCKER = CANDIDATE JSON MODE REQUEST REJECTED BEFORE STRUCTURED RESULT; EXACT PROVIDER MESSAGE NOT RETAINED
+NEXT_SAFE_ACTION = STOP; FUTURE REQUEST-CONTRACT DECISION REQUIRES A SEPARATE EXPLICIT REVIEW
+```
+
+No retry was made, and no paid fallback, schema relaxation, Prompt change,
+model switch, deployment, or Production operation followed this result.
