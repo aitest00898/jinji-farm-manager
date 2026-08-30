@@ -3002,3 +3002,83 @@ NEXT_SAFE_ACTION = STOP_BEFORE_AI_REQUEST; DO_NOT_READ_CREDENTIALS_OR_CREATE_A_N
 No source, test, configuration, Prompt, model, Production data, Queue, LINE,
 Cron, migration, or deployment state was changed. No Production AI request
 was sent.
+
+## Zero-deploy API-authenticated Production AI subtype capture — 2026-08-30 — 19:08 CST
+
+This bounded diagnostic stopped using Browser session reuse as instructed. A
+normal short-lived session was created through the formal Web authentication
+API in process memory only. The authenticated read-only `/api/web/auth/session`
+rehearsal returned HTTP 200 with parseable JSON and zero writes. The single
+approved `/api/ai/analyze` request then returned HTTP 503 with the bounded
+error `ai_response_json_extraction_failed`; no retry was made.
+
+The source path confirms that this code is emitted only after Workers AI
+returns a result and `parseAnalysisResponse` reaches `extractJsonResult` but
+cannot obtain JSON. The existing extractor already handles direct JSON,
+fenced JSON, and JSON embedded in short wrapper prose. Without the raw model
+response, this proves the failure subtype but does not prove a parser defect
+or select a safe L1/L2 causal fix. Prompt, model, response-format, and formal
+contract changes remain outside this Gate.
+
+```text
+TASK_RESULT = PASS
+START_HANDOFF_HEAD = 2abb9d4a44ae471726e1d471c32fa0d52b2b1129
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+CURRENT_WORKER_VERSION = 3bd90ffd-79a1-48a5-9ae6-c94de10b99ef
+
+AUTHENTICATED_HTTP_CAPTURE = PASS
+AUTH_LOGIN_HTTP_STATUS = 200
+AUTHENTICATED_REHEARSAL_ENDPOINT = /api/web/auth/session
+AUTHENTICATED_REHEARSAL_HTTP_STATUS = 200
+AUTHENTICATED_REHEARSAL_JSON_CAPTURE = YES_PARSEABLE_JSON
+REHEARSAL_PRODUCTION_WRITES = 0
+CAPTURE_MECHANISM = node22_process_memory_fetch_status_and_json_capture
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 1
+AI_HTTP_STATUS = 503
+AI_BOUNDED_ERROR_CODE = ai_response_json_extraction_failed
+AI_RESPONSE_FAILURE_SUBTYPE = JSON_EXTRACTION_FAILED
+SAFE_MESSAGE = 目前無法完成 AI 分析；D1 查詢與異常紀錄不受影響。
+VISIBLE_UI_USED_AS_SUBTYPE_EVIDENCE = NO
+
+TOKEN_READ = NO
+TOKEN_EXPOSED = NO
+AUTH_HEADER_INSPECTED = NO
+RAW_COMPLETION_CAPTURED = NO
+RAW_PROVIDER_RESPONSE_CAPTURED = NO
+AI_REPORT_WRITE_OCCURRED = NO_OBSERVED
+AI_REPORT_WRITES = 0_FOR_THIS_FAILED_REQUEST
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+CAUSAL_L1_L2_FIX_PROVEN = NO
+SOURCE_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md
+TARGETED_TESTS = NOT_RUN_NO_SOURCE_CHANGE; PRIOR_HANDOFF_BASELINE_RETAINED
+REGRESSION = NOT_RUN_NO_SOURCE_CHANGE
+SECOND_AI_REQUEST = NOT_DONE
+
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_DOCS_ONLY_COMMIT
+L3_AI_CONTRACT_DECISION_REQUIRED = YES_FOR_ANY_PROMPT_MODEL_RESPONSE_FORMAT_OR_FORMAL_CONTRACT_CHANGE
+TRUE_REMAINING_BLOCKER = RAW_PROVIDER_RESPONSE_NOT_RETAINED; EXISTING_EVIDENCE_DOES_NOT_PROVE_A_SAFE_PARSER_FIX
+NEXT_SAFE_ACTION = STOP_WITHOUT_RETRY_DEPLOYMENT_OR_SOURCE_CHANGE
+```
+
+No source, test, configuration, Prompt, model, Production business data,
+Queue, LINE, Cron, migration, or deployment state was changed. The login
+session and one AI request were the only external calls beyond the read-only
+rehearsal; the credential and token remained process-local and were not
+reported or persisted.
