@@ -21,7 +21,7 @@ Farm+House mortality bugfix 已完成 root-cause trace、最小修正、signed/r
 
 真人 LINE 只需抽驗以下兩條：
 
-1. `金雞測試場 測試1舍 死亡5`
+1. `@金雞協會助理Ai 金雞測試場 測試1舍 死亡5`
    - 預期：`✅ 紀錄成功`，`🧪 金雞測試場｜測試1舍｜死亡｜5隻`
 2. `金雞測試場 測試1舍 目前存欄`
    - 預期：以測試前讀值為基準，死亡5成功後 derived current stock 必須減少 exactly 5；不要把 `995隻` 當成固定 current-stock 預期。
