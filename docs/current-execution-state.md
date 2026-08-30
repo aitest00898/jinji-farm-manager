@@ -2204,11 +2204,61 @@ WORKERS_AI_CALLS = 0
 
 UNKNOWN_NOT_BLOCKER = LIVE_CRON_MATCH; EFFECTIVE_V2_2_SHADOW_EVENT_STATE
 REAL_ACCEPTANCE_READY = YES_FOR_NEXT_BOUNDED_HUMAN_STEP
-REAL_ACCEPTANCE_REMAINING = REAL_LINE_FARM_HOUSE_E2E; REAL_WEB_ACCEPTANCE
-NEXT_SAFE_ACTION = REAL_LINE_AND_WEB_ACCEPTANCE
+REAL_ACCEPTANCE_REMAINING = REAL_WEB_ACCEPTANCE_ONLY (UNTESTED_LOGIN_ADMIN_EDIT_AUDIT_FLOWS)
+NEXT_SAFE_ACTION = REMAINING_REAL_WEB_ACCEPTANCE
 ```
 
 The current Test Farm read is evidence for the next acceptance baseline only;
 it is not a new test event and no row changed. Human acceptance must verify the
 before/after stock delta for the recorded mortality quantity, rather than rely
 on the historical `995` value.
+
+## Real LINE acceptance and interaction-gate closure — 2026-08-30
+
+This bounded entry records the confirmed task-context change from the real
+LINE/Test Farm flow and the accompanying read-only Production forensic. It is
+not a new Gate and does not reopen the completed Ambient observation.
+
+```text
+REAL_LINE_FARM_HOUSE_E2E = PASS
+STOCK_BEFORE = 968
+RECORDED_MORTALITY = 5
+STOCK_AFTER = 963
+STOCK_DELTA_VALID = YES
+REAL_WEB_LINE_DATA_CONSISTENCY = PASS
+WEB_STOCK = 963
+WEB_TODAY_MORTALITY = 5
+
+NO_MENTION_OPERATIONAL_PATH = PROVEN_QUIET_TO_AMBIENT
+MENTION_OPERATIONAL_PATH = PROVEN_EXPLICIT_TO_FORMAL_WRITE
+FINAL_WRITE_SOURCE = MENTIONED_EVENT_B
+DUPLICATE_WRITE_OCCURRED = NO
+DELAYED_REPLY_SOURCE = EVENT_B
+INTERACTION_GATE_BEHAVIOR = EXPECTED
+UX_POLICY_DECISION = CONFIRMED
+REAL_WEB_ACCEPTANCE = REMAINING
+REAL_ACCEPTANCE_REMAINING = REAL_WEB_ACCEPTANCE_ONLY
+```
+
+The no-mention `死亡5` message was proven to take the quiet Ambient path: it
+entered the Ambient buffer and later produced a candidate, without creating a
+formal operational record. The explicitly mentioned message took the explicit
+interaction path, used the existing deterministic record fallback and Quick
+Record path, and created the single formal mortality record. The delayed reply
+notice belonged to the mentioned event; it was not recovery of the no-mention
+message. The final state was one mortality record of 5, not 10.
+
+The confirmed user-facing policy is:
+
+- Read-only queries may be issued directly without an @ mention.
+- A new formal write or modification requires explicit Bot invocation.
+- Once an interaction is active, follow-up responses do not require a repeated
+  mention.
+- Quick Reply and Postback actions do not require a repeated mention.
+- Unmentioned Ambient text must not silently create formal operational data.
+
+The remaining real acceptance scope is limited here to the existing Web
+acceptance items not exercised by this event, including login, administrator
+edit, and Audit/change-history flows. This entry does not claim those flows
+pass, and it does not change source, tests, Production, Cron, Queue, model, or
+Prompt behavior.

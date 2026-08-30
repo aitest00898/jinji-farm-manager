@@ -40,6 +40,25 @@ confirm it before the existing Resolver, Validator, Quick Record, D1, and Audit
 path is used. The ambient candidate source is `ambient_digest`; AI has no direct
 write authority.
 
+## User-facing invocation policy
+
+The default user rule is intentionally simple:
+
+- Read-only queries may be sent directly without mentioning the Bot.
+- A new formal write or modification requires an explicit
+  `@金雞協會助理Ai` invocation on the first message.
+- Once a Bot interaction is active, follow-up answers, choices, confirmations,
+  cancellations, corrections, and reversals do not require repeating the
+  mention.
+- Quick Reply and Postback actions are already explicit interactions and do not
+  require a repeated mention.
+
+This rule does not turn every record-like sentence into a write. Unmentioned
+record-like group text may be buffered as Ambient input, but it must not
+silently create formal operational data. Exact system commands, active or
+pending workflows, and structured button actions remain routing-level
+exceptions governed by the existing handlers.
+
 `@金雞協會助理Ai 摘要` is the explicit on-demand digest command. It uses the
 same digest pipeline as the hourly Cron, but claims only buffered Ambient
 messages up to the mention event timestamp for that group. A bare `摘要` is
