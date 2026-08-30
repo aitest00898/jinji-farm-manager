@@ -2,13 +2,112 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-29 (Asia/Taipei)
+Last reviewed: 2026-08-30 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
 to continue a paused gate.
 
-## Current status
+## Current authoritative state
+
+This section is the authoritative current summary for a new Codex session.
+The dated sections below are preserved evidence snapshots and historical gate
+records; they do not override this section or authorize new work.
+
+```text
+REPOSITORY = aitest00898/jinji-farm-manager
+MAIN_HANDOFF_ALIGNED = YES
+MAIN_HEAD = bce64da9f7fa90e46f2d83200912059898aa9a31
+HANDOFF_HEAD = bce64da9f7fa90e46f2d83200912059898aa9a31
+
+PRODUCTION_WORKER = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
+HEALTH = PASS; current read-only HTTP 200
+READY = PASS; current read-only HTTP 200
+OFFICIAL_BUSINESS_CONTROL_PATH = V1
+V2_2_STATUS = DEVELOPER_ONLY_SHADOW_SIDE; NOT_OFFICIAL; NOT_BUSINESS_CONTROLLING
+
+GENERAL_PRODUCTION_MODEL = @cf/meta/llama-3.2-3b-instruct
+ANALYSIS_PRODUCTION_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+FREE_ONLY_REQUIREMENT = ENFORCED
+PAGES_SOURCE_OF_TRUTH_CONVERGENCE = COMPLETE
+```
+
+### Current production and acceptance summary
+
+- Production Worker liveness and readiness are currently healthy. No current
+  Worker, Web, D1, Queue, or Cron tooling blocker is evidenced.
+- V1 remains the official business-control path. V2 and V2.2 remain
+  developer-only or shadow-side work and are not required to start ordinary
+  user operation.
+- The real LINE farm/house flow is `PASS`: the bounded `死亡5` event changed
+  stock from 968 to 963 exactly once and the Web view was consistent.
+- Web final acceptance Part A/B is complete with a non-blocking AI content
+  quality note. The published Pages source-of-truth is converged and public
+  HTTP 200 was verified.
+- The scheduled Ambient closure is complete. The 12:00 invocation completed
+  with zero eligible groups; this is a valid no-eligible-group result, not a
+  current failure. A separate scheduled run has source-backed completion and
+  delivery evidence.
+- The prior Web AI 503 is not a current blocker: the isolated Free-tier
+  analysis model and JSON Mode path were released and one bounded production
+  verification succeeded. Any further AI quality work is separate scope.
+
+### Current open items — not proven Production blockers
+
+- `LINE_CARETAKER_MASTER_FLOW = CURRENT_OPEN`: the existing Web caretaker and
+  assignment APIs, LINE query paths, and local safety tests exist, but a
+  complete real-user setup/assignment acceptance is not recorded. The gap is
+  acceptance evidence, not a proven runtime defect.
+- `REAL_GROUP_OPERATION_STRESS = CURRENT_OPEN`: no dedicated bounded stress
+  acceptance artifact is recorded after the completed normal LINE/Web flow.
+  This is confidence work and is not by itself a reason to block ordinary
+  use.
+- `REAL_02 = UNKNOWN_NEEDS_REVIEW`: this historical label has no unambiguous
+  definition or acceptance artifact in the current repository. No current
+  blocker can be inferred from it.
+
+### Deferred by product decision
+
+- `DAILY_REVIEW_DETAIL_ROUTE_FUNCTIONALLY_REDUNDANT = DEFERRED_BY_PRODUCT_DECISION`:
+  scheduled Daily Review delivery is operational; route simplification can
+  wait for a product decision.
+- `DEV_FULL_FLOW = DEFERRED_BY_PRODUCT_DECISION`: this belongs to paused,
+  developer-only V2 work and is not required for official V1 use.
+- `PREFILTER_FALSE_NEGATIVE_RISK = DEFERRED_BY_PRODUCT_DECISION`: no current
+  V1 user-impacting failure is evidenced; further Ambient/V2 research is out
+  of this consolidation.
+- `OPERATIONAL_TEST_DATA_SCOPE_REVIEW = DEFERRED_BY_PRODUCT_DECISION`:
+  acceptance evidence kept the test-farm scope bounded and restored the test
+  note, but long-term retention/archive policy is not a current functional
+  blocker.
+
+### Superseded historical current flags
+
+The following old front-page flags remain preserved in the historical snapshot
+below, but are no longer current classifications:
+
+| Historical flag | Current classification |
+| --- | --- |
+| `SCHEDULED_AMBIENT_FAILURE_VISIBILITY_GAP = CONFIRMED` | Superseded by `PARTIAL_NON_BLOCKING_CONDITIONAL`; no current execution blocker |
+| `REAL_WEB_FINAL_REVIEW = PENDING` | Superseded by completed Web Part A/B acceptance and source-of-truth convergence |
+| `REAL_ACCEPTANCE_REMAINING = REAL_WEB_ACCEPTANCE_ONLY` | Superseded; remaining unverified scope is limited to the open items above |
+| `AI_503` / unknown AI boundary | Resolved for the released analysis path; future content-quality work is separate |
+
+### Priority and next recommendation
+
+```text
+PRIORITY_1 = LINE_CARETAKER_MASTER_FLOW
+PRIORITY_1_REASON = Only remaining clearly user-facing master/setup journey without recorded end-to-end acceptance
+PRIORITY_2 = REAL_GROUP_OPERATION_STRESS
+PRIORITY_3 = OPERATIONAL_TEST_DATA_SCOPE_REVIEW
+NEXT_RECOMMENDED_TASK = BOUNDED_REAL_ACCEPTANCE_OF_EXISTING_LINE_CARETAKER_AND_MASTER_DATA_FLOW
+```
+
+These priorities describe decision-ready follow-up, not a new Gate. No V2
+restart, forensic review, source repair, or deployment is started by this
+summary.
+
+## Historical status snapshot — 2026-08-29 (preserved; not current state)
 
 ### DONE
 
@@ -115,7 +214,7 @@ to continue a paused gate.
 3. Consider any next semantic diagnostic, architecture decision, D07, Full V2
    Smoke, Fresh Unseen, or Production action only under a separate explicit gate.
 
-## Evidence boundary
+## Historical evidence boundary — preserved
 
 Reviewed for this snapshot:
 
@@ -130,7 +229,7 @@ Reviewed for this snapshot:
   `src/daily-review.ts`, `src/farm-resolver.ts`, `wrangler.jsonc`, and existing
   architecture/reliability documents.
 
-## Deferred evidence items
+## Historical deferred evidence items — preserved
 
 These remain recorded as pending and were not changed here:
 
@@ -143,6 +242,8 @@ These remain recorded as pending and were not changed here:
 - `REAL_WEB_FINAL_REVIEW = PENDING`
 - `OPERATIONAL_TEST_DATA_SCOPE_REVIEW = PENDING`
 - `REAL_02 = PENDING`
+
+## Historical evidence ledger — preserved dated snapshots
 
 ## Latest event-fusion gate update
 
