@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ANALYSIS_TOOL_NAMES,
   ANALYSIS_RESPONSE_FAILURE_CODES,
+  ANALYSIS_AI_MODEL,
+  ANALYSIS_JSON_SCHEMA,
+  ANALYSIS_RESPONSE_FORMAT,
   PRODUCTION_AI_MODEL,
   classifyAnalysisFailure,
+  classifyAbnormalWithAi,
+  generateDailyBrief,
   isReadOnlyAnalysisQuestion,
   parseAnalysisResponse,
   parseStructuredAnalysis,
@@ -113,6 +118,58 @@ describe("read-only AI analysis boundary", () => {
 
   it("keeps the production model unchanged", () => {
     expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.2-3b-instruct");
+    expect(ANALYSIS_AI_MODEL).toBe("@cf/meta/llama-3.1-8b-instruct-fast");
+  });
+
+  it("isolates StructuredAnalysis on the Free-tier JSON Mode model", async () => {
+    const aiRun = vi.fn(async (_model: string, _input: Record<string, unknown>) => validAnalysisResponse);
+    const { env } = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]> });
+    const result = await runReadOnlyAnalysis(env, "org-test", analysisScope, "最近有哪些異常？", true);
+
+    expect(aiRun).toHaveBeenCalledWith(ANALYSIS_AI_MODEL, expect.objectContaining({
+      response_format: ANALYSIS_RESPONSE_FORMAT,
+      max_tokens: 1200,
+      temperature: 0,
+    }));
+    expect(result.model).toBe(ANALYSIS_AI_MODEL);
+  });
+
+  it("uses the same isolated model for generated daily briefs", async () => {
+    const aiRun = vi.fn(async () => validAnalysisResponse);
+    const { env } = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]> });
+    const result = await generateDailyBrief(env, "org-test", analysisScope, true);
+
+    expect(aiRun).toHaveBeenCalledWith(ANALYSIS_AI_MODEL, expect.objectContaining({ response_format: ANALYSIS_RESPONSE_FORMAT }));
+    expect(result.model).toBe(ANALYSIS_AI_MODEL);
+  });
+
+  it("keeps the JSON Schema acceptance boundary equivalent to the local validator", () => {
+    expect(ANALYSIS_JSON_SCHEMA).toMatchObject({
+      type: "object",
+      additionalProperties: true,
+      required: ["currentStatus", "findings", "possibleCauses", "risks", "recommendations", "limitations"],
+    });
+    const properties = ANALYSIS_JSON_SCHEMA.properties;
+    expect(properties.currentStatus).toMatchObject({ type: "string", pattern: "\\S", maxLength: 1200 });
+    expect(properties.findings).toMatchObject({ type: "array", maxItems: 8 });
+    expect(properties.risks).toMatchObject({ type: "array", maxItems: 8 });
+    expect(properties.recommendations).toMatchObject({ type: "array", maxItems: 8 });
+    expect(properties.limitations).toMatchObject({ type: "array", maxItems: 8 });
+    expect(properties.possibleCauses).toMatchObject({ type: "array", maxItems: 8 });
+    expect(properties.possibleCauses.items).toMatchObject({
+      type: "object",
+      additionalProperties: true,
+      required: ["text", "evidence"],
+    });
+    expect((properties.possibleCauses.items as typeof ANALYSIS_JSON_SCHEMA.properties.possibleCauses.items).properties.evidence).toEqual({
+      type: "string",
+      enum: ["strong", "medium", "weak"],
+    });
+    expect(parseStructuredAnalysis({
+      ...validStructuredAnalysis,
+      extraProviderField: true,
+      possibleCauses: [{ text: "高溫", evidence: "medium", extraCauseField: "ignored" }],
+    })).not.toBeNull();
   });
 
   it("states the complete StructuredAnalysis contract in the production prompt", async () => {
@@ -180,6 +237,26 @@ describe("read-only AI analysis boundary", () => {
       code: ANALYSIS_RESPONSE_FAILURE_CODES.schema_evidence_enum_invalid,
     });
     expect(classifyAnalysisFailure(new Error("analysis_response_invalid:provider-internal-secret"))).toEqual({ layer: "unknown", code: "ai_analysis_unavailable" });
+  });
+
+  it("fails closed when JSON Mode cannot be met without trying a paid fallback", async () => {
+    const aiRun = vi.fn(async (_model: string, _input: Record<string, unknown>) => {
+      throw new Error("JSON Mode couldn't be met");
+    });
+    const { env, db } = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]> });
+    await expect(runReadOnlyAnalysis(env, "org-test", analysisScope, "最近有哪些異常？", true)).rejects.toThrow("analysis_ai_unavailable");
+    expect(aiRun).toHaveBeenCalledTimes(1);
+    expect(db.writes).toBe(0);
+  });
+
+  it("keeps unrelated abnormal classification on the general Production model", async () => {
+    const aiRun = vi.fn(async (model: string) => {
+      expect(model).toBe(PRODUCTION_AI_MODEL);
+      return { response: JSON.stringify({ category: "health", tags: [], confidence: 0.8 }) };
+    });
+    const result = await classifyAbnormalWithAi({ run: aiRun } as unknown as Ai, "雞群咳嗽");
+    expect(result?.category).toBe("health");
+    expect(aiRun).toHaveBeenCalledTimes(1);
   });
 
   it("isolates fake D1 context, AI response, and report persistence stages", async () => {

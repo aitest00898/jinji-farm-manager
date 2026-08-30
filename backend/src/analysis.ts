@@ -7,6 +7,8 @@ import { taipeiDate } from "./master-data";
 import { extractJsonResult, extractJsonValue, type JsonExtractionFailure } from "./ai-json";
 
 export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+/** Free-tier JSON Mode model isolated to StructuredAnalysis paths only. */
+export const ANALYSIS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 export const ANALYSIS_TOOL_NAMES = [
   "get_farm_summary",
@@ -405,28 +407,41 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
   };
 }
 
-const ANALYSIS_SCHEMA = {
+/**
+ * JSON Mode contract for StructuredAnalysis. additionalProperties remains true
+ * because the existing local validator ignores unknown fields at both object
+ * levels; the validator remains the authoritative acceptance boundary.
+ */
+export const ANALYSIS_JSON_SCHEMA = {
   type: "object",
-  additionalProperties: false,
+  additionalProperties: true,
   required: ["currentStatus", "findings", "possibleCauses", "risks", "recommendations", "limitations"],
   properties: {
-    currentStatus: { type: "string" },
-    findings: { type: "array", items: { type: "string" }, maxItems: 8 },
+    currentStatus: { type: "string", pattern: "\\S", maxLength: 1200 },
+    findings: { type: "array", items: { type: "string", pattern: "\\S", maxLength: 500 }, maxItems: 8 },
     possibleCauses: {
       type: "array",
       maxItems: 8,
       items: {
         type: "object",
-        additionalProperties: false,
+        additionalProperties: true,
         required: ["text", "evidence"],
-        properties: { text: { type: "string" }, evidence: { type: "string", enum: ["strong", "medium", "weak"] } },
+        properties: {
+          text: { type: "string", pattern: "\\S", maxLength: 500 },
+          evidence: { type: "string", enum: ["strong", "medium", "weak"] },
+        },
       },
     },
-    risks: { type: "array", items: { type: "string" }, maxItems: 8 },
-    recommendations: { type: "array", items: { type: "string" }, maxItems: 8 },
-    limitations: { type: "array", items: { type: "string" }, maxItems: 8 },
+    risks: { type: "array", items: { type: "string", pattern: "\\S", maxLength: 500 }, maxItems: 8 },
+    recommendations: { type: "array", items: { type: "string", pattern: "\\S", maxLength: 500 }, maxItems: 8 },
+    limitations: { type: "array", items: { type: "string", pattern: "\\S", maxLength: 500 }, maxItems: 8 },
   },
 };
+
+export const ANALYSIS_RESPONSE_FORMAT = {
+  type: "json_schema",
+  json_schema: ANALYSIS_JSON_SCHEMA,
+} as const;
 
 const ANALYSIS_SYSTEM_PROMPT = `你是金雞協會的唯讀雞場營運分析助理。只能根據提供的 validated context 回答，不得生成 SQL、不得修改資料、不得聲稱已執行任何寫入。
 回答必須是單一 JSON 物件，且永遠包含以下六個欄位：currentStatus（字串）、findings（字串陣列）、possibleCauses（物件陣列，每個物件必須包含 text（字串）與 evidence（只能是 strong、medium、weak））、risks（字串陣列）、recommendations（字串陣列）、limitations（字串陣列）。沒有適用內容的陣列請使用 []，不可省略欄位；資料不足請寫入 limitations，不得為填滿欄位而捏造事實。區分事實、相關性、推測與因果；資料只顯示同期間變化時，只能稱為相關或同時發生。
@@ -437,13 +452,14 @@ async function invokeAnalysisAi(env: AnalysisEnv, question: string, context: Ana
   if (!env.AI) throw new Error("analysis_ai_unavailable");
   let result: unknown;
   try {
-    result = await env.AI.run(PRODUCTION_AI_MODEL, {
+    result = await env.AI.run(ANALYSIS_AI_MODEL, {
       messages: [
         { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
         { role: "user", content: `問題：${question}\nvalidatedContext=${JSON.stringify(context)}` },
       ],
-      // The production Llama model uses prompt-constrained JSON plus strict
-      // local validation; response_format/json_schema is intentionally absent.
+      // JSON Mode is only an output-shaping aid. The local parser and strict
+      // StructuredAnalysis validator remain authoritative and fail closed.
+      response_format: ANALYSIS_RESPONSE_FORMAT,
       max_tokens: 1200,
       temperature: 0,
     });
@@ -499,11 +515,11 @@ export async function runReadOnlyAnalysis(
        ON CONFLICT(organization_id, scope_type, scope_id, report_type, context_hash) DO UPDATE SET
          question = excluded.question, content_json = excluded.content_json,
          model = excluded.model, created_at = CURRENT_TIMESTAMP`,
-    ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL).run();
+    ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, ANALYSIS_AI_MODEL).run();
   } catch {
     throw new Error("analysis_report_persistence_failed");
   }
-  return { report, cached: false, contextHash, model: PRODUCTION_AI_MODEL, createdAt: now };
+  return { report, cached: false, contextHash, model: ANALYSIS_AI_MODEL, createdAt: now };
 }
 
 export async function getCachedBrief(env: AnalysisEnv, organizationId: string, scope: AnalysisScope): Promise<AnalysisRunResult | null> {
@@ -539,8 +555,8 @@ export async function generateDailyBrief(
      ON CONFLICT(organization_id, scope_type, scope_id, brief_date, context_hash) DO UPDATE SET
        content_json = excluded.content_json, model = excluded.model,
        generated_through_at = excluded.generated_through_at, updated_at = CURRENT_TIMESTAMP`,
-  ).bind(`ai-brief-${crypto.randomUUID()}`, organizationId, scope.type, scope.id, taipeiDate(), JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL, now).run();
-  return { report, cached: false, contextHash, model: PRODUCTION_AI_MODEL, createdAt: now };
+  ).bind(`ai-brief-${crypto.randomUUID()}`, organizationId, scope.type, scope.id, taipeiDate(), JSON.stringify(report), contextHash, ANALYSIS_AI_MODEL, now).run();
+  return { report, cached: false, contextHash, model: ANALYSIS_AI_MODEL, createdAt: now };
 }
 
 const CLASSIFICATION_SCHEMA = {

@@ -3363,3 +3363,73 @@ NEXT_SAFE_ACTION = STOP; FUTURE_CHANGE REQUIRES A SEPARATE EXPLICIT DECISION
 The deployment itself showed no health/readiness regression, so rollback was
 not indicated. The task stops here: no second AI request, second deployment,
 Pages deployment, Prompt/model/validator relaxation, or forensic expansion.
+
+## Free-tier Structured Output feasibility — 2026-08-30 — 20:15 CST
+
+This bounded L1/L2 assessment enforces the permanent product constraint that
+Workers AI must remain Workers Free-only: no Paid plan, paid-only model,
+prepaid AI Gateway credits, automatic paid fallback, or third-party paid API.
+No Production deploy and no Workers AI call were performed.
+
+Current official Cloudflare evidence records
+`@cf/meta/llama-3.1-8b-instruct-fast` as an active Cloudflare-hosted model and
+lists it in the JSON Mode supported-model list. The current pricing policy
+provides a Workers Free daily allocation and lists the models requiring paid
+billing separately; the candidate is not in that paid-only list. This proves
+documented compatibility, not account-specific quota or entitlement at runtime,
+which was intentionally not live-tested in this task.
+
+The analysis path now has its own `ANALYSIS_AI_MODEL` and
+`ANALYSIS_RESPONSE_FORMAT`. The JSON Schema mirrors the existing validator:
+all six fields are required; list limits and non-blank/text-length constraints
+are represented; `possibleCauses.text` and `evidence` are required; evidence
+is limited to `strong`, `medium`, or `weak`; and `additionalProperties` remains
+allowed at both object levels because the local validator ignores unknown
+fields. The local validator remains authoritative and fail-closed.
+
+```text
+TASK = PASS_BOUNDED_LOCAL_FEASIBILITY
+FREE_ONLY_REQUIREMENT = ENFORCED
+CURRENT_GENERAL_MODEL = @cf/meta/llama-3.2-3b-instruct
+CANDIDATE_ANALYSIS_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+CANDIDATE_AVAILABLE_ON_WORKERS_FREE = DOCUMENTED_COMPATIBLE; ACCOUNT_QUOTA_NOT_LIVE_VERIFIED
+OFFICIAL_JSON_MODE_SUPPORT = DOCUMENTED_SUPPORTED_MODEL
+
+ANALYSIS_MODEL_ISOLATION_FEASIBLE = YES
+GLOBAL_MODEL_BLAST_RADIUS_AVOIDED = YES
+ANALYSIS_MODEL_CONSUMERS = runReadOnlyAnalysis, generateDailyBrief
+GENERAL_MODEL_RETAINED_BY = Ambient extraction, Conversation, abnormal classification, developer/evaluation paths, and general fallbacks
+
+STRUCTURED_ANALYSIS_JSON_SCHEMA_CREATED = YES
+SCHEMA_VALIDATOR_EQUIVALENCE = YES; REQUIRED_FIELDS_TYPES_LIMITS_TEXT_RULES_AND_ENUM_MATCH; EXTRA_FIELDS_ALLOWED
+FAIL_CLOSED_PRESERVED = YES
+
+JSON_MODE_INTEGRATION = env.AI.run(ANALYSIS_AI_MODEL, messages, ANALYSIS_RESPONSE_FORMAT, max_tokens=1200, temperature=0)
+JSON_MODE_COULD_NOT_BE_MET_HANDLING = EXISTING PROVIDER CATCH -> analysis_ai_unavailable -> SAFE 503; NO FALLBACK; NO WRITE
+FREE_QUOTA_EXHAUSTION_BEHAVIOR = EXISTING PROVIDER FAILURE PATH; NO PAID OR THIRD_PARTY FALLBACK; NO BUSINESS WRITE
+
+FILES_CHANGED = backend/src/analysis.ts, backend/src/analysis.test.ts, backend/src/ai-callsite.test.ts, docs/current-execution-state.md
+TARGETED_TESTS = analysis + ai-callsite; 17_PASS
+BACKEND_REGRESSION = 65_FILES; 764_PASS; 11_SKIPPED
+
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_D1_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MIGRATION = NONE
+MODEL_PRODUCTION_SWITCH = NOT_DONE
+
+CURRENT_PRODUCTION_WORKER = 83c0d572-80a3-430c-8caf-b92abacf107f
+CURRENT_PRODUCTION_GENERAL_MODEL = @cf/meta/llama-3.2-3b-instruct
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+READY_FOR_FREE_TIER_L3_REVIEW = YES; LOCAL PATH AND TESTS READY; NO LIVE CLAIM
+TRUE_REMAINING_BLOCKER = CANDIDATE JSON MODE AND SCHEMA-COMPLIANT PRODUCTION OUTPUT NOT LIVE VERIFIED; ACCOUNT FREE QUOTA NOT LIVE VERIFIED
+NEXT_SAFE_ACTION = STOP; ANY PRODUCTION VERIFY REQUIRES A SEPARATE EXPLICIT L3 DECISION
+```
+
+Official references used for this bounded assessment:
+`https://developers.cloudflare.com/workers-ai/features/json-mode/`,
+`https://developers.cloudflare.com/workers-ai/platform/pricing/`,
+`https://developers.cloudflare.com/changelog/product/workers-ai/`, and
+`https://developers.cloudflare.com/workers-ai/models/`.
