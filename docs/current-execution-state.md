@@ -2859,3 +2859,75 @@ NEXT_SAFE_ACTION = STOP; SIGN_IN_TO_THE_CURRENT_WEB_SESSION_BEFORE_ANY_FUTURE_AU
 No source, test, configuration, Prompt, model, Production data, Queue, LINE,
 Cron, migration, or deployment state was changed. The capture rehearsal was
 read-only and produced zero writes. No Production AI request was sent.
+
+## Zero-deploy Production AI subtype capture retry — 2026-08-30 (login restored) — 18:41 CST
+
+This retry followed the user's completion of the Web login. The existing Web
+session was confirmed authenticated on the dashboard, and the same safe
+`/health` capture rehearsal again returned HTTP 200 with parseable JSON and
+zero writes. The only proven capture mechanism remains host `/usr/bin/curl`;
+it cannot safely reuse the browser-held Bearer session without reading or
+handling a credential. The Browser page-evaluation surface does not expose
+`fetch`, and no supported browser network-response capability is available.
+Therefore the authenticated `/api/ai/analyze` capture path remains unproven.
+The hard stop was applied before sending any AI request.
+
+```text
+TASK_RESULT = FAIL
+FAILURE_REASON = AUTHENTICATED_AI_CAPTURE_PATH_UNPROVEN
+START_HANDOFF_HEAD = 1d055ef130ea5aa565a2cb0cfb66fb4d80937763
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+CURRENT_WORKER_VERSION = 3bd90ffd-79a1-48a5-9ae6-c94de10b99ef
+
+AUTHENTICATED_WEB_SESSION = PASS
+CAPTURE_REHEARSAL = PASS
+CAPTURE_MECHANISM = /usr/bin/curl_with_explicit_http_status_and_json_parse
+REHEARSAL_ENDPOINT = https://chicken-line-production.jinji-assistant.workers.dev/health
+REHEARSAL_HTTP_STATUS = 200
+REHEARSAL_RESPONSE_CAPTURED = YES_PARSEABLE_JSON
+REHEARSAL_PRODUCTION_WRITES = 0
+AUTHENTICATED_AI_CAPTURE_PATH = NOT_PROVEN
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 0
+AI_HTTP_STATUS = NOT_SENT
+AI_BOUNDED_ERROR_CODE = NOT_SENT
+AI_RESPONSE_FAILURE_SUBTYPE = NOT_APPLICABLE
+AI_REPORT_WRITE_OCCURRED = NOT_APPLICABLE
+AI_REPORT_WRITES = 0
+
+RAW_COMPLETION_CAPTURED = NO
+RAW_COMPLETION_PERSISTED = NO
+RAW_PROVIDER_ERROR_EXPOSED = NO
+AUTH_SECRET_EXPOSED = NO
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+CAUSAL_L1_L2_FIX_PROVEN = NOT_APPLICABLE
+SOURCE_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md
+TARGETED_TESTS = NOT_RUN_NO_SOURCE_CHANGE
+REGRESSION = NOT_RUN_NO_SOURCE_CHANGE
+SECOND_AI_REQUEST = NOT_DONE
+
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_DOCS_ONLY_COMMIT
+L3_AI_CONTRACT_DECISION_REQUIRED = NOT_REACHED
+TRUE_REMAINING_BLOCKER = NO_SUPPORTED_WAY_TO_CAPTURE_THE_BROWSER_AUTHENTICATED_AI_RESPONSE_WITHOUT_ACCESSING_BROWSER_CREDENTIALS
+NEXT_SAFE_ACTION = STOP_BEFORE_AI_REQUEST; DO_NOT_READ_TOKEN_OR_CREATE_ANOTHER_CAPTURE_SYSTEM
+```
+
+No source, test, configuration, Prompt, model, Production data, Queue, LINE,
+Cron, migration, or deployment state was changed. No Production AI request
+was sent in this retry.
