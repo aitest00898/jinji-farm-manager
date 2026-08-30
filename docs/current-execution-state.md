@@ -2705,3 +2705,83 @@ model, or product-schema relaxation. Existing broad failure handling and safe
 user-facing classification remain compatible. This checkpoint is ready for a
 future single bounded Production subtype verification only after its separate
 L3 approval; it does not claim that the AI semantic failure is fixed.
+
+## Production response-subtype diagnostic — 2026-08-30 (explicit L3 Worker-only) — 18:27 CST
+
+This checkpoint records the explicitly approved Worker-only diagnostic release.
+The reviewed handoff was deployed to the Production Worker, and post-deploy
+`/health` and `/ready` checks passed. One normal authenticated Web AI request
+was then submitted with the approved diagnostic question. The selected
+browser surface did not expose a supported historical HTTP response object or
+network response body after the request completed; browser console diagnostics
+were empty. The visible safe UI error was not used as subtype evidence, and no
+second request was made. A read-only remote D1 query for the exact question
+returned no matching `ai_reports` row and reported zero rows written.
+
+```text
+TASK_RESULT = FAIL
+FAILURE_REASON = BOUNDED_HTTP_RESPONSE_CODE_NOT_CAPTURED
+START_HANDOFF_HEAD = db90d689f1e21c29cba5cb947d4ad181e5fb859e
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+WORKER_PREVIOUS_VERSION = 3cccc824-b99d-42ea-8e97-52a021d1c318
+WORKER_NEW_VERSION = 3bd90ffd-79a1-48a5-9ae6-c94de10b99ef
+WORKER_DEPLOYMENT = PASS
+PAGES_DEPLOYMENT = NOT_DONE
+HEALTH = PASS
+READY = PASS
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 1
+AI_HTTP_STATUS = NOT_CAPTURED_BY_SUPPORTED_BROWSER_EVIDENCE
+AI_BOUNDED_ERROR_CODE = NOT_CAPTURED
+AI_RESPONSE_FAILURE_SUBTYPE = UNKNOWN
+AI_FAILURE_LAYER_THIS_REQUEST = NOT_PROVEN
+VISIBLE_UI_MESSAGE = AI 分析目前無法使用。
+VISIBLE_UI_CLASSIFICATION = AI 分析
+UI_MESSAGE_USED_AS_DIAGNOSTIC_EVIDENCE = NO
+RESPONSE_EVIDENCE_ACCESS = NOT_AVAILABLE_IN_SELECTED_BROWSER_SURFACE
+
+RAW_COMPLETION_CAPTURED = NO
+RAW_COMPLETION_PERSISTED = NO
+RAW_PROVIDER_ERROR_EXPOSED = NO
+AI_REPORT_WRITE_OCCURRED = NO_OBSERVED
+AI_REPORT_WRITES = 0_MATCHING_ROWS_AFTER_REQUEST
+D1_READONLY_VERIFICATION = PASS
+D1_ROWS_WRITTEN = 0
+
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+
+CAUSAL_L1_L2_FIX_PROVEN = NO
+SOURCE_FIX_IMPLEMENTED = NO
+FILES_CHANGED_AFTER_DIAGNOSTIC = docs/current-execution-state.md
+TARGETED_TESTS = NOT_RUN_AFTER_NO_SOURCE_CHANGE; PRIOR_HANDOFF_TARGETED_TESTS_RETAINED
+BACKEND_REGRESSION = NOT_RUN_AFTER_NO_SOURCE_CHANGE; PRIOR_HANDOFF_BASELINE_RETAINED
+WORKERS_AI_CALLS = NOT_INDEPENDENTLY_OBSERVED
+PRODUCTION_AI_CALLS = 1
+
+SECOND_AI_REQUEST = NOT_DONE
+SECOND_WORKER_DEPLOYMENT = NOT_DONE
+ROLLBACK_REQUIRED = NO
+ROLLBACK_EXECUTED = NO
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_DOCS_ONLY_COMMIT
+L3_AI_CONTRACT_DECISION_REQUIRED = YES
+TRUE_REMAINING_BLOCKER = SUPPORTED_HTTP_RESPONSE_CODE_OR_NETWORK_EVIDENCE_IS_UNAVAILABLE_AFTER_THE_SINGLE_ALLOWED_REQUEST
+NEXT_SAFE_ACTION = STOP_WITHOUT_RETRY_OR_ADDITIONAL_DEPLOYMENT
+```
+
+No source, test, configuration, Prompt, model, Production business data,
+Queue, LINE, Cron, or migration state was changed. The Worker deployment was
+the sole authorized Production state change; no rollback is indicated by the
+passing health/readiness checks. This checkpoint does not select a causal fix
+or claim that the AI response-validation failure is resolved.
