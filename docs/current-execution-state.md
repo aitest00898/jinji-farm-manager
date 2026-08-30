@@ -3271,3 +3271,95 @@ CURRENT_EXECUTION_STATE_UPDATED = YES
 GITHUB_HANDOFF = PENDING_SOURCE_COMMIT_AND_PUSH
 NEXT_SAFE_ACTION = COMMIT_AND_PUSH_HANDOFF_SOURCE; THEN_ONE_WORKER_DEPLOYMENT_AND_ONE_PRODUCTION_VERIFY
 ```
+
+## StructuredAnalysis prompt/validator contract Production verify — 2026-08-30 — 20:02 CST
+
+The explicitly authorized single Worker deployment completed successfully and
+health/readiness were both HTTP 200. A short-lived authenticated session was
+created through the existing login API; the session endpoint returned a
+parseable authenticated response. One forced normal analysis request was sent
+with the approved question and was not retried.
+
+The request returned the bounded error
+`ai_response_schema_field_type_invalid` (HTTP 503). The bounded response did
+not identify which field and no raw provider completion was retained. The
+minimal prompt alignment is therefore live on the new Worker, but this one
+response still did not pass the unchanged strict schema. This is bounded
+evidence that prompt-only JSON contract alignment was not sufficient for this
+request; it is not a long-term model reliability claim. No further production
+request or deployment is authorized by this task.
+
+```text
+TASK_RESULT = FAIL_BOUNDED_SCHEMA_FIELD_TYPE_INVALID
+START_HANDOFF_HEAD = afc86b8f93cdd7acaeac85578820adbd840ec553
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+FINAL_SOURCE_HEAD = 4d865bad9f74c497dd78708b7749fbafdc76e495
+
+PROMPT_VALIDATOR_CONTRACT_MISMATCH = PROVEN
+PROMPT_VALIDATOR_ALIGNMENT = DEPLOYED
+PROMPT_VALIDATOR_ALIGNMENT_LIVE_VERIFY = FAIL_BOUNDED_SCHEMA_FIELD_TYPE_INVALID
+BALANCED_JSON_EXTRACTOR = LIVE_PATH_REACHED_SCHEMA_LAYER; NO_EXTRACTION_FAILURE
+STRUCTURED_ANALYSIS_VALIDATOR = FAIL_CLOSED; FIELD_TYPE_INVALID
+VALIDATOR_ACCEPTANCE_CHANGED = NO
+RESPONSE_FORMAT_CHANGED = NO
+MAX_TOKENS_CHANGED = NO
+MODEL_CHANGED = NO
+
+WORKER_PREVIOUS_VERSION = ad10ec94-2682-469c-ac13-8fe28a14917c
+WORKER_NEW_VERSION = 83c0d572-80a3-430c-8caf-b92abacf107f
+WORKER_DEPLOYMENT = PASS; EXACTLY_ONE
+HEALTH = PASS; HTTP_200
+READY = PASS; HTTP_200
+
+AUTH_LOGIN_HTTP_STATUS = 200
+AUTHENTICATED_HTTP_CAPTURE = PASS
+REHEARSAL_ENDPOINT = /api/web/auth/session
+REHEARSAL_HTTP_STATUS = 200
+REHEARSAL_JSON_CAPTURE = PASS
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 1
+WORKERS_AI_CALLS = 1
+PRODUCTION_AI_CALLS = 1
+AI_HTTP_STATUS = 503
+AI_BOUNDED_ERROR_CODE = ai_response_schema_field_type_invalid
+AI_RESPONSE_FAILURE_SUBTYPE = SCHEMA_FIELD_TYPE_INVALID
+AI_LIVE_VERIFY = FAIL
+AI_REPORT_WRITE_OCCURRED = NO
+AI_REPORT_WRITES = 0
+
+RAW_COMPLETION_CAPTURED = NO
+RAW_PROVIDER_RESPONSE_CAPTURED = NO
+TOKEN_EXPOSED = NO
+AUTH_SESSION_METADATA_WRITES = ALLOWED_BY_GATE
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+SECOND_AI_REQUEST = NOT_DONE
+SECOND_WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+ROLLBACK_REQUIRED = NO
+ROLLBACK_EXECUTED = NO
+
+FILES_CHANGED = backend/src/analysis.ts, backend/src/analysis.test.ts, docs/current-execution-state.md
+TARGETED_TESTS = backend/src/analysis.test.ts + backend/src/ai-json.test.ts; 21_PASS
+BACKEND_REGRESSION = 65_FILES; 759_PASS; 11_SKIPPED
+WEB_BUILD = PASS
+WEB_REGRESSION = 1_FILE; 13_PASS
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_FINAL_COMMIT_AND_PUSH
+
+PROMPT_ONLY_JSON_CONTRACT_RELIABILITY_NOT_SUFFICIENT = YES_FOR_THIS_BOUNDED_REQUEST_ONLY
+L3_STRUCTURED_OUTPUT_OR_MODEL_DECISION_REQUIRED = YES_FOR_ANY_FUTURE_CONTRACT_OR_MODEL_CHANGE
+TRUE_REMAINING_BLOCKER = FROZEN_MODEL_RESPONSE_STILL_VIOLATES_STRICT_STRUCTURED_ANALYSIS_FIELD_TYPE; EXACT_FIELD_NOT_CAPTURED
+NEXT_SAFE_ACTION = STOP; FUTURE_CHANGE REQUIRES A SEPARATE EXPLICIT DECISION
+```
+
+The deployment itself showed no health/readiness regression, so rollback was
+not indicated. The task stops here: no second AI request, second deployment,
+Pages deployment, Prompt/model/validator relaxation, or forensic expansion.
