@@ -2408,3 +2408,69 @@ environment credentials, or interactive login. The local fake runtime proves
 the application can distinguish the relevant failure stages without exposing
 runtime details; only a deployment followed by one controlled request can
 identify which stage caused the reported Production 503.
+
+## Web AI 503 Production diagnostic release — 2026-08-30
+
+This is the explicitly authorized bounded L3 diagnostic release. It deployed
+the already-tested Worker classification fix only. The existing Pages release
+was not changed because the single authorized Web AI request could not be
+submitted without a live Web admin session.
+
+```text
+TASK_RESULT = BLOCKED_AT_AUTHENTICATION_BOUNDARY
+START_HANDOFF_HEAD = c479c467b788e1dd3d390ef157a5664e1f0b652a
+START_MAIN_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
+
+WORKER_PREVIOUS_VERSION = 54211f90-c0ec-4f0c-aa3a-cdf5ebc2c836
+WORKER_NEW_VERSION = 3cccc824-b99d-42ea-8e97-52a021d1c318
+WORKER_DEPLOY = SUCCESS
+HEALTH = PASS
+READY = PASS
+READY_DATA_STORAGE = 正常
+READY_UNFINISHED = 0
+READY_STALLED = 0
+READY_REPLY_FAILURES = 0
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 0
+AI_HTTP_STATUS = NOT_SENT_WEB_ADMIN_SESSION_REQUIRED
+AI_BOUNDED_ERROR_CODE = NOT_OBTAINED
+AI_FAILURE_LAYER = NOT_OBTAINED
+AI_PRODUCTION_RESULT = NOT_REACHED
+AI_REPORT_WRITE_OCCURRED = NO
+AI_REPORT_WRITES = 0
+
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+MIGRATION = NONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+
+AUDIT_FIX_STATE = PRESERVED_READY
+PAGES_DEPLOYMENT = NOT_DONE
+PAGES_WORKFLOW = NOT_TRIGGERED
+PAGES_LIVE_HTTP = 200_EXISTING_BASELINE_ONLY
+ROLLBACK_REQUIRED = NO
+ROLLBACK_EXECUTED = NO
+CURRENT_EXECUTION_STATE_UPDATED = YES
+
+GITHUB_MAIN_HEAD = 590bafb96525c7bd1c0e9111da32b1de1a164b50
+GITHUB_HANDOFF_STATE = SYNCED_ON_HANDOFF_BRANCH
+
+READY_FOR_REAL_WEB_RETEST = NO_AUTH_REQUIRED_FIRST
+REAL_WEB_ACCEPTANCE = PENDING_HUMAN_LOGIN_AND_RETEST
+TRUE_REMAINING_BLOCKER = WEB_ADMIN_SESSION_UNAVAILABLE; AI_REQUEST_NOT_SENT
+NEXT_SAFE_ACTION = USER_SIGN_IN_TO_THE_EXISTING_PAGES_SESSION_THEN_RESUME_THIS_SINGLE_REQUEST
+```
+
+The Worker deployment was stable and did not introduce an obvious health or
+readiness regression. The production Pages page returned HTTP 200, but no
+Pages deployment was triggered. The Web UI exposed the normal management login
+page and no existing authenticated tab was available; no password, token, or
+alternate credential path was used. Therefore this diagnostic did not obtain
+the bounded AI error code and did not create an `ai_reports` row.
