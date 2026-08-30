@@ -66,6 +66,23 @@ export interface AnalysisRunResult {
   createdAt: string;
 }
 
+export type AnalysisFailureLayer = "context" | "provider" | "response_validation" | "persistence" | "unknown";
+
+export interface AnalysisFailureClassification {
+  layer: AnalysisFailureLayer;
+  code: "ai_context_unavailable" | "ai_provider_unavailable" | "ai_response_invalid" | "ai_cache_unavailable" | "ai_report_persistence_failed" | "ai_analysis_unavailable";
+}
+
+export function classifyAnalysisFailure(error: unknown): AnalysisFailureClassification {
+  const code = error instanceof Error ? error.message : "";
+  if (code === "analysis_context_unavailable") return { layer: "context", code: "ai_context_unavailable" };
+  if (code === "analysis_ai_unavailable") return { layer: "provider", code: "ai_provider_unavailable" };
+  if (code === "analysis_schema_invalid") return { layer: "response_validation", code: "ai_response_invalid" };
+  if (code === "analysis_cache_read_failed") return { layer: "persistence", code: "ai_cache_unavailable" };
+  if (code === "analysis_report_persistence_failed") return { layer: "persistence", code: "ai_report_persistence_failed" };
+  return { layer: "unknown", code: "ai_analysis_unavailable" };
+}
+
 const ANALYSIS_EVIDENCE = new Set(["strong", "medium", "weak"]);
 const SCOPE_TYPES = new Set<AnalysisScopeType>(["organization", "farm", "house", "flock", "finance", "trend"]);
 const SQL_LANGUAGE = /(?:\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b|\bALTER\b|\bPRAGMA\b|;|--)/iu;
@@ -340,16 +357,21 @@ const ANALYSIS_SYSTEM_PROMPT = `你是金雞協會的唯讀雞場營運分析助
 
 async function invokeAnalysisAi(env: AnalysisEnv, question: string, context: AnalysisContext): Promise<StructuredAnalysis> {
   if (!env.AI) throw new Error("analysis_ai_unavailable");
-  const result = await env.AI.run(PRODUCTION_AI_MODEL, {
-    messages: [
-      { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
-      { role: "user", content: `問題：${question}\nvalidatedContext=${JSON.stringify(context)}` },
-    ],
-    // The production Llama model uses prompt-constrained JSON plus strict
-    // local validation; response_format/json_schema is intentionally absent.
-    max_tokens: 1200,
-    temperature: 0,
-  });
+  let result: unknown;
+  try {
+    result = await env.AI.run(PRODUCTION_AI_MODEL, {
+      messages: [
+        { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
+        { role: "user", content: `問題：${question}\nvalidatedContext=${JSON.stringify(context)}` },
+      ],
+      // The production Llama model uses prompt-constrained JSON plus strict
+      // local validation; response_format/json_schema is intentionally absent.
+      max_tokens: 1200,
+      temperature: 0,
+    });
+  } catch {
+    throw new Error("analysis_ai_unavailable");
+  }
   const report = parseStructuredAnalysis(jsonValue(aiText(result)));
   if (!report) throw new Error("analysis_schema_invalid");
   return report;
@@ -364,30 +386,45 @@ export async function runReadOnlyAnalysis(
 ): Promise<AnalysisRunResult> {
   const normalizedQuestion = question.normalize("NFKC").trim();
   if (!normalizedQuestion || normalizedQuestion.length > 1000 || SQL_LANGUAGE.test(normalizedQuestion)) throw new Error("invalid_analysis_question");
-  const context = await buildAnalysisContext(env, organizationId, scope);
+  let context: AnalysisContext;
+  try {
+    context = await buildAnalysisContext(env, organizationId, scope);
+  } catch (error) {
+    if (error instanceof Error && error.message === "analysis_scope_not_found") throw error;
+    throw new Error("analysis_context_unavailable");
+  }
   const contextHash = await hashJson({ context, question: normalizedQuestion });
   if (!force) {
-    const cached = await env.DB.prepare(
-      `SELECT content_json AS contentJson, model, created_at AS createdAt
-         FROM ai_reports
-        WHERE organization_id = ? AND scope_type = ? AND scope_id = ?
-          AND report_type = 'question' AND context_hash = ?
-        ORDER BY created_at DESC LIMIT 1`,
-    ).bind(organizationId, scope.type, scope.id, contextHash).first<{ contentJson: string; model: string; createdAt: string }>();
+    let cached: { contentJson: string; model: string; createdAt: string } | null;
+    try {
+      cached = await env.DB.prepare(
+        `SELECT content_json AS contentJson, model, created_at AS createdAt
+           FROM ai_reports
+          WHERE organization_id = ? AND scope_type = ? AND scope_id = ?
+            AND report_type = 'question' AND context_hash = ?
+          ORDER BY created_at DESC LIMIT 1`,
+      ).bind(organizationId, scope.type, scope.id, contextHash).first<{ contentJson: string; model: string; createdAt: string }>();
+    } catch {
+      throw new Error("analysis_cache_read_failed");
+    }
     const report = cached ? parseStructuredAnalysis(jsonValue(cached.contentJson)) : null;
     if (cached && report) return { report, cached: true, contextHash, model: cached.model, createdAt: cached.createdAt };
   }
   const report = await invokeAnalysisAi(env, normalizedQuestion, context);
   const id = `ai-report-${crypto.randomUUID()}`;
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO ai_reports
-      (id, organization_id, scope_type, scope_id, report_type, question, content_json, context_hash, model)
-     VALUES (?, ?, ?, ?, 'question', ?, ?, ?, ?)
-     ON CONFLICT(organization_id, scope_type, scope_id, report_type, context_hash) DO UPDATE SET
-       question = excluded.question, content_json = excluded.content_json,
-       model = excluded.model, created_at = CURRENT_TIMESTAMP`,
-  ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO ai_reports
+        (id, organization_id, scope_type, scope_id, report_type, question, content_json, context_hash, model)
+       VALUES (?, ?, ?, ?, 'question', ?, ?, ?, ?)
+       ON CONFLICT(organization_id, scope_type, scope_id, report_type, context_hash) DO UPDATE SET
+         question = excluded.question, content_json = excluded.content_json,
+         model = excluded.model, created_at = CURRENT_TIMESTAMP`,
+    ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL).run();
+  } catch {
+    throw new Error("analysis_report_persistence_failed");
+  }
   return { report, cached: false, contextHash, model: PRODUCTION_AI_MODEL, createdAt: now };
 }
 

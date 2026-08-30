@@ -1,5 +1,6 @@
 import {
   buildAnalysisContext,
+  classifyAnalysisFailure,
   generateDailyBrief,
   getCachedBrief,
   runReadOnlyAnalysis,
@@ -392,7 +393,8 @@ async function aiAnalyze(request: Request, env: PhaseApiEnv, session: PhaseSessi
     const code = error instanceof Error ? error.message : "";
     if (code === "invalid_analysis_question") return fail(400, "invalid_analysis_question", "AI 助理只接受唯讀營運分析問題，不接受 SQL 或資料修改指令。");
     if (code === "analysis_scope_not_found") return fail(404, "analysis_scope_not_found", "找不到分析範圍。");
-    return fail(503, "ai_analysis_unavailable", "目前無法完成 AI 分析；D1 查詢與異常紀錄不受影響。");
+    const failure = classifyAnalysisFailure(error);
+    return fail(503, failure.code, "目前無法完成 AI 分析；D1 查詢與異常紀錄不受影響。");
   }
 }
 
