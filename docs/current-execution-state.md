@@ -2604,3 +2604,54 @@ details and completion content were not exposed. The exact-question
 read-only D1 query returned no matching `ai_reports` row and reported zero rows
 written. This release did not alter operational, abnormal, master-data,
 finance, Queue, LINE, Cron, model, Prompt, or security state.
+
+## Web AI response-validation root-cause checkpoint — 2026-08-30
+
+The bounded L1/L2 follow-up inspected the current analysis response path only:
+`Workers AI result -> response text extraction -> JSON extraction -> strict
+StructuredAnalysis validation`. Existing Production evidence proves the broad
+`RESPONSE_VALIDATION` classification, but the deployed evidence did not retain
+the response envelope, raw completion, or bounded structural fields needed to
+distinguish the three sublayers. The current source raises one combined
+`analysis_schema_invalid` error after the combined extraction/parsing/strict
+validation expression, so source inspection cannot identify which exact
+contract check rejected the Production response.
+
+```text
+TASK_RESULT = FAIL_BOUNDED_SUBTYPE_UNPROVEN
+START_GITHUB_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+AI_FAILURE_LAYER = RESPONSE_VALIDATION
+AI_RESPONSE_FAILURE_SUBTYPE = UNKNOWN_WITHIN_RESPONSE_VALIDATION
+ROOT_CAUSE = EXACT_RESPONSE_CONTRACT_MISMATCH_NOT_PROVEN_FROM_RETAINED_EVIDENCE
+RESPONSE_TEXT_EXTRACTION = NOT_PROVEN
+JSON_EXTRACTION = NOT_PROVEN
+STRUCTURED_VALIDATION = NOT_PROVEN_AT_SUBTYPE
+MODEL_OUTPUT_SHAPE_OBSERVED = NOT_OBSERVED; NO_RAW_COMPLETION_RETAINED
+SOURCE_FIX_REQUIRED = NOT_PROVEN
+SOURCE_FIX_IMPLEMENTED = NO
+PROMPT_CHANGE_REQUIRED = NOT_PROVEN
+MODEL_CHANGE_REQUIRED = NOT_PROVEN
+RESPONSE_FORMAT_CHANGE_PROPOSED = NO_DECISION
+TARGETED_TESTS = NOT_RUN_THIS_CHECKPOINT; CURRENT_SOURCE_TEST_BASELINE_RETAINED
+BACKEND_REGRESSION = 745_PASS_11_SKIPPED_EXISTING_BASELINE
+REAL_DEVELOPER_AI_CALLS = 0
+PRODUCTION_AI_CALLS = 0
+RAW_COMPLETION_PERSISTED = NO
+PRODUCTION_D1_WRITES = 0
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MIGRATION = NONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+L3_APPROVAL_REQUIRED = YES_FOR_ANY_NEW_PRODUCTION_AI_DIAGNOSTIC_OR_DEPLOYMENT
+TRUE_REMAINING_BLOCKER = NO_SAFE_L1_L2_FIX_CAN_BE_SELECTED_WITHOUT_BOUNDED_RESPONSE_STRUCTURE_EVIDENCE
+NEXT_SAFE_ACTION = STOP; OBTAIN EXPLICIT L3 APPROVAL FOR A FUTURE BOUNDED DIAGNOSTIC PATH
+```
+
+No source, test, configuration, Prompt, model, Production data, or
+observability framework was changed in this checkpoint. No second Production
+AI request was made. The missing `.dev.secrets.local` developer credential
+means the existing developer-only real-AI path was not available; no alternate
+authentication path was created. This checkpoint must be handed off on the
+existing non-deploying `web-defect-repair-2026-08-30` branch only.
