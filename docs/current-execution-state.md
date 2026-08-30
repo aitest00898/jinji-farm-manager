@@ -3082,3 +3082,67 @@ Queue, LINE, Cron, migration, or deployment state was changed. The login
 session and one AI request were the only external calls beyond the read-only
 rehearsal; the credential and token remained process-local and were not
 reported or persisted.
+
+## JSON extraction robustness repair — 2026-08-30 — 19:21 CST
+
+This bounded L1/L2 repair did not call Production AI. Source review proved a
+parser robustness defect in the existing wrapper-prose tolerance: when an
+unrelated brace block appeared before or after a valid JSON object, the old
+first-`{` to last-`}` slice combined both regions and could make
+`JSON.parse` reject the complete valid object. The source-level witness is
+covered by the new wrapper-with-unrelated-braces regression.
+
+`extractJsonResult` now scans root-level balanced object candidates, tracks
+JSON string state and escaped quotes/backslashes, parses each candidate with
+strict `JSON.parse`, accepts exactly one valid candidate, and fails closed for
+ambiguous multiple valid candidates. It does not repair malformed JSON,
+accept JSON5/single quotes/trailing commas, infer braces, or change the
+`StructuredAnalysis` validator. The legacy broad
+`json_extraction_failed` mapping remains only for compatibility with older
+bounded errors; new analysis parsing returns the structural subtype directly.
+
+```text
+TASK_RESULT = PASS_LOCAL_L2_REPAIR
+START_HANDOFF_HEAD = d1b4264acf46af6a73041256b4c44dc674726a6b
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+
+AI_FAILURE_LAYER = RESPONSE_VALIDATION
+CONFIRMED_PRODUCTION_SUBTYPE = JSON_EXTRACTION_FAILED
+EXTRACTOR_ROBUSTNESS_DEFECT = PROVEN
+ROOT_CAUSE_AT_SOURCE_LEVEL = FIRST_LAST_BRACE_SLICE_CAN_COMBINE_UNRELATED_BRACES_WITH_A_LATER_VALID_OBJECT
+BALANCED_JSON_EXTRACTION_IMPLEMENTED = YES
+FAIL_CLOSED_PRESERVED = YES
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+JSON_FAILURE_SUBTYPES = json_no_object_candidate, json_object_unterminated, json_object_candidate_invalid, json_object_candidate_ambiguous
+
+RAW_COMPLETION_REQUIRED = NO
+RAW_COMPLETION_PERSISTED = NO
+PRODUCTION_AI_CALLS = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_D1_WRITES = 0
+
+TARGETED_TESTS = backend_parser_and_analysis_19_PASS; web_ui_13_PASS
+BACKEND_REGRESSION = 65_FILES; 757_PASS; 11_SKIPPED
+WEB_BUILD = PASS
+
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+RESPONSE_FORMAT_CHANGED = NO
+MIGRATION = NONE
+
+SOURCE_FILES_CHANGED = backend/src/ai-json.ts, backend/src/analysis.ts, backend/src/ai-json.test.ts, backend/src/analysis.test.ts, src/api.ts, src/App.test.tsx
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_COMMIT_AND_PUSH
+READY_FOR_SINGLE_PRODUCTION_VERIFY = YES_AFTER_EXPLICIT_L3_APPROVAL
+L3_APPROVAL_REQUIRED = YES_FOR_FUTURE_DEPLOYMENT_AND_ONE_PRODUCTION_REQUEST
+TRUE_REMAINING_BLOCKER = FIX_IS_NOT_DEPLOYED_OR_LIVE_VERIFIED
+NEXT_SAFE_ACTION = STOP; REQUEST_A_NEW_EXPLICIT_L3_APPROVAL_BEFORE_ONE_PRODUCTION_VERIFY
+```
+
+The local repair is not a claim that Production AI is fixed. No source,
+configuration, Prompt, model, schema, Production data, Queue, LINE, Cron,
+migration, or deployment state was changed by the diagnostic. The next
+Production verification remains one separately approved deployment and one
+bounded request only.

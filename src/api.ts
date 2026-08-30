@@ -23,6 +23,10 @@ const AI_FAILURE_PRESENTATIONS: Record<string, AiFailurePresentation> = {
 const AI_RESPONSE_VALIDATION_CODES = new Set([
   "ai_response_text_missing",
   "ai_response_json_extraction_failed",
+  "ai_response_json_no_object_candidate",
+  "ai_response_json_object_unterminated",
+  "ai_response_json_object_candidate_invalid",
+  "ai_response_json_object_candidate_ambiguous",
   "ai_response_schema_top_level_invalid",
   "ai_response_schema_required_field_missing",
   "ai_response_schema_field_type_invalid",

@@ -120,7 +120,10 @@ describe("read-only AI analysis boundary", () => {
 
     const cases: Array<[unknown, keyof typeof ANALYSIS_RESPONSE_FAILURE_CODES]> = [
       [null, "response_text_missing"],
-      [{ response: "not-json" }, "json_extraction_failed"],
+      [{ response: "not-json" }, "json_no_object_candidate"],
+      [{ response: 'prefix {"broken":}' }, "json_object_candidate_invalid"],
+      [{ response: 'prefix {"one":1} then {"two":2}' }, "json_object_candidate_ambiguous"],
+      [{ response: 'prefix {"broken":1' }, "json_object_unterminated"],
       [{ response: "[]" }, "schema_top_level_invalid"],
       [analysisResponse({ limitations: undefined }), "schema_required_field_missing"],
       [analysisResponse({ findings: [1] }), "schema_field_type_invalid"],
@@ -131,6 +134,10 @@ describe("read-only AI analysis boundary", () => {
     for (const [value, subtype] of cases) {
       expect(parseAnalysisResponse(value)).toEqual({ ok: false, subtype });
     }
+
+    expect(parseAnalysisResponse({
+      response: `Model note {not valid JSON}; result: ${JSON.stringify(validStructuredAnalysis)}`,
+    })).toEqual({ ok: true, report: validStructuredAnalysis });
 
     expect(parseStructuredAnalysis({
       ...validStructuredAnalysis,
@@ -146,6 +153,10 @@ describe("read-only AI analysis boundary", () => {
     expect(classifyAnalysisFailure(new Error("analysis_response_invalid:json_extraction_failed"))).toEqual({
       layer: "response_validation",
       code: ANALYSIS_RESPONSE_FAILURE_CODES.json_extraction_failed,
+    });
+    expect(classifyAnalysisFailure(new Error("analysis_response_invalid:json_object_candidate_invalid"))).toEqual({
+      layer: "response_validation",
+      code: ANALYSIS_RESPONSE_FAILURE_CODES.json_object_candidate_invalid,
     });
     expect(classifyAnalysisFailure(new Error("analysis_response_invalid:schema_evidence_enum_invalid"))).toEqual({
       layer: "response_validation",
@@ -167,7 +178,7 @@ describe("read-only AI analysis boundary", () => {
     expect(provider.db.writes).toBe(0);
 
     const invalidResponse = fakeAnalysisEnv({ ai: { run: vi.fn(async () => ({ response: "not-json" })) } as unknown as NonNullable<AnalysisEnv["AI"]> });
-    await expect(runReadOnlyAnalysis(invalidResponse.env, "org-test", analysisScope, "最近有哪些異常？")).rejects.toThrow("analysis_response_invalid:json_extraction_failed");
+    await expect(runReadOnlyAnalysis(invalidResponse.env, "org-test", analysisScope, "最近有哪些異常？")).rejects.toThrow("analysis_response_invalid:json_no_object_candidate");
     expect(invalidResponse.db.writes).toBe(0);
 
     const cacheFailure = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]>, cacheError: new Error("cache unavailable") });

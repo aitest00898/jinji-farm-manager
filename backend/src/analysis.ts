@@ -4,7 +4,7 @@ import {
   type AbnormalClassification,
 } from "./abnormal";
 import { taipeiDate } from "./master-data";
-import { extractJsonResult, extractJsonValue } from "./ai-json";
+import { extractJsonResult, extractJsonValue, type JsonExtractionFailure } from "./ai-json";
 
 export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
 
@@ -70,7 +70,13 @@ export type AnalysisFailureLayer = "context" | "provider" | "response_validation
 
 export const ANALYSIS_RESPONSE_FAILURE_CODES = {
   response_text_missing: "ai_response_text_missing",
+  // Kept for compatibility with previously emitted bounded errors. New
+  // parsing failures use the structural subtypes below.
   json_extraction_failed: "ai_response_json_extraction_failed",
+  json_no_object_candidate: "ai_response_json_no_object_candidate",
+  json_object_unterminated: "ai_response_json_object_unterminated",
+  json_object_candidate_invalid: "ai_response_json_object_candidate_invalid",
+  json_object_candidate_ambiguous: "ai_response_json_object_candidate_ambiguous",
   schema_top_level_invalid: "ai_response_schema_top_level_invalid",
   schema_required_field_missing: "ai_response_schema_required_field_missing",
   schema_field_type_invalid: "ai_response_schema_field_type_invalid",
@@ -155,7 +161,10 @@ function jsonValue(raw: string): unknown {
   return extractJsonValue(raw);
 }
 
-type AnalysisSchemaFailureSubtype = Exclude<AnalysisResponseFailureSubtype, "response_text_missing" | "json_extraction_failed">;
+type AnalysisSchemaFailureSubtype = Exclude<
+  AnalysisResponseFailureSubtype,
+  "response_text_missing" | "json_extraction_failed" | JsonExtractionFailure
+>;
 type StructuredAnalysisParseResult =
   | { ok: true; report: StructuredAnalysis }
   | { ok: false; subtype: AnalysisSchemaFailureSubtype };
@@ -241,7 +250,7 @@ export function parseAnalysisResponse(result: unknown): AnalysisResponseParseRes
   const raw = aiText(result);
   if (!raw.trim()) return { ok: false, subtype: "response_text_missing" };
   const json = extractJsonResult(raw);
-  if (!json.ok) return { ok: false, subtype: "json_extraction_failed" };
+  if (!json.ok) return { ok: false, subtype: json.failure };
   return parseStructuredAnalysisResult(json.value);
 }
 
