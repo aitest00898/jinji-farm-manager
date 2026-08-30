@@ -115,6 +115,23 @@ describe("read-only AI analysis boundary", () => {
     expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.2-3b-instruct");
   });
 
+  it("states the complete StructuredAnalysis contract in the production prompt", async () => {
+    const aiRun = vi.fn(async () => validAnalysisResponse);
+    const { env } = fakeAnalysisEnv({ ai: { run: aiRun } as unknown as NonNullable<AnalysisEnv["AI"]> });
+    await runReadOnlyAnalysis(env, "org-test", analysisScope, "最近有哪些異常？", true);
+
+    const request = (aiRun.mock.calls[0] as unknown[] | undefined)?.[1] as { messages?: Array<{ content?: unknown }> } | undefined;
+    const prompt = String(request?.messages?.[0]?.content ?? "");
+    for (const field of ["currentStatus", "findings", "possibleCauses", "risks", "recommendations", "limitations"]) {
+      expect(prompt).toContain(field);
+    }
+    expect(prompt).toContain("永遠包含");
+    expect(prompt).toContain("[]");
+    expect(prompt).toContain("strong、medium、weak");
+    expect(prompt).toContain("validated context");
+    expect(prompt).toContain("不得生成 SQL");
+  });
+
   it("classifies response-validation subtypes without relaxing the schema", () => {
     expect(parseAnalysisResponse(validAnalysisResponse).ok).toBe(true);
 

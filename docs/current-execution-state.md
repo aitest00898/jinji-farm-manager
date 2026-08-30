@@ -3229,3 +3229,45 @@ The schema failure does not justify rollback: health/readiness passed and no
 new deployment-caused regression was observed. The prior JSON extraction
 failure is now live-verified as fixed for this request, but long-term model
 JSON reliability and the remaining schema failure are not resolved.
+
+## StructuredAnalysis prompt/validator contract alignment — 2026-08-30 — 19:59 CST
+
+This explicit L3 task is authorized to align the Production analysis prompt
+with the existing strict `StructuredAnalysis` validator. The source mismatch
+was proven: the validator already required six top-level fields and strict
+types, while the prompt previously said only to return JSON and named the
+`evidence` enum. The minimal source change now states the complete six-field
+contract, requires every field, permits `[]` for empty arrays, places
+insufficient data in `limitations`, and forbids invented facts. The validator,
+model, response format, and token budget remain unchanged.
+
+```text
+TASK_RESULT = LOCAL_PROMPT_ALIGNMENT_READY
+START_HANDOFF_HEAD = afc86b8f93cdd7acaeac85578820adbd840ec553
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+
+PROMPT_VALIDATOR_CONTRACT_MISMATCH = PROVEN
+PROMPT_FIELDS_BEFORE = JSON_REQUESTED; SIX_FIELD_SHAPE_AND_EMPTY_ARRAY_RULE_NOT_EXPLICIT
+PROMPT_FIELDS_AFTER = currentStatus:string; findings:string[]; possibleCauses:{text:string,evidence:strong|medium|weak}[]; risks:string[]; recommendations:string[]; limitations:string[]; ALL_FIELDS_REQUIRED; EMPTY_ARRAYS=[]
+VALIDATOR_REQUIRED_FIELDS = currentStatus, findings, possibleCauses, risks, recommendations, limitations
+PROMPT_VALIDATOR_ALIGNMENT = IMPLEMENTED_LOCALLY
+
+FILES_CHANGED = backend/src/analysis.ts, backend/src/analysis.test.ts
+TARGETED_TESTS = backend/src/analysis.test.ts + backend/src/ai-json.test.ts; 21_PASS
+BACKEND_REGRESSION = 65_FILES; 759_PASS; 11_SKIPPED
+WEB_BUILD = PASS
+WEB_REGRESSION = 1_FILE; 13_PASS
+
+MODEL_CHANGED = NO
+VALIDATOR_ACCEPTANCE_CHANGED = NO
+RESPONSE_FORMAT_CHANGED = NO
+MAX_TOKENS_CHANGED = NO
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_DATA_CHANGED = NO
+MIGRATION = NONE
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_SOURCE_COMMIT_AND_PUSH
+NEXT_SAFE_ACTION = COMMIT_AND_PUSH_HANDOFF_SOURCE; THEN_ONE_WORKER_DEPLOYMENT_AND_ONE_PRODUCTION_VERIFY
+```
