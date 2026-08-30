@@ -2785,3 +2785,77 @@ Queue, LINE, Cron, or migration state was changed. The Worker deployment was
 the sole authorized Production state change; no rollback is indicated by the
 passing health/readiness checks. This checkpoint does not select a causal fix
 or claim that the AI response-validation failure is resolved.
+
+## Zero-deploy Production AI subtype capture — 2026-08-30 (rehearsal-first) — 18:34 CST
+
+This Gate required a capture rehearsal before permitting any AI request. The
+previous browser tab was no longer available; a fresh authenticated Web
+session could not be reused and the page showed the management login screen.
+The page-context fetch surface was unavailable, so it was not treated as a
+capture method. The selected existing host capture method, `/usr/bin/curl`
+with an explicit HTTP status marker and JSON parsing, was proven against the
+safe read-only `/health` endpoint. Because no authenticated Web session was
+available after the rehearsal, the Gate stopped before the AI request as
+required. No deployment or retry was performed.
+
+```text
+TASK_RESULT = FAIL
+FAILURE_REASON = AUTHENTICATED_WEB_SESSION_UNAVAILABLE_BEFORE_AI_REQUEST
+START_HANDOFF_HEAD = adbd04e2f5424445504316b4f94dd6330e11b56b
+START_MAIN_HEAD = 33cf98d5fd7fe37341f00eaf458a2be4506045a1
+CURRENT_WORKER_VERSION = 3bd90ffd-79a1-48a5-9ae6-c94de10b99ef
+
+CAPTURE_REHEARSAL = PASS
+CAPTURE_MECHANISM = /usr/bin/curl_with_explicit_http_status_and_json_parse
+REHEARSAL_ENDPOINT = https://chicken-line-production.jinji-assistant.workers.dev/health
+REHEARSAL_HTTP_STATUS = 200
+REHEARSAL_RESPONSE_CAPTURED = YES_PARSEABLE_JSON
+REHEARSAL_PRODUCTION_WRITES = 0
+
+CONTROLLED_PRODUCTION_AI_REQUESTS = 0
+AI_HTTP_STATUS = NOT_SENT
+AI_BOUNDED_ERROR_CODE = NOT_SENT
+AI_RESPONSE_FAILURE_SUBTYPE = NOT_APPLICABLE
+VISIBLE_UI_MESSAGE = NOT_APPLICABLE
+UI_MESSAGE_USED_AS_DIAGNOSTIC_EVIDENCE = NO
+
+RAW_COMPLETION_CAPTURED = NO
+RAW_COMPLETION_PERSISTED = NO
+RAW_PROVIDER_ERROR_EXPOSED = NO
+AUTH_SECRET_EXPOSED = NO
+AI_REPORT_WRITE_OCCURRED = NOT_APPLICABLE
+AI_REPORT_WRITES = 0
+
+PRODUCTION_OPERATIONAL_WRITES = 0
+PRODUCTION_ABNORMAL_WRITES = 0
+PRODUCTION_MASTER_DATA_WRITES = 0
+PRODUCTION_FINANCE_WRITES = 0
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION = NONE
+
+WORKER_DEPLOYMENT = NOT_DONE
+PAGES_DEPLOYMENT = NOT_DONE
+MODEL_CHANGED = NO
+PROMPT_CHANGED = NO
+PRODUCT_SCHEMA_ACCEPTANCE_CHANGED = NO
+SECURITY_BOUNDARY_CHANGED = NO
+
+CAUSAL_L1_L2_FIX_PROVEN = NOT_APPLICABLE
+SOURCE_FIX_IMPLEMENTED = NO
+FILES_CHANGED = docs/current-execution-state.md
+TARGETED_TESTS = NOT_RUN_NO_SOURCE_CHANGE
+REGRESSION = NOT_RUN_NO_SOURCE_CHANGE
+SECOND_AI_REQUEST = NOT_DONE
+
+CURRENT_EXECUTION_STATE_UPDATED = YES
+GITHUB_HANDOFF = PENDING_DOCS_ONLY_COMMIT
+L3_AI_CONTRACT_DECISION_REQUIRED = NOT_REACHED
+TRUE_REMAINING_BLOCKER = NO_REUSABLE_AUTHENTICATED_WEB_SESSION; CREDENTIALS_REMAIN_HUMAN_ONLY
+NEXT_SAFE_ACTION = STOP; SIGN_IN_TO_THE_CURRENT_WEB_SESSION_BEFORE_ANY_FUTURE_AUTHORIZED_AI_REQUEST
+```
+
+No source, test, configuration, Prompt, model, Production data, Queue, LINE,
+Cron, migration, or deployment state was changed. The capture rehearsal was
+read-only and produced zero writes. No Production AI request was sent.
