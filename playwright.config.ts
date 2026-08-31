@@ -18,7 +18,7 @@ export default defineConfig({
     { name: "webkit-iphone", use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1",
+    command: `npm run dev -- --host 127.0.0.1 --port ${auditPort}`,
     url: `http://127.0.0.1:${auditPort}/jinji-farm-manager/`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
