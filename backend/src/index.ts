@@ -5254,6 +5254,21 @@ async function queryCaretakerFarms(
     : `${botName(accountName)}\n目前找不到「${inferred}」的有效雞場對應；這不會自動把飼養者當成雞場。`)];
 }
 
+const FARM_CARETAKER_QUERY_TAIL = /(?:目前\s*)?(?:設定|设定)\s*(?:的\s*)?(?:飼養者|饲养者)\s*(?:有誰|有谁|誰|谁)?\s*$/u;
+
+/**
+ * Remove only the relationship-query wording that follows a farm name.
+ * Keep this separate from FarmResolver: the resolver still owns the
+ * deterministic, ambiguity-safe farm selection boundary.
+ */
+export function inferFarmCaretakerQueryName(text: string): string {
+  return normalize(text)
+    .replace(FARM_CARETAKER_QUERY_TAIL, " ")
+    .replace(/(?:目前|有沒有|有吗|有嗎|哪些|哪幾個|哪几个|飼養者|饲养者|雞場|鸡场|場|场)/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 async function queryFarmCaretakers(
   env: Env,
   organizationId: string,
@@ -5262,8 +5277,7 @@ async function queryFarmCaretakers(
   accountName: string,
 ): Promise<LineReplyMessage[]> {
   const candidate = entries.length === 1 ? entries[0].bundle.candidates.find((item) => item.farmText) : undefined;
-  const inferred = candidate?.farmText
-    ?? text.replace(/(?:目前|有沒有|有吗|有嗎|哪些|哪幾個|哪几个|飼養者|饲养者|雞場|鸡场|場|场)/gu, " ").trim();
+  const inferred = candidate?.farmText ?? inferFarmCaretakerQueryName(text);
   if (!inferred) return [buildTextMessage(`${botName(accountName)}\n請提供要查詢的雞場名稱。`)];
   const lookup = await resolveFarmQuery(env, organizationId, inferred, accountName);
   if (!lookup.farm) return [buildTextMessage(`${botName(accountName)}\n目前找不到「${inferred}」的有效雞場，沒有查詢到飼養者。`)];

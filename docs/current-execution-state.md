@@ -75,6 +75,24 @@ PAGES_SOURCE_OF_TRUTH_CONVERGENCE = COMPLETE
   mortality 0, and production finance net 429338.6. The caretaker and
   assignment Web paths remain admin-protected and the deterministic local
   routing tests remain passed.
+- `QUERY_B_DIAGNOSTIC = SOURCE_DEFECT_PROVEN; QUERY_B_SOURCE_FIX = READY_NOT_DEPLOYED`:
+  the bounded read-only review of the 2026-08-31 08:39--08:41 Asia/Taipei
+  evidence found that Query B was received, queued, explicitly woken by the
+  self-mention, routed to the `farm_caretakers` target, rendered by
+  `queryFarmCaretakers`, and sent with LINE API HTTP 200. At that time the
+  temporary caretaker, open assignment, and primary assignment were all
+  active. The failure was farm resolution: the old fallback inference left
+  `設定的 有誰` in the requested farm text after removing other query words,
+  so the canonical `金雞測試場` could not be resolved. Query A used the same
+  explicit interaction boundary and completed normally. The two relevant
+  non-mention relationship messages stayed quiet, produced no reply, and did
+  not create routing/session evidence; they did not interfere with Query B.
+  The local fix only removes the bounded `目前設定的飼養者有誰` query tail
+  before the existing resolver and preserves the resolver's ambiguity-safe
+  behavior. Targeted route, resolver, relationship, safety, and TypeScript
+  checks pass. No real LINE acceptance status is promoted: the caretaker
+  master flow remains `FAIL_BOUNDED` until a future approved real retest after
+  deployment.
 - `REAL_GROUP_OPERATION_STRESS = CURRENT_OPEN`: no dedicated bounded stress
   acceptance artifact is recorded after the completed normal LINE/Web flow.
   This is confidence work and is not by itself a reason to block ordinary
@@ -114,15 +132,17 @@ below, but are no longer current classifications:
 
 ```text
 PRIORITY_1 = LINE_CARETAKER_MASTER_FLOW
-PRIORITY_1_REASON = Plan A cleanup is complete, but the exact farm-to-caretaker LINE response remains unproven and needs a separately bounded decision
+PRIORITY_1_REASON = Query B source defect is fixed locally but not deployed; future work is one explicitly approved deployment plus one real retest
 PRIORITY_2 = REAL_GROUP_OPERATION_STRESS
 PRIORITY_3 = OPERATIONAL_TEST_DATA_SCOPE_REVIEW
-NEXT_RECOMMENDED_TASK = DECIDE_Whether_to_OPEN_A_BOUNDED_QUERY_B_DIAGNOSTIC; DO_NOT_SEND_A_THIRD_QUERY
+NEXT_RECOMMENDED_TASK = REVIEW_QUERY_B_SOURCE_FIX_FOR_EXPLICIT_L3_DEPLOYMENT_AND_ONE_REAL_RETEST; DO_NOT_SEND_A_THIRD_QUERY
 ```
 
 These priorities describe decision-ready follow-up, not a new Gate. No V2
-restart, forensic review, source repair, or deployment is started by this
-summary.
+restart, broad forensic review, or deployment is started by this summary. The
+bounded Query B diagnostic and its local source repair are recorded above;
+future real verification still requires the explicitly bounded deployment and
+retest decision.
 
 ## Historical status snapshot — 2026-08-29 (preserved; not current state)
 
