@@ -56,6 +56,14 @@ state, a task database, or another governance framework.
 - Stop when the requested task is complete, evidence is consistent, local
   verification is sufficient, and the authorized boundary is intact.
 
+For every future L3 completion record, when evidence is available, record only
+the minimum authorization trace: `L3_AUTHORIZATION` (`USER_EXPLICIT` or
+`NOT_RECORDED`), `AUTHORIZED_SCOPE` (a closed action list with limits),
+`AUTHORIZATION_REASON`, and `EXECUTION_CORRELATION` (source SHA plus existing
+deployment/workflow identifiers and counters). These fields describe evidence;
+they do not authorize work. Never backfill historical approval, or store raw
+approval text, credentials, secrets, or tokens.
+
 ## GitHub handoff policy
 
 `aitest00898/jinji-farm-manager` is the single permanent project handoff and

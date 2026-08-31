@@ -16,9 +16,11 @@ records; they do not override this section or authorize new work.
 
 ```text
 REPOSITORY = aitest00898/jinji-farm-manager
-MAIN_HANDOFF_ALIGNED = YES
-MAIN_HEAD = 82b197be7162526f8b1336ede552c860e6653c21
-HANDOFF_HEAD = 82b197be7162526f8b1336ede552c860e6653c21
+MAIN_HANDOFF_ALIGNED_AT_REVIEW_START = YES
+LIVE_BRANCH_TIP_SHAS = VERIFY_WITH_GIT; NOT_SELF_REPORTED_IN_THIS_DOCUMENT
+CURRENT_GIT_HEAD_MUST_BE_READ_FROM_GIT_AT_TASK_START = YES
+STATE_REVIEW_STARTED_FROM_HEAD = 12c03b419ceadc9f2270b3bef2a5ab6fc8a394d2
+STATE_REVIEW_DATE = 2026-08-31 (Asia/Taipei)
 
 PRODUCTION_WORKER = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
 HEALTH = PASS; current read-only HTTP 200
@@ -75,7 +77,7 @@ PAGES_SOURCE_OF_TRUTH_CONVERGENCE = COMPLETE
   mortality 0, and production finance net 429338.6. The caretaker and
   assignment Web paths remain admin-protected and the deterministic local
   routing tests remain passed.
-- `QUERY_B_DIAGNOSTIC = SOURCE_DEFECT_PROVEN; QUERY_B_SOURCE_FIX = READY_NOT_DEPLOYED`:
+- `QUERY_B_DIAGNOSTIC = SOURCE_DEFECT_PROVEN; QUERY_B_SOURCE_FIX = IMPLEMENTED_AND_TESTED; QUERY_B_SOURCE_FIX_DEPLOYED = NO`:
   the bounded read-only review of the 2026-08-31 08:39--08:41 Asia/Taipei
   evidence found that Query B was received, queued, explicitly woken by the
   self-mention, routed to the `farm_caretakers` target, rendered by
@@ -143,6 +145,36 @@ restart, broad forensic review, or deployment is started by this summary. The
 bounded Query B diagnostic and its local source repair are recorded above;
 future real verification still requires the explicitly bounded deployment and
 retest decision.
+
+## 2026-08-31 Governance and Web IA consolidation (current L2 work)
+
+- `HEAD_RECORDING_POLICY = BASELINE_EVIDENCE_ONLY`: the authoritative current
+  section no longer self-reports a post-commit `MAIN_HEAD` or `HANDOFF_HEAD`.
+  Current branch tips must be read from Git at task startup; the recorded
+  `STATE_REVIEW_STARTED_FROM_HEAD` is only the baseline for this review.
+- `L3_AUTHORIZATION_METADATA = MINIMUM_TRACE_ONLY`: future L3 completion
+  records may preserve the evidence kind, a closed authorized scope with
+  limits, the reason, and existing execution correlation. No historical
+  approval was backfilled, and no credential or raw approval text is stored.
+- `WEB_IA_POLICY = CORE_WORKFLOWS_PRIMARY; RELATED_TOOLS_CONTEXTUAL`: the
+  primary drawer now exposes 12 core workflows while all 24 existing route
+  keys remain bookmarkable. Reminders, organization, houses, equity, aliases,
+  health, LINE groups, diagnostics, pending diagnostics, test tools, settings,
+  and technical information are reached from relevant parent/system context
+  or remain available by direct route; no URL redirect was added.
+- `WEB_CONTEXT_LINKS = DASHBOARD_TO_FARMS_FLOCKS_EVENTS_FINANCE; FARM_TO_HOUSES_FLOCKS_CARETAKERS_EVENTS_ABNORMAL_ALIASES; FLOCK_TO_REMINDERS_HOUSES_FARMS; FINANCE_TO_EQUITY_CHARTS; PENDING_TO_DIAGNOSTICS; SYSTEM_TO_MAINTENANCE_TOOLS`.
+  Entity links are only added where the client already has a safe identifier;
+  Pending, Audit, and AI remain free of guessed entity links.
+- `DASHBOARD_ACTIONABILITY = KPI_BUTTONS_AND_ENTITY_ROWS`: stock, mortality,
+  finance, farm rows, shipment reminders, and active flock rows now lead to
+  semantic destinations with optional hash-query context. Existing bare routes
+  continue to work, and context can be cleared without changing data.
+- `WEB_IA_VERIFICATION = UNIT_14_PASS; TYPECHECK_PASS; BUILD_PASS; CHROMIUM_E2E_23_PASS; IPHONE_WEBKIT_E2E_23_PASS`.
+  The verification used mock/local data only. No Worker, Pages, D1, Queue,
+  LINE, Cron, or Workers AI operation was performed.
+- `BACKEND_BUSINESS_LOGIC_CHANGED = NO`; the Query B farm-resolution source
+  fix and its tests remain present and unchanged, ready for a separately
+  authorized future deployment/retest. `NEW_CRON_FORENSIC = NO`.
 
 ## Historical status snapshot — 2026-08-29 (preserved; not current state)
 

@@ -26,12 +26,13 @@ import {
   type TimelineItem,
   type WeatherDaily,
 } from "./api";
-import { NAV_GROUPS, NAV_ITEMS, type NavIconName, type NavKey } from "./navigation";
+import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, type NavIconName, type NavKey } from "./navigation";
 
 export { NAV_GROUPS, NAV_ITEMS } from "./navigation";
 
 const api = new ApiClient();
-type Navigate = (key: NavKey) => void;
+type NavigationQuery = Record<string, string | number | null | undefined>;
+type Navigate = (key: NavKey, query?: NavigationQuery) => void;
 type MutationResult = Promise<boolean> | void;
 
 function LineIcon({ name, className = "nav-icon" }: { name: NavIconName; className?: string }) {
@@ -150,10 +151,14 @@ function reconciliationLabel(value: string): string {
   return ({ not_recorded: "尚未找到正式紀錄", possibly_recorded: "可能已記錄", already_recorded: "可能重複" } as Record<string, string>)[value] ?? value;
 }
 
-function routeFromHash(): NavKey {
-  if (typeof window === "undefined") return "dashboard";
-  const value = window.location.hash.replace(/^#\/?/, "");
-  return NAV_ITEMS.some((item) => item.key === value) ? (value as NavKey) : "dashboard";
+type RouteLocation = { page: NavKey; query: string };
+
+function routeFromHash(): RouteLocation {
+  if (typeof window === "undefined") return { page: "dashboard", query: "" };
+  const [value, ...queryParts] = window.location.hash.replace(/^#\/?/, "").split("?");
+  return NAV_ITEMS.some((item) => item.key === value)
+    ? { page: value as NavKey, query: queryParts.join("?") }
+    : { page: "dashboard", query: "" };
 }
 
 function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?: "good" | "warn" | "neutral" }) {
@@ -185,8 +190,34 @@ function MobileCard({ children, className = "" }: { children: ReactNode; classNa
   return <article className={`mobile-card ${className}`}>{children}</article>;
 }
 
-function Metric({ title, value, detail, tone = "neutral" }: { title: string; value: string | number; detail: string; tone?: "good" | "warn" | "neutral" }) {
-  return <div className={`metric-card ${tone}`}><span>{title}</span><strong>{value}</strong><small>{detail}</small></div>;
+function Metric({ title, value, detail, tone = "neutral", onClick }: { title: string; value: string | number; detail: string; tone?: "good" | "warn" | "neutral"; onClick?: () => void }) {
+  const content = <><span>{title}</span><strong>{value}</strong><small>{detail}</small></>;
+  return onClick
+    ? <button type="button" className={`metric-card metric-button ${tone}`} aria-label={`查看${title}`} onClick={onClick}>{content}</button>
+    : <div className={`metric-card ${tone}`}>{content}</div>;
+}
+
+function ContextNav({ title = "相關工作", items, onNavigate }: { title?: string; items: Array<{ key: NavKey; label: string; description: string; query?: NavigationQuery }>; onNavigate: Navigate }) {
+  return <section className="panel context-panel"><PanelTitle title={title} /><div className="context-links">{items.map((item) => <button type="button" className="context-link" key={`${item.key}-${item.label}`} onClick={() => onNavigate(item.key, item.query)}><strong>{item.label}</strong><span>{item.description}</span><span aria-hidden="true">→</span></button>)}</div></section>;
+}
+
+function routeContext(query: URLSearchParams): { farmId: string; houseId?: string; flockId?: string } | null {
+  const farmId = query.get("farmId");
+  if (!farmId) return null;
+  const houseId = query.get("houseId") || undefined;
+  const flockId = query.get("flockId") || undefined;
+  return { farmId, ...(houseId ? { houseId } : {}), ...(flockId ? { flockId } : {}) };
+}
+
+function filterByFarm<T extends { farmId: string }>(items: T[], query: URLSearchParams): T[] {
+  const farmId = query.get("farmId");
+  return farmId && items.some((item) => item.farmId === farmId) ? items.filter((item) => item.farmId === farmId) : items;
+}
+
+function filterEventsByRoute(events: OperationalEvent[], query: URLSearchParams): OperationalEvent[] {
+  const scoped = filterByFarm(events, query);
+  const intent = query.get("intent");
+  return intent && ["mortality", "cull", "feed", "water", "shipment"].includes(intent) ? scoped.filter((event) => event.intent === intent) : scoped;
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
@@ -299,7 +330,9 @@ function SimpleChart({ chart }: { chart: ChartResponse | null }) {
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
-  const [page, setPage] = useState<NavKey>(routeFromHash);
+  const [route, setRoute] = useState<RouteLocation>(routeFromHash);
+  const page = route.page;
+  const pageQuery = useMemo(() => new URLSearchParams(route.query), [route.query]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -331,12 +364,10 @@ export default function App() {
   const [abnormalCursor, setAbnormalCursor] = useState<string | null>(null);
   const [weather, setWeather] = useState<WeatherDaily[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
-  const [abnormalContext, setAbnormalContext] = useState<{ farmId: string; houseId?: string; flockId?: string } | null>(null);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiResult, setAiResult] = useState<AnalysisResult | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiFailure, setAiFailure] = useState<AiFailurePresentation | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
   const [chart, setChart] = useState<ChartResponse | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
   const [chartMetric, setChartMetric] = useState("mortality");
@@ -354,6 +385,14 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null);
   const drawerWasOpen = useRef(false);
   const current = useMemo(() => NAV_ITEMS.find((item) => item.key === page) ?? NAV_ITEMS[0], [page]);
+  const contextFarm = pageQuery.get("farmId") ? farms.find((farm) => farm.id === pageQuery.get("farmId")) : undefined;
+  const routeScope = contextFarm
+    ? `目前情境：${contextFarm.name}`
+    : page === "flocks" && pageQuery.get("reminder") === "1"
+      ? "目前只看有出雞提醒的批次"
+      : page === "events" && pageQuery.get("intent") === "mortality"
+        ? "目前只看死亡紀錄"
+        : null;
 
   async function loadAll() {
     setBusy(true); setError(""); setAiFailure(null);
@@ -368,7 +407,7 @@ export default function App() {
 
   useEffect(() => {
     if (!window.location.hash) window.history.replaceState(null, "", "#/dashboard");
-    const handleHistory = () => { navigationSource.current = "history"; setPage(routeFromHash()); setDrawerOpen(false); };
+    const handleHistory = () => { navigationSource.current = "history"; setRoute(routeFromHash()); setDrawerOpen(false); };
     window.addEventListener("hashchange", handleHistory); window.addEventListener("popstate", handleHistory);
     return () => { window.removeEventListener("hashchange", handleHistory); window.removeEventListener("popstate", handleHistory); };
   }, []);
@@ -400,8 +439,18 @@ export default function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [drawerOpen]);
 
-  function navigateTo(next: NavKey) { if (next === page) { setDrawerOpen(false); return; } scrollPositions.current[page] = window.scrollY; navigationSource.current = "push"; window.history.pushState(null, "", `#/${next}`); setPage(next); setDrawerOpen(false); }
-  function openAbnormalComposer(context?: { farmId: string; houseId?: string; flockId?: string }) { setAbnormalContext(context ?? null); navigateTo("abnormal"); }
+  function navigateTo(next: NavKey, query: NavigationQuery = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+    const nextQuery = params.toString();
+    if (next === page && nextQuery === route.query) { setDrawerOpen(false); return; }
+    scrollPositions.current[page] = window.scrollY;
+    navigationSource.current = "push";
+    window.history.pushState(null, "", `#/${next}${nextQuery ? `?${nextQuery}` : ""}`);
+    setRoute({ page: next, query: nextQuery });
+    setDrawerOpen(false);
+  }
+  function openAbnormalComposer(context?: { farmId: string; houseId?: string; flockId?: string }) { navigateTo("abnormal", context ?? {}); }
   function touchIsIgnored(target: EventTarget | null): boolean { if (!(target instanceof Element)) return false; return Boolean(target.closest("input, textarea, select, button, a, dialog, .modal, .chart-wrap, .table-wrap, .range-chips, .filter-grid, [data-gesture-lock], [data-scroll-container]")); }
   function handleTouchStart(event: TouchEvent<HTMLElement>) { const touch = event.touches[0]; if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY, time: Date.now(), ignored: touchIsIgnored(event.target) }; }
   function handleTouchEnd(event: TouchEvent<HTMLElement>) {
@@ -409,9 +458,10 @@ export default function App() {
     const touch = event.changedTouches[0]; if (!touch) return;
     const deltaX = touch.clientX - start.x; const deltaY = touch.clientY - start.y; const duration = Math.max(Date.now() - start.time, 1);
     if (Math.abs(deltaY) < 72 || Math.abs(deltaY) <= Math.abs(deltaX) * 1.35 || (Math.abs(deltaY) / duration < 0.28 && Math.abs(deltaY) < 110)) return;
-    const scrollTop = window.scrollY; const maxScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0); const atTop = scrollTop <= 4; const atBottom = scrollTop >= maxScroll - 4; const index = NAV_ITEMS.findIndex((item) => item.key === page);
-    if (deltaY < 0 && atBottom && index < NAV_ITEMS.length - 1) navigateTo(NAV_ITEMS[index + 1].key);
-    if (deltaY > 0 && atTop && index > 0) navigateTo(NAV_ITEMS[index - 1].key);
+    const scrollTop = window.scrollY; const maxScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0); const atTop = scrollTop <= 4; const atBottom = scrollTop >= maxScroll - 4; const index = PRIMARY_NAV_ITEMS.findIndex((item) => item.key === page);
+    if (index < 0) return;
+    if (deltaY < 0 && atBottom && index < PRIMARY_NAV_ITEMS.length - 1) navigateTo(PRIMARY_NAV_ITEMS[index + 1].key);
+    if (deltaY > 0 && atTop && index > 0) navigateTo(PRIMARY_NAV_ITEMS[index - 1].key);
   }
 
   async function login(password: string) { const result = await api.login(password); api.setToken(result.token); setAuthenticated(true); }
@@ -444,7 +494,7 @@ export default function App() {
       <nav className="sidebar-nav" aria-label="主要功能" data-scroll-container>
         {NAV_GROUPS.map((group) => <div className="nav-group" role="group" aria-labelledby={`nav-group-${group.key}`} key={group.key}>
           <p className="nav-group-title" id={`nav-group-${group.key}`}>{group.label}</p>
-          <div className="nav-group-items">{NAV_ITEMS.filter((item) => item.group === group.key).map((item) => <button data-nav-key={item.key} key={item.key} className={item.key === page ? "active" : ""} aria-current={item.key === page ? "page" : undefined} onClick={() => navigateTo(item.key)}>
+          <div className="nav-group-items">{PRIMARY_NAV_ITEMS.filter((item) => item.group === group.key).map((item) => <button data-nav-key={item.key} key={item.key} className={item.key === page ? "active" : ""} aria-current={item.key === page ? "page" : undefined} onClick={() => navigateTo(item.key)}>
             <LineIcon name={item.icon} />
             <span className="nav-copy"><span className="nav-label">{item.label}</span><span className="nav-hint">（{item.description}）</span></span>
           </button>)}</div>
@@ -455,34 +505,34 @@ export default function App() {
     <main className="content" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
+      {routeScope && <div className="route-context" role="status"><span>{routeScope}</span><button type="button" className="text-button" onClick={() => navigateTo(page)}>{contextFarm ? "清除雞場篩選" : "清除篩選"}</button></div>}
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}
       {page === "dashboard" && <DashboardView dashboard={dashboard} farms={farms} flocks={flocks} onNavigate={navigateTo} />}
       {page === "organization" && <OrganizationView organization={organization} farms={farms} />}
-      {page === "farms" && <FarmsView farms={farms} onCreate={(body) => runMutation(() => api.createFarm(body))} onUpdate={(id, body) => runMutation(() => api.updateFarm(id, body))} onRecord={(farmId) => openAbnormalComposer({ farmId })} />}
+      {page === "farms" && <><FarmsView farms={farms} initialFarmId={pageQuery.get("farmId")} onCreate={(body) => runMutation(() => api.createFarm(body))} onUpdate={(id, body) => runMutation(() => api.updateFarm(id, body))} onRecord={(farmId) => openAbnormalComposer({ farmId })} /><ContextNav title="場務管理" items={[{ key: "houses", label: "雞舍管理", description: "查看各雞場的舍別資料。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "flocks", label: "批次管理", description: "查看入雛、日齡與出雞資料。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "caretakers", label: "飼養者管理", description: "查看跨雞場責任指派。" }, { key: "events", label: "營運紀錄", description: "查看這個雞場的正式事件。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "abnormal", label: "異常紀錄", description: "記錄或查看現場異常。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "aliases", label: "名稱解析", description: "查看別名與安全解析狀態。", query: contextFarm ? { farmId: contextFarm.id } : undefined }]} onNavigate={navigateTo} /></>}
       {page === "caretakers" && <CaretakersView caretakers={caretakers} farms={farms} onCreate={(body) => runMutation(() => api.createCaretaker(body))} onUpdate={(id, body) => runMutation(() => api.updateCaretaker(id, body))} onAssign={(farmId, body) => runMutation(() => api.assignCaretaker(farmId, body))} />}
-      {page === "houses" && <HousesView houses={houses} farms={farms} onCreate={(body) => runMutation(() => api.createHouse(body))} onUpdate={(id, body) => runMutation(() => api.updateHouse(id, body))} onRecord={(farmId, houseId) => openAbnormalComposer({ farmId, houseId })} />}
-      {page === "flocks" && <FlocksView flocks={flocks} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createFlock(body))} onUpdate={(id, body) => runMutation(() => api.updateFlock(id, body))} onRecord={(farmId, houseId, flockId) => openAbnormalComposer({ farmId, houseId, flockId })} />}
-      {page === "events" && <EventsView events={events} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctEvent(id, body))} onLoadMore={loadMoreEvents} hasMore={Boolean(eventsCursor)} />}
-      {page === "abnormal" && <AbnormalView initialContext={abnormalContext} abnormalEvents={abnormalEvents} timeline={timeline} weather={weather} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createAbnormalEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseAbnormalEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctAbnormalEvent(id, body))} onLoadMore={loadMoreAbnormal} hasMore={Boolean(abnormalCursor)} />}
-      {page === "finance" && <FinanceView finance={finance} />}
+      {page === "houses" && <HousesView houses={filterByFarm(houses, pageQuery)} farms={farms} onCreate={(body) => runMutation(() => api.createHouse(body))} onUpdate={(id, body) => runMutation(() => api.updateHouse(id, body))} onRecord={(farmId, houseId) => openAbnormalComposer({ farmId, houseId })} />}
+      {page === "flocks" && <><FlocksView flocks={pageQuery.get("reminder") === "1" ? flocks.filter((flock) => Boolean(flock.shipmentReminder)) : filterByFarm(flocks, pageQuery)} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createFlock(body))} onUpdate={(id, body) => runMutation(() => api.updateFlock(id, body))} onRecord={(farmId, houseId, flockId) => openAbnormalComposer({ farmId, houseId, flockId })} /><ContextNav title="批次相關工作" items={[{ key: "reminders", label: "出雞提醒", description: "查看 7 日內或逾期的出雞提醒。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "houses", label: "雞舍管理", description: "回到舍別主檔。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "farms", label: "雞場主檔", description: "回到雞場情境與場務管理。", query: contextFarm ? { farmId: contextFarm.id } : undefined }]} onNavigate={navigateTo} /></>}
+      {page === "events" && <EventsView key={route.query} events={filterEventsByRoute(events, pageQuery)} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctEvent(id, body))} onLoadMore={loadMoreEvents} hasMore={Boolean(eventsCursor)} />}
+      {page === "abnormal" && <AbnormalView initialContext={routeContext(pageQuery)} abnormalEvents={abnormalEvents} timeline={timeline} weather={weather} farms={farms} houses={houses} onCreate={(body) => runMutation(() => api.createAbnormalEvent(body))} onReverse={(id, reason) => runMutation(() => api.reverseAbnormalEvent(id, reason))} onCorrect={(id, body) => runMutation(() => api.correctAbnormalEvent(id, body))} onLoadMore={loadMoreAbnormal} hasMore={Boolean(abnormalCursor)} />}
+      {page === "finance" && <><FinanceView finance={finance} /><ContextNav title="財務相關資料" items={[{ key: "equity", label: "股權明細", description: "查看投資人與各場實際持股。" }, { key: "charts", label: "財務趨勢", description: "以圖表比較正式雞場的財務趨勢。" }]} onNavigate={navigateTo} /></>}
       {page === "equity" && <EquityView finance={finance} />}
       {page === "charts" && <ChartsView chart={chart} loading={chartLoading} farms={farms} houses={houses} flocks={flocks} caretakers={caretakers} metric={chartMetric} setMetric={setChartMetric} range={chartRange} setRange={setChartRange} granularity={chartGranularity} setGranularity={setChartGranularity} farmId={chartFarmId} setFarmId={(value) => { setChartFarmId(value); setChartHouseId(""); setChartFlockId(""); }} houseId={chartHouseId} setHouseId={(value) => { setChartHouseId(value); setChartFlockId(""); }} flockId={chartFlockId} setFlockId={setChartFlockId} environment={chartEnvironment} setEnvironment={setChartEnvironment} caretakerId={chartCaretakerId} setCaretakerId={setChartCaretakerId} />}
       {page === "ai" && <AiView result={aiResult} question={aiQuestion} setQuestion={setAiQuestion} busy={aiBusy} onAsk={() => void askAi(aiQuestion)} />}
-      {page === "reminders" && <RemindersView flocks={flocks} />}
-      {page === "pending" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic={false} />}
+      {page === "reminders" && <RemindersView flocks={filterByFarm(flocks, pageQuery)} />}
+      {page === "pending" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} onNavigate={navigateTo} diagnostic={false} />}
       {page === "aliases" && <AliasesView aliases={aliases} />}
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
-      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
+      {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onNavigate={navigateTo} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
       {page === "lineGroups" && <LineGroupsView groups={lineGroups} onToggle={(groupId, enabled) => runMutation(() => api.setLineGroupAiConversation(groupId, enabled), enabled ? "已開啟這個群組的 AI 對話。" : "已關閉這個群組的 AI 對話。")} />}
       {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
-      {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} diagnostic />}
+      {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} onNavigate={navigateTo} diagnostic />}
       {page === "testTools" && <TestToolsView data={testTools} />}
       {page === "settings" && <SettingsView farms={farms} organization={organization} />}
       {page === "technical" && <TechnicalInfoView info={technicalInfo} />}
     </main>
-    <button className="ai-float-button" aria-label="開啟 AI 助理" onClick={() => setAiOpen(true)}>✦<span>AI</span></button>
-    {aiOpen && <AiSheet question={aiQuestion} setQuestion={setAiQuestion} result={aiResult} busy={aiBusy} onClose={() => setAiOpen(false)} onAsk={() => void askAi(aiQuestion)} />}
+    <button className="ai-float-button" aria-label="開啟 AI 助理" onClick={() => navigateTo("ai")}>✦<span>AI</span></button>
   </div>;
 }
 
@@ -490,10 +540,23 @@ function DashboardView({ dashboard, farms, flocks, onNavigate }: { dashboard: Da
   if (!dashboard) return <Loading />;
   const activeFlocks = flocks.filter((flock) => flock.status === "active").slice(0, 8);
   const activeFarms = farms.filter((farm) => farm.active);
-  return <section className="page"><div className="hero"><div><span className="hero-kicker">截至 {dashboard.asOf}</span><h2>今天，讓每一筆雞場資料都清楚可追溯。</h2><p>營運資料由 LINE 與 Web 共用；正式財務統計自動排除測試場。</p></div><button className="primary" onClick={() => onNavigate("events")}>記錄營運事件 ＋</button></div><div className="metric-grid"><Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} /><Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} /><Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} /><Metric title="歷史淨收入" value={`NT${money(dashboard.finance.net)}`} detail="僅正式雞場財務" /></div><div className="two-col"><section className="panel"><PanelTitle title="雞場概覽" action="查看全部" onClick={() => onNavigate("farms")} />{activeFarms.length ? <div className="farm-list">{activeFarms.map((farm) => <div className="farm-row" key={farm.id}><div className="farm-avatar">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><strong>{farm.name}</strong><span>{farm.siteName || (farm.structureMode === "multi_house" ? "多舍管理" : "全場管理")}</span></div><StatusPill tone={farm.environment === "test" ? "warn" : "good"}>{farm.environment === "test" ? "測試" : "正式"}</StatusPill></div>)}</div> : <EmptyState detail="目前沒有啟用中的雞場。" />}</section><section className="panel"><PanelTitle title="資料健康度" action="檢視健康檢查" onClick={() => onNavigate("health")} />{dashboard.dataHealth.warnings.length ? <div className="warning-list">{dashboard.dataHealth.warnings.map((warning) => <p key={warning}>⚠️ {warning}</p>)}</div> : <div className="healthy"><span>✓</span><div><strong>目前沒有阻塞性警告</strong><p>主檔、批次與財務資料可正常使用。</p></div></div>}<div className="mini-summary"><span>預計 7 日內出雞</span><strong>{dashboard.upcomingShipments} 批</strong></div></section></div><section className="panel"><PanelTitle title="進行中批次" action="管理批次" onClick={() => onNavigate("flocks")} />{!activeFlocks.length && <EmptyState detail="目前沒有進行中的批次；可到批次頁建立入雛資料。" />}<DataTable headers={["批次", "雞場", "入雛日", "日齡", "預計出雞", "狀態"]}>{activeFlocks.map((flock) => <tr key={flock.id}><td><strong>{flock.batchCode}</strong></td><td>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</td><td>{flock.chickInDate}</td><td>{flock.ageDays ?? 0} 日</td><td>{flock.expectedShipmentDate ?? "未設定"}</td><td><StatusPill tone="good">進行中</StatusPill></td></tr>)}</DataTable><div className="mobile-card-list">{activeFlocks.map((flock) => <MobileCard key={flock.id}><div className="mobile-card-head"><strong>{flock.batchCode}</strong><StatusPill tone="good">進行中</StatusPill></div><dl className="mobile-fields"><div><dt>雞場</dt><dd>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</dd></div><div><dt>入雛／日齡</dt><dd>{flock.chickInDate} · {flock.ageDays ?? 0} 日</dd></div><div><dt>預計出雞</dt><dd>{flock.expectedShipmentDate ?? "未設定"}</dd></div></dl></MobileCard>)}</div></section></section>;
+  return <section className="page">
+    <div className="hero"><div><span className="hero-kicker">截至 {dashboard.asOf}</span><h2>今天，讓每一筆雞場資料都清楚可追溯。</h2><p>營運資料由 LINE 與 Web 共用；正式財務統計自動排除測試場。</p></div><button className="primary" onClick={() => onNavigate("events")}>記錄營運事件 ＋</button></div>
+    <div className="metric-grid">
+      <Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} onClick={() => onNavigate("farms")} />
+      <Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} onClick={() => onNavigate("flocks")} />
+      <Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} onClick={() => onNavigate("events", { intent: "mortality" })} />
+      <Metric title="歷史淨收入" value={`NT${money(dashboard.finance.net)}`} detail="僅正式雞場財務" onClick={() => onNavigate("finance")} />
+    </div>
+    <div className="two-col">
+      <section className="panel"><PanelTitle title="雞場概覽" action="查看全部" onClick={() => onNavigate("farms")} />{activeFarms.length ? <div className="farm-list">{activeFarms.map((farm) => <button type="button" className="farm-row dashboard-link-row" key={farm.id} onClick={() => onNavigate("farms", { farmId: farm.id })}><div className="farm-avatar">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><strong>{farm.name}</strong><span>{farm.siteName || (farm.structureMode === "multi_house" ? "多舍管理" : "全場管理")}</span></div><StatusPill tone={farm.environment === "test" ? "warn" : "good"}>{farm.environment === "test" ? "測試" : "正式"}</StatusPill></button>)}</div> : <EmptyState detail="目前沒有啟用中的雞場。" />}</section>
+      <section className="panel"><PanelTitle title="資料健康度" action="檢視健康檢查" onClick={() => onNavigate("health")} />{dashboard.dataHealth.warnings.length ? <div className="warning-list">{dashboard.dataHealth.warnings.map((warning) => <p key={warning}>⚠️ {warning}</p>)}</div> : <div className="healthy"><span>✓</span><div><strong>目前沒有阻塞性警告</strong><p>主檔、批次與財務資料可正常使用。</p></div></div>}<button type="button" className="mini-summary mini-summary-button" onClick={() => onNavigate("flocks", { reminder: "1" })}><span>預計 7 日內出雞</span><strong>{dashboard.upcomingShipments} 批 →</strong></button></section>
+    </div>
+    <section className="panel"><PanelTitle title="進行中批次" action="管理批次" onClick={() => onNavigate("flocks")} />{!activeFlocks.length && <EmptyState detail="目前沒有進行中的批次；可到批次頁建立入雛資料。" />}<DataTable headers={["批次", "雞場", "入雛日", "日齡", "預計出雞", "狀態"]}>{activeFlocks.map((flock) => <tr key={flock.id}><td><button type="button" className="row-link" onClick={() => onNavigate("flocks", { farmId: flock.farmId })}>{flock.batchCode}</button></td><td>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</td><td>{flock.chickInDate}</td><td>{flock.ageDays ?? 0} 日</td><td>{flock.expectedShipmentDate ?? "未設定"}</td><td><StatusPill tone="good">進行中</StatusPill></td></tr>)}</DataTable><div className="mobile-card-list">{activeFlocks.map((flock) => <MobileCard key={flock.id}><div className="mobile-card-head"><strong>{flock.batchCode}</strong><StatusPill tone="good">進行中</StatusPill></div><dl className="mobile-fields"><div><dt>雞場</dt><dd>{flock.farmName ?? farms.find((farm) => farm.id === flock.farmId)?.name ?? "—"}</dd></div><div><dt>入雛／日齡</dt><dd>{flock.chickInDate} · {flock.ageDays ?? 0} 日</dd></div><div><dt>預計出雞</dt><dd>{flock.expectedShipmentDate ?? "未設定"}</dd></div></dl><button type="button" className="table-button" onClick={() => onNavigate("flocks", { farmId: flock.farmId })}>查看此場批次</button></MobileCard>)}</div></section>
+  </section>;
 }
 
-function PendingCandidatesView({ candidates, invalidCount, page, totalPages, onPage, diagnostic }: { candidates: PendingCandidate[]; invalidCount: number; page: number; totalPages: number; onPage: (page: number) => Promise<void>; diagnostic: boolean }) {
+function PendingCandidatesView({ candidates, invalidCount, page, totalPages, onPage, onNavigate, diagnostic }: { candidates: PendingCandidate[]; invalidCount: number; page: number; totalPages: number; onPage: (page: number) => Promise<void>; onNavigate: Navigate; diagnostic: boolean }) {
   return <section className="page">
     <div className="hero"><div><span className="hero-kicker">{diagnostic ? "系統維護" : "一般場務"}</span><h2>{diagnostic ? "待確認資料診斷" : "待確認資料"}</h2><p>{diagnostic ? "查看資料狀態、來源與不一致原因；這裡只查看，不會修改資料。" : "查看目前還需要人工確認的營運資訊。"}</p></div></div>
     <div className="metric-grid"><Metric title="待確認資料" value={candidates.length} detail="尚未完成確認" tone={candidates.length ? "warn" : "good"} /><Metric title="來源訊息" value={candidates.reduce((sum, item) => sum + item.sourceMessageCount, 0)} detail="保留必要來源數量" /><Metric title="資料不一致" value={candidates.reduce((sum, item) => sum + item.entries.filter((entry) => entry.conflict).length, 0)} detail="需要查看原因" tone={candidates.some((item) => item.entries.some((entry) => entry.conflict)) ? "warn" : "good"} /></div>
@@ -512,6 +575,7 @@ function PendingCandidatesView({ candidates, invalidCount, page, totalPages, onP
     </section>) : <div className="panel empty">目前沒有待確認資料。</div>}
     {totalPages > 1 && <div className="page-actions"><button disabled={page <= 0} onClick={() => void onPage(page - 1)}>上一頁</button><span className="muted">第 {page + 1}／{totalPages} 頁</span><button disabled={page >= totalPages - 1} onClick={() => void onPage(page + 1)}>下一頁</button></div>}
     <div className="notice">正式紀錄、修改或取消仍須經既有安全流程；本頁目前只提供查看。</div>
+    <ContextNav title={diagnostic ? "回到待確認工作" : "進階檢視"} items={diagnostic ? [{ key: "pending", label: "待確認資料", description: "回到一般營運待確認清單。" }] : [{ key: "pendingDiagnostics", label: "查看來源診斷", description: "查看來源摘要與不一致原因；只讀。" }]} onNavigate={onNavigate} />
   </section>;
 }
 
@@ -631,7 +695,7 @@ function RetainedDetailModal({ event, onClose, onRecover, onRecord, onResolve }:
   </Modal>;
 }
 
-function SystemStatusView({ status, events, farms, houses, flocks, onRecover, onRecoverEvent, onAcknowledge, onResolve, onRecord }: { status: SystemStatus | null; events: ReliabilityEvent[]; farms: Farm[]; houses: House[]; flocks: Flock[]; onRecover: () => void; onRecoverEvent: (eventId: string) => Promise<boolean>; onAcknowledge: () => void; onResolve: (eventId: string, action: RetainedResolutionAction, reason: string, note: string, confirm: boolean) => Promise<boolean>; onRecord: (eventId: string, body: Record<string, unknown>) => Promise<boolean> }) {
+function SystemStatusView({ status, events, farms, houses, flocks, onNavigate, onRecover, onRecoverEvent, onAcknowledge, onResolve, onRecord }: { status: SystemStatus | null; events: ReliabilityEvent[]; farms: Farm[]; houses: House[]; flocks: Flock[]; onNavigate: Navigate; onRecover: () => void; onRecoverEvent: (eventId: string) => Promise<boolean>; onAcknowledge: () => void; onResolve: (eventId: string, action: RetainedResolutionAction, reason: string, note: string, confirm: boolean) => Promise<boolean>; onRecord: (eventId: string, body: Record<string, unknown>) => Promise<boolean> }) {
   const [showEvents, setShowEvents] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [detailEvent, setDetailEvent] = useState<ReliabilityEvent | null>(null);
@@ -660,6 +724,15 @@ function SystemStatusView({ status, events, farms, houses, flocks, onRecover, on
     {action?.kind === "record" && <RetainedRecordModal event={action.event} farms={farms} houses={houses} flocks={flocks} onClose={() => setAction(null)} onSubmit={(body) => onRecord(action.event.eventId, body)} />}
     {action?.kind === "resolve" && <RetainedResolutionModal event={action.event} action="manual_resolve" onClose={() => setAction(null)} onSubmit={(reason, note, confirm) => onResolve(action.event.eventId, "manual_resolve", reason, note, confirm)} />}
     {action?.kind === "force" && <RetainedResolutionModal event={action.event} action="force_close" onClose={() => setAction(null)} onSubmit={(reason, note, confirm) => onResolve(action.event.eventId, "force_close", reason, note, confirm)} />}
+    <ContextNav title="系統管理" items={[
+      { key: "health", label: "資料檢查", description: "查看主檔、批次與關聯檢查。" },
+      { key: "diagnostics", label: "訊息診斷", description: "查看尚未整理與問題訊息。" },
+      { key: "lineGroups", label: "LINE 群組", description: "管理已授權群組的 AI 對話開關。" },
+      { key: "organization", label: "組織資料", description: "查看協會投資組合與雞場範圍。" },
+      { key: "settings", label: "系統設定", description: "查看服務與接收設定摘要。" },
+      { key: "technical", label: "技術資訊", description: "查看排程、佇列與版本摘要。" },
+      { key: "testTools", label: "測試工具", description: "唯讀查看測試雞場資料。" },
+    ]} onNavigate={onNavigate} />
   </section>;
 }
 
@@ -728,18 +801,14 @@ function AnalysisReportView({ result }: { result: AnalysisResult | null }) {
   return <div className="analysis-report"><div className="notice"><strong>目前狀態</strong><p>{result.report.currentStatus}</p></div><h4>主要發現</h4><ul>{result.report.findings.map((item) => <li key={item}>{item}</li>)}</ul><h4>可能原因</h4><ul>{result.report.possibleCauses.map((item) => <li key={item.text}>{item.text}（證據{item.evidence === "strong" ? "較強" : item.evidence === "medium" ? "中等" : "較弱"}）</li>)}</ul><h4>風險</h4><ul>{result.report.risks.map((item) => <li key={item}>{item}</li>)}</ul><h4>建議</h4><ul>{result.report.recommendations.map((item) => <li key={item}>{item}</li>)}</ul><p className="muted">資料限制：{result.report.limitations.join("；") || "無"}</p><small className="technical-meta">模型：{result.model} · {result.cached ? "使用快取" : "本次分析"}</small></div>;
 }
 
-function AiSheet({ question, setQuestion, result, busy, onClose, onAsk }: { question: string; setQuestion: (value: string) => void; result: AnalysisResult | null; busy: boolean; onClose: () => void; onAsk: () => void }) {
-  return <div className="ai-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="ai-sheet" role="dialog" aria-modal="true" aria-label="AI 助理"><div className="panel-title"><div><p className="eyebrow">AI 營運助理</p><h2>詢答與分析</h2></div><button className="icon-button" aria-label="關閉 AI 助理" onClick={onClose}>×</button></div><p className="muted">只讀分析目前共用 D1，不會直接修改資料。</p><div className="ai-question-block"><strong>快速提問</strong><span className="muted">點一下帶入問題，可先修改再分析。</span><div className="quick-prompts">{["最近有哪些異常？", "最近哪一場需要注意？", "比較目前營運狀態"].map((prompt) => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div><form className="ai-question-form ai-sheet-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}><label>請輸入問題<textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：最近哪一場最需要注意？" /></label><button className="primary full" disabled={busy || !question.trim()}>{busy ? "分析中…" : "開始分析"}</button></form><div className="ai-result-block"><strong>分析結果</strong><AnalysisReportView result={result} /></div></section></div>;
-}
-
 function AiView({ result, question, setQuestion, busy, onAsk }: { result: AnalysisResult | null; question: string; setQuestion: (value: string) => void; busy: boolean; onAsk: () => void }) {
   return <section className="page"><div className="panel ai-workspace"><div className="ai-workspace-heading"><div><p className="eyebrow">AI 營運助理</p><h2>詢答與分析</h2></div><span className="pill">唯讀</span></div><p className="muted">只讀取已驗證的營運、異常、天氣與財務摘要；固定查詢仍直接由 D1 回答。</p><div className="ai-question-block"><strong>快速提問</strong><span className="muted">點一下帶入問題，不會直接送出。</span><div className="quick-prompts">{["這一批最近有哪些異常？", "哪一場最近需要注意？", "異常發生時的天氣有什麼共同點？"].map((prompt) => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div><form className="ai-question-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}><label>請輸入問題<textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：最近哪一場最需要注意？" /></label><button className="primary full" disabled={busy || !question.trim()}>{busy ? "分析中…" : "開始分析"}</button></form><div className="ai-result-block"><strong>分析結果</strong><AnalysisReportView result={result} /></div></div></section>;
 }
 
 function OrganizationView({ organization, farms }: { organization: { id: string; name: string; active: boolean } | null; farms: Farm[] }) { return <section className="page"><div className="panel"><PanelTitle title="協會與投資組合" />{organization ? <><div className="setting-row"><span>名稱</span><strong>{organization.name}</strong></div><div className="setting-row technical-row"><span>組織識別碼</span><code>{organization.id}</code></div><div className="setting-row"><span>狀態</span><StatusPill tone={organization.active ? "good" : "neutral"}>{organization.active ? "啟用" : "停用"}</StatusPill></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個（含測試雞場）</strong></div><p className="notice">LINE 群組綁定協會投資組合；同一群組可管理多個雞場，營運事件再由雞場、雞舍與批次定位。</p></> : <EmptyState detail="尚未取得協會投資組合資料，請重新整理後再試。" />}</div></section>; }
 
-function FarmsView({ farms, onCreate, onUpdate, onRecord }: { farms: Farm[]; onCreate: (body: Record<string, unknown>) => MutationResult; onUpdate: (id: string, body: Record<string, unknown>, structural: boolean) => MutationResult; onRecord: (farmId: string) => void }) {
-  const [filter, setFilter] = useState<"all" | "production" | "test">("all"); const [show, setShow] = useState(false); const [noteId, setNoteId] = useState(""); const [note, setNote] = useState(""); const [saving, setSaving] = useState(false); const [savedId, setSavedId] = useState(""); const visible = farms.filter((farm) => filter === "all" || farm.environment === filter);
+function FarmsView({ farms, initialFarmId, onCreate, onUpdate, onRecord }: { farms: Farm[]; initialFarmId: string | null; onCreate: (body: Record<string, unknown>) => MutationResult; onUpdate: (id: string, body: Record<string, unknown>, structural: boolean) => MutationResult; onRecord: (farmId: string) => void }) {
+  const [filter, setFilter] = useState<"all" | "production" | "test">("all"); const [show, setShow] = useState(false); const [noteId, setNoteId] = useState(""); const [note, setNote] = useState(""); const [saving, setSaving] = useState(false); const [savedId, setSavedId] = useState(""); const scopedFarm = initialFarmId ? farms.find((farm) => farm.id === initialFarmId) : undefined; const visible = farms.filter((farm) => (!scopedFarm || farm.id === scopedFarm.id) && (filter === "all" || farm.environment === filter));
   async function saveNote(farm: Farm) { setSaving(true); const result = await onUpdate(farm.id, { version: farm.version, note }, false); setSaving(false); if (result !== false) { setNoteId(""); setSavedId(farm.id); window.setTimeout(() => setSavedId(""), 2800); } }
   return <section className="page"><div className="page-actions"><div className="segmented" role="tablist" aria-label="雞場環境篩選">{([ ["all", "全部"], ["production", "正式"], ["test", "測試"] ] as const).map(([key, label]) => <button role="tab" aria-selected={filter === key} className={filter === key ? "selected" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><button className="primary" onClick={() => setShow((value) => !value)}>新增雞場 ＋</button></div>{show && <FarmForm onSubmit={(body) => { void onCreate(body); setShow(false); }} />}<div className="farm-cards">{visible.length ? visible.map((farm) => <article className={`farm-card ${farm.environment === "test" ? "test" : ""}`} key={farm.id}><div className="farm-card-head"><div className="farm-avatar large">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><span className="eyebrow">{farm.environment === "test" ? "測試雞場" : "正式雞場"}</span><h3>{farm.name}</h3></div><StatusPill tone={farm.active ? "good" : "neutral"}>{farm.active ? "啟用" : "已封存"}</StatusPill></div><div className="farm-meta"><div><span>場址</span><strong>{farm.siteName || "尚未設定"}</strong></div><div><span>結構</span><strong>{farm.structureMode === "multi_house" ? "多舍" : "全場"}</strong></div></div><div className="farm-note"><span>備註</span><p className={farm.note ? "note-summary" : "note-empty"}>{farm.note || "尚無備註"}</p>{farm.note && farm.note.length > 90 && <details><summary>展開全文</summary><p>{farm.note}</p></details>}</div><div className="card-actions"><button onClick={() => onRecord(farm.id)}>＋ 記一件事</button><button className={farm.active ? "danger-action" : ""} onClick={() => void onUpdate(farm.id, { version: farm.version, active: !farm.active }, true)}>{farm.active ? "封存" : "重新啟用"}</button><button onClick={() => { setNoteId(noteId === farm.id ? "" : farm.id); setNote(farm.note ?? ""); }}>{noteId === farm.id ? "收起備註" : "編輯備註"}</button></div><small className="technical-meta">資料版本 v{farm.version}</small>{savedId === farm.id && <p className="success-text" role="status">✅ 備註已儲存</p>}{noteId === farm.id && <form className="mini-form" onSubmit={(event) => { event.preventDefault(); void saveNote(farm); }}><label>場務備註<textarea value={note} onChange={(event) => setNote(event.target.value)} /></label><button className="primary" disabled={saving}>{saving ? "儲存中…" : "儲存備註"}</button></form>}</article>) : <EmptyState detail={filter === "all" ? "可使用上方「新增雞場」建立第一個雞場。" : `目前沒有${filter === "production" ? "正式" : "測試"}雞場。`} />}</div></section>;
 }

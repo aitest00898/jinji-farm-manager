@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { NAV_GROUPS, NAV_ITEMS } from "../src/navigation";
+import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS } from "../src/navigation";
 
 type MockState = { note: string | null; acknowledged: boolean; resolution: "unresolved" | "manually_resolved" | "manually_recorded" | "force_closed"; lineGroupEnabled: boolean };
 
@@ -95,7 +95,7 @@ async function openDrawer(page: Page) {
 
 async function navigateByDrawer(page: Page, label: string) {
   await openDrawer(page);
-  await page.getByRole("button", { name: new RegExp(`^${label}`) }).click();
+  await page.locator("#primary-navigation").getByRole("button", { name: new RegExp(`^${label}`) }).click();
   await expect(page.locator("#primary-navigation")).not.toHaveClass(/drawer-open/);
 }
 
@@ -134,13 +134,16 @@ test.describe("mobile navigation information architecture", () => {
       await expect(page.getByText(group.label, { exact: true })).toBeAttached();
       await expect(page.getByRole("button", { name: group.label, exact: true })).toHaveCount(0);
     }
-    await expect(page.locator(".sidebar-nav button[data-nav-key]")).toHaveCount(NAV_ITEMS.length);
-    await expect(page.locator(".sidebar-nav svg.nav-icon[data-icon]")).toHaveCount(NAV_ITEMS.length);
-    for (const item of NAV_ITEMS) {
+    await expect(page.locator(".sidebar-nav button[data-nav-key]")).toHaveCount(PRIMARY_NAV_ITEMS.length);
+    await expect(page.locator(".sidebar-nav svg.nav-icon[data-icon]")).toHaveCount(PRIMARY_NAV_ITEMS.length);
+    for (const item of PRIMARY_NAV_ITEMS) {
       const button = page.locator(`[data-nav-key="${item.key}"]`);
       await expect(button.locator(".nav-label")).toHaveText(item.label);
       await expect(button.locator(".nav-hint")).toHaveText(`（${item.description}）`);
       await expect(button.locator("svg[data-icon]")).toHaveAttribute("data-icon", item.icon);
+    }
+    for (const item of NAV_ITEMS.filter((candidate) => !candidate.primary)) {
+      await expect(page.locator(`[data-nav-key="${item.key}"]`)).toHaveCount(0);
     }
     await expect(page.locator(".topbar h1")).toHaveText("總覽");
     await expect(page.locator(".topbar")).not.toContainText("今日重點");
@@ -164,6 +167,26 @@ test.describe("mobile navigation information architecture", () => {
     await openDrawer(page);
     await page.locator(".drawer-backdrop").click({ position: { x: 385, y: 400 } });
     await expect(page.locator("#primary-navigation")).not.toHaveClass(/drawer-open/);
+  });
+
+  test("dashboard cards and rows open the correct contextual destinations", async ({ page }) => {
+    await page.getByRole("button", { name: "查看目前存欄", exact: true }).click();
+    await expect(page).toHaveURL(/#\/flocks$/);
+    await expect(page.getByRole("heading", { name: "批次", exact: true })).toBeVisible();
+
+    await page.evaluate(() => { window.location.hash = "#/dashboard"; });
+    await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "查看今日死亡", exact: true }).click();
+    await expect(page).toHaveURL(/#\/events\?intent=mortality$/);
+    await expect(page.locator(".route-context")).toContainText("目前只看死亡紀錄");
+    await expect(page.locator(".mobile-card").last()).toContainText("死亡");
+
+    await page.evaluate(() => { window.location.hash = "#/dashboard"; });
+    await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
+    await page.locator(".dashboard-link-row").first().click();
+    await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".farm-card")).toHaveCount(1);
   });
 
   test("boundary swipe changes pages while normal, slow, horizontal, input, and chart gestures remain safe", async ({ page }) => {
@@ -319,7 +342,8 @@ test.describe("LINE 群組 AI 對話開關", () => {
     await installMockApi(page);
     await page.setViewportSize({ width: 1024, height: 900 });
     await login(page);
-    await navigateByDrawer(page, "LINE 群組");
+    await navigateByDrawer(page, "系統狀態");
+    await page.getByRole("button", { name: /^LINE 群組/ }).click();
     await expect(page.locator(".topbar h1")).toHaveText("LINE 群組");
     await expect(page.getByText("AI 對話已關閉", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "開啟 AI 對話", exact: true }).click();
@@ -355,15 +379,11 @@ for (const viewport of viewports) {
     const nav = page.locator(".sidebar-nav");
     const navMetrics = await nav.evaluate((element) => ({ clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }));
     expect(navMetrics.clientHeight).toBeGreaterThan(0);
-    expect(navMetrics.scrollHeight).toBeGreaterThan(navMetrics.clientHeight);
-    await nav.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    expect(await nav.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    const settingsButton = page.locator('[data-nav-key="settings"]');
-    await expect(settingsButton).toBeVisible();
-    const navBox = await nav.boundingBox();
-    const settingsBox = await settingsButton.boundingBox();
-    expect(settingsBox?.y ?? -1).toBeGreaterThanOrEqual((navBox?.y ?? 0) - 1);
-    expect((settingsBox?.y ?? 0) + (settingsBox?.height ?? 0)).toBeLessThanOrEqual((navBox?.y ?? 0) + (navBox?.height ?? 0) + 1);
+    if (navMetrics.scrollHeight > navMetrics.clientHeight) {
+      await nav.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      expect(await nav.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    }
+    await expect(page.locator('[data-nav-key="settings"]')).toHaveCount(0);
     await expect(page.locator(".logout-button")).toBeVisible();
     const footerBox = await page.locator(".sidebar-foot").boundingBox();
     expect((footerBox?.y ?? 0) + (footerBox?.height ?? 0)).toBeLessThanOrEqual(viewport.height + 1);

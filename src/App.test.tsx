@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { API_BASE, ApiClient, aiFailurePresentation, queryString } from "./api";
-import { NAV_GROUPS, NAV_ITEMS } from "./navigation";
+import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS } from "./navigation";
 
 describe("mobile navigation information architecture", () => {
   it("gives every page a concise Traditional Chinese label and explanation", () => {
@@ -41,6 +41,16 @@ describe("mobile navigation information architecture", () => {
 
   it("assigns a distinct semantic icon to every navigation item", () => {
     expect(new Set(NAV_ITEMS.map((item) => item.icon)).size).toBe(NAV_ITEMS.length);
+  });
+
+  it("keeps every route bookmarkable while limiting the primary drawer to core workflows", () => {
+    expect(PRIMARY_NAV_ITEMS.map((item) => item.key)).toEqual([
+      "dashboard", "farms", "flocks", "events", "abnormal", "charts", "ai", "pending", "caretakers", "finance", "audit", "system",
+    ]);
+    expect(PRIMARY_NAV_ITEMS).toHaveLength(12);
+    expect(NAV_ITEMS.filter((item) => !item.primary).map((item) => item.key)).toEqual([
+      "reminders", "organization", "houses", "equity", "aliases", "health", "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
+    ]);
   });
 });
 
