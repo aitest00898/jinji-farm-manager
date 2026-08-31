@@ -33,10 +33,10 @@ const sensitivePatterns = [
   { category: "BEARER_TOKEN", pattern: /Bearer\s+[A-Za-z0-9._~+/=-]{24,}/u },
   { category: "JWT_SHAPED", pattern: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/u },
   { category: "SECRET_ASSIGNMENT", pattern: /(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[A-Za-z0-9+/=_-]{16,}/iu },
-  { category: "PRIVATE_CREDENTIAL_FILE", pattern: /\.(?:pem|key|p12|pfx)$/iu },
 ];
 const runtimeEndpointPattern = /\bhttps?:\/\/[^\s"'`<>]+\.(?:workers\.dev|pages\.dev|github\.io)(?:[/?#][^\s"'`<>]*)?/iu;
 const remoteUrlPattern = /\bhttps?:\/\/([^\s"'`<>/]+)(?:[/?#][^\s"'`<>]*)?/giu;
+const allowedBinaryExtensions = /\.(?:png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$/iu;
 
 const findings = [];
 let binaryCount = 0;
@@ -63,8 +63,10 @@ for (const file of files) {
     findings.push({ path: file.path, category: "LARGE_FILE" });
     continue;
   }
+  if (/\.(?:pem|key|p12|pfx)$/iu.test(file.path)) findings.push({ path: file.path, category: "PRIVATE_CREDENTIAL_FILE" });
   const buffer = readFileSync(file.absolute);
   if (buffer.includes(0)) {
+    if (allowedBinaryExtensions.test(file.path)) continue;
     binaryCount += 1;
     findings.push({ path: file.path, category: "BINARY_FILE" });
     continue;
@@ -89,6 +91,8 @@ console.log(`SCANNED_PATHS=${files.length}`);
 console.log(`SECRET_SCAN=${sensitiveFindings.length === 0 ? "PASS" : "FAIL"}`);
 console.log(`RUNTIME_ENDPOINT_SCAN=${runtimeFindings.length === 0 ? "PASS" : "FAIL"}`);
 console.log(`REMOTE_URL_SCAN=${remoteUrlCount === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
+console.log(`BINARY_SCAN=${binaryCount === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
+console.log(`SYMLINK_SCAN=${symlinkCount === 0 ? "PASS" : "FAIL"}`);
 console.log(`MIRROR_STRUCTURE_SCAN=${structuralFindings.length === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
 console.log(`SAFE_FOR_REPOMIX=${sensitiveFindings.length === 0 && runtimeFindings.length === 0 && structuralFindings.length === 0 ? "YES" : "NO"}`);
 
