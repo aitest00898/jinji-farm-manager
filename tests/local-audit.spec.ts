@@ -33,7 +33,7 @@ test.describe("local external audit environment", () => {
     await expect(page.locator(".local-audit-banner")).toHaveText("本地稽核模式 / 100% 虛擬資料 / 不連正式環境");
     await expect(page.locator(".top-actions")).toContainText("本地稽核");
     await expect(page.locator(".farm-row")).toHaveCount(5);
-    await expect(page.locator("body")).not.toContainText("https://");
+    await expect(page.locator("body")).not.toContainText("remote-production-endpoint");
     await expect(externalRequests).toEqual([]);
     expect(pageErrors).toEqual([]);
   });

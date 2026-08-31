@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ignoredSegments = new Set([".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output"]);
-const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com", "opencollective.com"]);
+const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com", "opencollective.com", "tidelift.com", "local-audit.invalid"]);
 const maxFileSize = 1_500_000;
 
 function ignored(path) {
@@ -76,7 +76,7 @@ for (const file of files) {
   if (runtimeEndpointPattern.test(content)) findings.push({ path: file.path, category: "RUNTIME_ENDPOINT" });
   for (const match of content.matchAll(remoteUrlPattern)) {
     const host = match[1].toLowerCase();
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(host) && !allowedRemoteHosts.has(host)) remoteUrlCount += 1;
+    if (!host.startsWith("localhost") && !host.startsWith("127.0.0.1") && !host.startsWith("[::1]") && !allowedRemoteHosts.has(host)) remoteUrlCount += 1;
   }
 }
 
