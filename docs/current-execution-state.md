@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-30 (Asia/Taipei)
+Last reviewed: 2026-08-31 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -54,10 +54,26 @@ PAGES_SOURCE_OF_TRUTH_CONVERGENCE = COMPLETE
 
 ### Current open items — not proven Production blockers
 
-- `LINE_CARETAKER_MASTER_FLOW = CURRENT_OPEN`: the existing Web caretaker and
-  assignment APIs, LINE query paths, and local safety tests exist, but a
-  complete real-user setup/assignment acceptance is not recorded. The gap is
-  acceptance evidence, not a proven runtime defect.
+- `LINE_CARETAKER_MASTER_FLOW = READY_FOR_L3_ACCEPTANCE (PLAN_A)`: the L1
+  read-only preflight found the existing test farm `金雞測試場` active with
+  zero caretakers, zero current primary caretakers, zero assignments, and
+  zero caretaker history. A separate human-approved L3 run may use this farm
+  with one explicitly temporary caretaker; no L3 mutation occurred here.
+  Existing Web paths are admin-protected: create
+  `POST /api/caretakers`, assign `POST /api/farms/:farmId/caretakers` with
+  `isPrimary=true`, and archive `PATCH /api/caretakers/:id` with
+  `active=false`. There is no separate unassign, assignment-end, or restore
+  endpoint. Archiving suppresses the caretaker from normal LINE relationship
+  queries through the active filter, but the assignment row and
+  create/assign/archive Audit history remain. Business-effective state is
+  restorable for this zero-primary baseline; exact historical state is not.
+  This permanent test history requires explicit L3 acceptance.
+  The deterministic caretaker-to-farms and farm-to-caretakers routing tests
+  pass; the targeted local regression set passed 27/27 tests across five
+  existing files. `/health` and `/ready` returned HTTP 200, and all remote
+  D1 reads reported `rows_written=0`. The caretaker-to-farms query remains
+  read-only but does not filter assignment effective dates; there is no
+  current impact because this test farm has no assignments.
 - `REAL_GROUP_OPERATION_STRESS = CURRENT_OPEN`: no dedicated bounded stress
   acceptance artifact is recorded after the completed normal LINE/Web flow.
   This is confidence work and is not by itself a reason to block ordinary
