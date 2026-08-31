@@ -3,7 +3,7 @@
     "maxFileSize": 1500000
   },
   "output": {
-    "filePath": ".audit-output/full-engineering-audit.xml",
+    "filePath": "audit-output/full-engineering-audit.xml",
     "style": "xml",
     "filePathStyle": "target-relative",
     "parsableStyle": true,
@@ -56,7 +56,7 @@
       "**/.env*",
       "**/.dev.secrets.local*",
       "**/.dev.vars*",
-      ".audit-output/**",
+      "audit-output/**",
       "repomix-output.*"
     ]
   },

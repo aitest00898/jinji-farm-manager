@@ -1,7 +1,7 @@
 {
   "input": { "maxFileSize": 1500000 },
   "output": {
-    "filePath": ".audit-output/03-tests-and-contracts.xml",
+    "filePath": "audit-output/03-tests-and-contracts.xml",
     "style": "xml",
     "filePathStyle": "target-relative",
     "parsableStyle": true,
@@ -29,7 +29,7 @@
     "useGitignore": true,
     "useDotIgnore": true,
     "useDefaultPatterns": false,
-    "customPatterns": [".audit-output/**", "**/node_modules/**", "**/dist/**", "**/.env*"]
+    "customPatterns": ["audit-output/**", "**/node_modules/**", "**/dist/**", "**/.env*"]
   },
   "security": { "enableSecurityCheck": true },
   "tokenCount": { "encoding": "o200k_base" }

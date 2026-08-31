@@ -3,7 +3,7 @@
     "maxFileSize": 1500000
   },
   "output": {
-    "filePath": ".audit-output/web-ux-audit.xml",
+    "filePath": "audit-output/web-ux-audit.xml",
     "style": "xml",
     "filePathStyle": "target-relative",
     "parsableStyle": true,
@@ -52,7 +52,7 @@
       "**/.env*",
       "**/.dev.secrets.local*",
       "**/.dev.vars*",
-      ".audit-output/**",
+      "audit-output/**",
       "repomix-output.*"
     ]
   },

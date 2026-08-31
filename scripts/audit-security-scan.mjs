@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const ignoredSegments = new Set([".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output"]);
+const ignoredSegments = new Set([".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output", "audit-output"]);
 const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com", "opencollective.com", "tidelift.com", "local-audit.invalid"]);
 const maxFileSize = 1_500_000;
 
