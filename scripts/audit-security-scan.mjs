@@ -1,80 +1,95 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const ignoredSegments = [".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output"];
-const candidateRoots = ["AGENTS.md", "README.md", ".gitignore", ".github", "package.json", "package-lock.json", "index.html", "tsconfig.json", "vite.config.ts", "vitest.config.ts", "playwright.config.ts", "src", "tests", "public", "docs/external-local-audit.md", "scripts", "repomix.audit.config.json", "repomix.web-ux.config.json"];
+const ignoredSegments = new Set([".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output"]);
+const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com"]);
+const maxFileSize = 1_500_000;
 
 function ignored(path) {
-  return ignoredSegments.some((segment) => path.split("/").includes(segment));
+  return path.split("/").some((segment) => ignoredSegments.has(segment));
 }
 
-function inCandidateScope(path) {
-  return candidateRoots.some((rootPath) => path === rootPath || path.startsWith(`${rootPath}/`));
+function collectFiles(directory, prefix = "") {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (ignored(path)) continue;
+    const absolute = join(directory, entry.name);
+    if (entry.isSymbolicLink()) files.push({ path, absolute, symlink: true });
+    else if (entry.isDirectory()) files.push(...collectFiles(absolute, path));
+    else if (entry.isFile()) files.push({ path, absolute, symlink: false });
+  }
+  return files;
 }
 
-function trackedAndUntrackedFiles() {
-  const output = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "-z"], { cwd: root });
-  return output.toString("utf8").split("\0").filter(Boolean).map((path) => path.replaceAll("\\", "/"));
-}
-
-const files = trackedAndUntrackedFiles().filter((path) => !ignored(path) && inCandidateScope(path));
-const findings = [];
-let binaryCount = 0;
-let largeCount = 0;
-const allowedBinaryExtensions = /\.(?:png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$/iu;
-
-// These expressions detect credential-shaped material, not ordinary words such as
-// "password" in documentation. Findings print only the path and a safe category.
+// These expressions are intentionally generic. The scanner must remain reusable
+// in a disposable mirror and must not contain project-specific secrets, hashes,
+// identifiers, URLs, or other production fingerprints.
 const sensitivePatterns = [
   { category: "PRIVATE_KEY", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/u },
-  { category: "CLOUD_TOKEN", pattern: /(?:ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})[A-Za-z0-9_\-]{8,}/u },
+  { category: "CLOUD_TOKEN", pattern: /(?:ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})[A-Za-z0-9_-]{8,}/u },
   { category: "BEARER_TOKEN", pattern: /Bearer\s+[A-Za-z0-9._~+/=-]{24,}/u },
   { category: "JWT_SHAPED", pattern: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/u },
   { category: "SECRET_ASSIGNMENT", pattern: /(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[A-Za-z0-9+/=_-]{16,}/iu },
   { category: "PRIVATE_CREDENTIAL_FILE", pattern: /\.(?:pem|key|p12|pfx)$/iu },
 ];
+const runtimeEndpointPattern = /\bhttps?:\/\/[^\s"'`<>]+\.(?:workers\.dev|pages\.dev|github\.io)(?:[/?#][^\s"'`<>]*)?/iu;
+const remoteUrlPattern = /\bhttps?:\/\/([^\s"'`<>/]+)(?:[/?#][^\s"'`<>]*)?/giu;
 
-for (const path of files) {
-  const absolute = join(root, path);
+const findings = [];
+let binaryCount = 0;
+let largeCount = 0;
+let symlinkCount = 0;
+let remoteUrlCount = 0;
+const files = collectFiles(root);
+
+for (const file of files) {
+  if (file.symlink) {
+    symlinkCount += 1;
+    findings.push({ path: file.path, category: "SYMLINK" });
+    continue;
+  }
   let stat;
   try {
-    stat = statSync(absolute);
+    stat = lstatSync(file.absolute);
   } catch {
-    findings.push({ path, category: "MISSING_FILE" });
+    findings.push({ path: file.path, category: "MISSING_FILE" });
     continue;
   }
-  if (!stat.isFile()) continue;
-  if (stat.size > 1_500_000) {
+  if (stat.size > maxFileSize) {
     largeCount += 1;
-    findings.push({ path, category: "LARGE_FILE" });
+    findings.push({ path: file.path, category: "LARGE_FILE" });
     continue;
   }
-  const buffer = readFileSync(absolute);
+  const buffer = readFileSync(file.absolute);
   if (buffer.includes(0)) {
-    if (allowedBinaryExtensions.test(path)) continue;
     binaryCount += 1;
-    findings.push({ path, category: "BINARY_FILE" });
+    findings.push({ path: file.path, category: "BINARY_FILE" });
     continue;
   }
   const content = buffer.toString("utf8");
-  for (const { category, pattern } of sensitivePatterns) {
-    if (pattern.test(content)) findings.push({ path, category });
+  for (const { category, pattern } of sensitivePatterns) if (pattern.test(content)) findings.push({ path: file.path, category });
+  if (runtimeEndpointPattern.test(content)) findings.push({ path: file.path, category: "RUNTIME_ENDPOINT" });
+  for (const match of content.matchAll(remoteUrlPattern)) {
+    const host = match[1].toLowerCase();
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(host) && !allowedRemoteHosts.has(host)) remoteUrlCount += 1;
   }
 }
 
 const uniqueFindings = [...new Map(findings.map((finding) => [`${finding.path}:${finding.category}`, finding])).values()];
-const secretFindings = uniqueFindings.filter((finding) => ["PRIVATE_KEY", "CLOUD_TOKEN", "BEARER_TOKEN", "JWT_SHAPED", "SECRET_ASSIGNMENT", "PRIVATE_CREDENTIAL_FILE"].includes(finding.category));
-const exportSafe = uniqueFindings.length === 0;
+const sensitiveCategories = new Set(sensitivePatterns.map(({ category }) => category));
+const sensitiveFindings = uniqueFindings.filter((finding) => sensitiveCategories.has(finding.category));
+const runtimeFindings = uniqueFindings.filter((finding) => finding.category === "RUNTIME_ENDPOINT");
+const structuralFindings = uniqueFindings.filter((finding) => ["LARGE_FILE", "BINARY_FILE", "SYMLINK", "MISSING_FILE"].includes(finding.category));
 
 for (const finding of uniqueFindings) console.log(`FINDING path=${finding.path} category=${finding.category}`);
 console.log(`SCANNED_PATHS=${files.length}`);
-console.log(`SECRET_SCAN=${secretFindings.length === 0 ? "PASS" : "FAIL"}`);
-console.log(`PRODUCTION_IDENTIFIER_SCAN=${exportSafe ? "PASS" : "REVIEW_REQUIRED"}`);
-console.log(`LARGE_FILE_SCAN=${largeCount === 0 ? "PASS" : "FAIL"}`);
-console.log(`BINARY_SCAN=${binaryCount === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
-console.log(`SAFE_FOR_REPOMIX=${exportSafe && largeCount === 0 && binaryCount === 0 ? "YES" : "NO"}`);
+console.log(`SECRET_SCAN=${sensitiveFindings.length === 0 ? "PASS" : "FAIL"}`);
+console.log(`RUNTIME_ENDPOINT_SCAN=${runtimeFindings.length === 0 ? "PASS" : "FAIL"}`);
+console.log(`REMOTE_URL_SCAN=${remoteUrlCount === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
+console.log(`MIRROR_STRUCTURE_SCAN=${structuralFindings.length === 0 ? "PASS" : "REVIEW_REQUIRED"}`);
+console.log(`SAFE_FOR_REPOMIX=${sensitiveFindings.length === 0 && runtimeFindings.length === 0 && structuralFindings.length === 0 ? "YES" : "NO"}`);
 
-if (secretFindings.length || largeCount) process.exitCode = 1;
+if (sensitiveFindings.length || runtimeFindings.length || structuralFindings.some((finding) => finding.category === "LARGE_FILE")) process.exitCode = 1;

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const auditPort = process.env.AUDIT_PORT ?? "5173";
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -7,7 +9,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:5173/jinji-farm-manager/",
+    baseURL: `http://127.0.0.1:${auditPort}/jinji-farm-manager/`,
     trace: "retain-on-failure",
     headless: true,
   },
@@ -17,7 +19,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev -- --host 127.0.0.1",
-    url: "http://127.0.0.1:5173/jinji-farm-manager/",
+    url: `http://127.0.0.1:${auditPort}/jinji-farm-manager/`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

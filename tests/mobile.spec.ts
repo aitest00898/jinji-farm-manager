@@ -1,11 +1,12 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS } from "../src/navigation";
 
+// UI_MOCK_E2E: validates responsive information architecture with an isolated request mock.
 type MockState = { note: string | null; acknowledged: boolean; resolution: "unresolved" | "manually_resolved" | "manually_recorded" | "force_closed"; lineGroupEnabled: boolean };
 
 const farm = {
   id: "test-farm",
-  name: "金雞測試場",
+  name: "模擬測試場",
   siteName: "測試區",
   active: true,
   environment: "test",
@@ -18,7 +19,7 @@ const farm = {
 };
 
 const house = { id: "test-house", farmId: farm.id, name: "測試1舍", normalizedName: "測試1舍", capacity: 1200, active: true, note: null, version: 1, createdAt: "2026-08-19T00:00:00Z", updatedAt: "2026-08-19T00:00:00Z", farmName: farm.name, farmEnvironment: "test" };
-const flock = { id: "test-flock", farmId: farm.id, houseId: house.id, batchCode: "TEST-BATCH-001", breed: null, chickInDate: "2026-08-19", initialCount: 1000, expectedShipmentDate: "2026-11-19", actualShipmentDate: null, status: "active", note: null, version: 1, ageDays: 1, shipmentReminder: "upcoming", farmName: farm.name, houseName: house.name };
+const flock = { id: "test-flock", farmId: farm.id, houseId: house.id, batchCode: "SYNTHETIC-BATCH-001", breed: null, chickInDate: "2026-08-19", initialCount: 1000, expectedShipmentDate: "2026-11-19", actualShipmentDate: null, status: "active", note: null, version: 1, ageDays: 1, shipmentReminder: "upcoming", farmName: farm.name, houseName: house.name };
 const operationalEvent = { id: "event-1", organizationId: "org-test", farmId: farm.id, farmName: farm.name, environment: "test", houseId: house.id, house: house.name, flockId: flock.id, intent: "mortality", quantity: 5, unit: "隻", eventDate: "2026-08-20", note: null, source: "web", sourceEventId: "fixture-event", pendingActionId: null, reversalOfEventId: null, correctionGroupId: null, reversedAt: null, createdAt: "2026-08-20T01:00:00Z" };
 const auditRow = { id: "audit-1", organizationId: "org-test", source: "web", action: "farm_note_updated", entityType: "farm", entityId: farm.id, actorType: "web_admin", actorId: "fixture-user", reason: "行動版測試", before: { note: null }, after: { note: "巡場完成" }, changedFields: ["note"], createdAt: "2026-08-20T01:10:00Z" };
 const legacyAuditRow = { id: "audit-legacy", organizationId: "org-test", source: "system", action: "line_group_ai_updated", entityType: "line_group_ai_conversation", entityId: "group-test", actorType: "system", actorId: null, reason: "歷史格式測試", before: { conversationV2Enabled: false }, after: { conversationV2Enabled: true }, changedFields: [{ field: "conversationV2Enabled", from: false, to: true }], createdAt: "2026-08-20T01:11:00Z" };
@@ -56,7 +57,7 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/ambient/preview")) return fulfill(route, { cutoffAt: "2026-08-20T03:00:00Z", page: 0, pageSize: 10, total: 0, totalPages: 1, candidateLikeCount: 0, excludedCount: 0, openCandidateCount: 0, processed24hCount: 0, expiredDiagnosticCount: 0, expiredDiagnostics: [], rows: [], truncated: false, readOnly: true });
     if (path.endsWith("/api/pending-candidates")) return fulfill(route, { page: 0, pageSize: 10, total: 0, totalPages: 1, candidates: [], invalidCount: 0, truncated: false, readOnly: true });
     if (path.endsWith("/api/test-tools")) return fulfill(route, { farms: [], houses: [], flocks: [], warning: "只讀測試資料。", readOnly: true });
-    if (path.endsWith("/api/technical-info")) return fulfill(route, { service: "fixture", accountName: "金雞協會助理Ai", conversationMode: "test_farm", conversationModel: "fixture", ambientModel: "fixture", queue: { name: "fixture", batchSize: 10, timeoutSeconds: 0, maxRetries: 3 }, schedules: [], migration: "0029", secretsIncluded: false, rawPayloadIncluded: false, note: "安全技術資料。" });
+    if (path.endsWith("/api/technical-info")) return fulfill(route, { service: "fixture", accountName: "本地虛擬助理", conversationMode: "synthetic", conversationModel: "fixture", ambientModel: "fixture", queue: { name: "fixture", batchSize: 10, timeoutSeconds: 0, maxRetries: 3 }, schedules: [], migration: "local-fixture", secretsIncluded: false, rawPayloadIncluded: false, note: "安全技術資料。" });
     if (path.endsWith("/api/dashboard")) return fulfill(route, { asOf: "2026-08-20", counts: { farms: 1, productionFarms: 0, testFarms: 1, caretakers: 0, activeFlocks: 1 }, stock: 995, today: { mortality: 5, cull: 0 }, upcomingShipments: 1, finance: { net: 0 }, dataHealth: { warnings: [] } });
     if (path.endsWith("/api/organizations")) return fulfill(route, { organizations: [{ id: "org-test", name: "測試組合", active: true }] });
     if (path.endsWith("/api/farms/test-farm") && request.method() === "PATCH") { const body = JSON.parse(request.postData() ?? "{}"); state.note = typeof body.note === "string" ? body.note : state.note; return fulfill(route, { farm: { ...farm, note: state.note, version: farm.version + 1 } }); }
@@ -222,7 +223,7 @@ test.describe("mobile navigation information architecture", () => {
     await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
     await page.locator(".dashboard-link-row").first().click();
     await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
     await expect(page.locator(".farm-card")).toHaveCount(1);
   });
 
@@ -253,34 +254,34 @@ test.describe("mobile navigation information architecture", () => {
     await page.goto("./#/farms?farmId=test-farm");
     await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
     await ensureAuthenticatedRoute(page, "雞場");
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
     await page.reload();
     await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
     await ensureAuthenticatedRoute(page, "雞場");
     await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
 
     await page.goto("./#/events?farmId=test-farm&intent=mortality");
     await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
     await ensureAuthenticatedRoute(page, "營運紀錄");
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
     await expect(page.locator(".mobile-card").last()).toContainText("死亡");
     await page.reload();
     await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
     await ensureAuthenticatedRoute(page, "營運紀錄");
     await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
     await expect(page.locator(".mobile-card").last()).toContainText("死亡");
 
     await page.goto("./#/flocks?farmId=test-farm");
     await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
     await ensureAuthenticatedRoute(page, "批次");
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
     await page.reload();
     await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
     await ensureAuthenticatedRoute(page, "批次");
     await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
-    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".route-context")).toContainText("模擬測試場");
 
     await page.goto("./#/farms?farmId=missing-farm");
     await expect(page).toHaveURL(/#\/farms\?farmId=missing-farm$/);

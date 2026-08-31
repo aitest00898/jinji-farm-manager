@@ -1,0 +1,32 @@
+{
+  "input": { "maxFileSize": 1500000 },
+  "output": {
+    "filePath": ".audit-output/01-web-ui.xml",
+    "style": "xml",
+    "filePathStyle": "target-relative",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "showLineNumbers": true,
+    "truncateBase64": true
+  },
+  "include": [
+    "src/App.tsx",
+    "src/api.ts",
+    "src/navigation.ts",
+    "src/styles.css",
+    "src/main.tsx",
+    "index.html",
+    "public/**",
+    "docs/external-local-audit.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": false,
+    "customPatterns": [".audit-output/**", "**/node_modules/**", "**/dist/**", "**/.env*"]
+  },
+  "security": { "enableSecurityCheck": true },
+  "tokenCount": { "encoding": "o200k_base" }
+}

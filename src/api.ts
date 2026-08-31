@@ -1,7 +1,7 @@
 import { isLocalAuditMode, localAuditRequest } from "./local-audit";
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)
-  ?? "https://chicken-line-production.jinji-assistant.workers.dev";
+  ?? "";
 
 export interface ApiError extends Error { status: number; code?: string }
 

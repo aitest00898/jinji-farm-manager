@@ -39,6 +39,11 @@ export const LOCAL_AUDIT_PASSWORD = "audit-local-only";
 export const LOCAL_AUDIT_ANCHOR_DATE = "2026-08-31";
 export const LOCAL_AUDIT_MODEL = "synthetic-audit-fixture";
 
+/** The audit mirror is deterministic; Production keeps its real-time clock. */
+export function auditToday(): string {
+  return LOCAL_AUDIT_ANCHOR_DATE;
+}
+
 let networkGuardInstalled = false;
 
 /** Block accidental calls to a remote API while local audit mode is active. */
@@ -73,7 +78,7 @@ function daysBetween(start: string, end: string): number {
 }
 
 function timestamp(minute: number): string {
-  return `2026-08-31T12:${String(minute % 60).padStart(2, "0")}:00Z`;
+  return `${auditToday()}T12:${String(minute % 60).padStart(2, "0")}:00Z`;
 }
 
 function farmRecord(
@@ -132,12 +137,13 @@ function flockRecord(
   expectedShipmentDate: string | null,
   status: Flock["status"],
 ): Flock {
+  const today = auditToday();
   const reminder = expectedShipmentDate
-    ? expectedShipmentDate < LOCAL_AUDIT_ANCHOR_DATE
+    ? expectedShipmentDate < today
       ? "overdue"
-      : expectedShipmentDate === LOCAL_AUDIT_ANCHOR_DATE
+      : expectedShipmentDate === today
         ? "today"
-        : daysBetween(LOCAL_AUDIT_ANCHOR_DATE, expectedShipmentDate) <= 7
+        : daysBetween(today, expectedShipmentDate) <= 7
           ? "upcoming"
           : null
     : null;
@@ -154,7 +160,7 @@ function flockRecord(
     status,
     note: status === "closed" ? "本地歷史批次，用於更正與出雞檢視。" : null,
     version: 1,
-    ageDays: daysBetween(chickInDate, LOCAL_AUDIT_ANCHOR_DATE),
+    ageDays: daysBetween(chickInDate, today),
     shipmentReminder: status === "active" ? reminder : null,
     farmName: farm.name,
     houseName: house.name,
@@ -296,6 +302,7 @@ function baselineState(): LocalAuditState {
   const farm3 = farmRecord("synthetic-audit-farm-silkie-03", "稽核烏骨三場", "test", "multi_house", "本地西區", "測試環境多舍資料；不代表任何正式雞場。 ");
   const farm4 = farmRecord("synthetic-audit-farm-new-04", "稽核新批四場", "test", "multi_house", "本地北區", null);
   const farm5 = farmRecord("synthetic-audit-farm-history-05", "稽核歷史五場", "production", "whole_farm", "本地中區", "含目前批次、已出雞批次與歷史更正樣本。 ");
+  farm5.playerGroupEquityFraction = 0.98;
   const farms = [farm1, farm2, farm3, farm4, farm5];
 
   const h11 = houseRecord("synthetic-audit-house-red-1", farm1, "紅羽一舍", 1300);
@@ -326,7 +333,7 @@ function baselineState(): LocalAuditState {
     eventRecord("synthetic-audit-event-004", farm1, h11, f1, "water", 480, "L", "2026-08-29"),
     eventRecord("synthetic-audit-event-005", farm1, h12, f2, "feed", 180, "kg", "2026-08-30"),
     eventRecord("synthetic-audit-event-006", farm1, h12, f2, "water", 360, "L", "2026-08-30"),
-    eventRecord("synthetic-audit-event-007", farm2, h21, f3, "mortality", 10, "隻", "2026-08-28", "原始數量，保留供修正鏈檢視。"),
+    eventRecord("synthetic-audit-event-007", farm2, h21, f3, "mortality", 10, "隻", "2026-08-28", "原始數量，保留供修正鏈檢視。", { reversedAt: "2026-08-29T03:00:00Z", reversalReason: "修正流程會先反轉原事件。" }),
     eventRecord("synthetic-audit-event-008", farm2, h21, f3, "mortality", 12, "隻", "2026-08-28", "修正後數量。", { correctionOfEventId: "synthetic-audit-event-007" }),
     eventRecord("synthetic-audit-event-009", farm2, h21, f3, "cull", 6, "隻", "2026-08-29"),
     eventRecord("synthetic-audit-event-010", farm2, h21, f3, "feed", 300, "kg", "2026-08-30"),
@@ -342,7 +349,14 @@ function baselineState(): LocalAuditState {
     eventRecord("synthetic-audit-event-020", farm5, h51, f8, "mortality", 10, "隻", "2026-07-25"),
     eventRecord("synthetic-audit-event-021", farm5, h51, f8, "shipment", 690, "隻", "2026-07-31"),
     eventRecord("synthetic-audit-event-022", farm5, h51, f7, "feed", 220, "kg", "2026-08-24"),
-    eventRecord("synthetic-audit-event-023", farm1, h11, f1, "mortality", 2, "隻", LOCAL_AUDIT_ANCHOR_DATE, "固定錨點今日事件。"),
+    eventRecord("synthetic-audit-event-023", farm1, h11, f1, "mortality", 2, "隻", auditToday(), "固定錨點今日事件。"),
+    eventRecord("synthetic-audit-event-024", farm2, h21, f3, "mortality", 4, "隻", "2026-08-27", "多日圖表樣本。"),
+    eventRecord("synthetic-audit-event-025", farm2, h21, f3, "cull", 2, "隻", "2026-08-30", "多日圖表樣本。"),
+    eventRecord("synthetic-audit-event-026", farm3, h31, f4, "feed", 150, "kg", "2026-08-27", "多日圖表樣本。"),
+    eventRecord("synthetic-audit-event-027", farm3, h31, f4, "water", 300, "L", "2026-08-28", "多日圖表樣本。"),
+    eventRecord("synthetic-audit-event-028", farm4, h41, f6, "mortality", 2, "隻", auditToday(), "多環境圖表樣本。"),
+    eventRecord("synthetic-audit-event-029", farm5, h51, f7, "feed", 260, "kg", "2026-08-27", "多日圖表樣本。"),
+    eventRecord("synthetic-audit-event-030", farm1, h11, f1, "shipment", 100, "隻", auditToday(), "多日圖表樣本。"),
   ];
 
   const caretakerA: Caretaker = { id: "synthetic-audit-caretaker-a", name: "模擬飼養員－陳甲", active: true, note: "一般場務樣本。", version: 1 };
@@ -362,20 +376,31 @@ function baselineState(): LocalAuditState {
   const abnormalEvents = [
     abnormalRecord("synthetic-audit-abnormal-001", farm2, h21, f3, "黑羽主舍持續咳嗽", "health", "2026-08-30", ["咳嗽", "健康"]),
     abnormalRecord("synthetic-audit-abnormal-002", farm3, h31, f4, "飲水器流量變小", "equipment", "2026-08-29", ["飲水", "設備"]),
-    abnormalRecord("synthetic-audit-abnormal-003", farm3, h32, f5, "飲水器流量變小", "water", LOCAL_AUDIT_ANCHOR_DATE, ["飲水", "異常"]),
-    abnormalRecord("synthetic-audit-abnormal-004", farm5, h51, f7, "歷史高溫紀錄待修正", "weather_disaster", "2026-08-20", ["高溫"], { status: "corrected" }),
-    abnormalRecord("synthetic-audit-abnormal-005", farm5, h51, f7, "歷史高溫紀錄已修正", "weather_disaster", "2026-08-20", ["高溫", "修正"], { correctionOfId: "synthetic-audit-abnormal-004" }),
-    abnormalRecord("synthetic-audit-abnormal-006", farm4, h41, f6, "飼料盤測試原始訊息", "feed", "2026-08-30", ["飼料"], { status: "active" }),
-    abnormalRecord("synthetic-audit-abnormal-007", farm4, h41, f6, "飼料盤測試訊息（已反轉）", "feed", "2026-08-30", ["飼料", "反轉"], { status: "reversed", reversalOfId: "synthetic-audit-abnormal-006", reason: "本地反轉樣本。" }),
+    abnormalRecord("synthetic-audit-abnormal-003", farm3, h32, f5, "飲水器流量變小", "water", auditToday(), ["飲水", "異常"]),
+    abnormalRecord("synthetic-audit-abnormal-004", farm5, h51, f7, "歷史高溫紀錄待修正", "weather_disaster", "2026-08-27", ["高溫"], { status: "corrected" }),
+    abnormalRecord("synthetic-audit-abnormal-005", farm5, h51, f7, "歷史高溫紀錄已修正", "weather_disaster", "2026-08-27", ["高溫", "修正"], { correctionOfId: "synthetic-audit-abnormal-004" }),
+    abnormalRecord("synthetic-audit-abnormal-006", farm4, h41, f6, "飼料盤測試原始訊息", "feed", "2026-08-30", ["飼料"], { status: "reversed", reason: "本地反轉樣本。" }),
+    abnormalRecord("synthetic-audit-abnormal-007", farm4, h41, f6, "飼料盤測試訊息（已反轉）", "feed", "2026-08-30", ["飼料", "反轉"], { status: "reversal", reversalOfId: "synthetic-audit-abnormal-006", classificationStatus: "skipped", reason: "本地反轉樣本。" }),
+    abnormalRecord("synthetic-audit-abnormal-008", farm1, h11, f1, "紅羽一舍通風異常", "equipment", "2026-08-27", ["通風", "設備"]),
+    abnormalRecord("synthetic-audit-abnormal-009", farm2, h21, f3, "黑羽主舍溫度偏高", "weather_disaster", "2026-08-28", ["高溫", "環境"]),
+    abnormalRecord("synthetic-audit-abnormal-010", farm4, h41, f6, "新批飲水記錄待看", "water", "2026-08-31", ["飲水"]),
+    abnormalRecord("synthetic-audit-abnormal-011", farm5, h51, f7, "歷史舍區異常追蹤", "health", "2026-08-29", ["健康", "追蹤"]),
   ];
 
   const weather: WeatherDaily[] = [
-    { id: "synthetic-audit-weather-001", farmId: farm1.id, farmName: farm1.name, environment: farm1.environment, weatherScope: "farm", weatherDate: LOCAL_AUDIT_ANCHOR_DATE, condition: "晴時多雲", maxTemperatureC: 31.2, maxTemperatureAt: "2026-08-31T13:00:00+08:00", minTemperatureC: 25.1, minTemperatureAt: "2026-08-31T05:30:00+08:00", provider: "local-fixture", fetchStatus: "ok", errorCode: null, fetchedAt: "2026-08-31T06:00:00Z" },
-    { id: "synthetic-audit-weather-002", farmId: farm2.id, farmName: farm2.name, environment: farm2.environment, weatherScope: "farm", weatherDate: "2026-08-30", condition: "炎熱", maxTemperatureC: 33.8, maxTemperatureAt: "2026-08-30T13:00:00+08:00", minTemperatureC: 26.2, minTemperatureAt: "2026-08-30T05:30:00+08:00", provider: "local-fixture", fetchStatus: "ok", errorCode: null, fetchedAt: "2026-08-30T06:00:00Z" },
-    { id: "synthetic-audit-weather-003", farmId: farm3.id, farmName: farm3.name, environment: farm3.environment, weatherScope: "farm", weatherDate: "2026-08-29", condition: "短暫雨", maxTemperatureC: 28.7, maxTemperatureAt: "2026-08-29T12:00:00+08:00", minTemperatureC: 23.4, minTemperatureAt: "2026-08-29T05:30:00+08:00", provider: "local-fixture", fetchStatus: "ok", errorCode: null, fetchedAt: "2026-08-29T06:00:00Z" },
-    { id: "synthetic-audit-weather-004", farmId: farm4.id, farmName: farm4.name, environment: farm4.environment, weatherScope: "farm", weatherDate: LOCAL_AUDIT_ANCHOR_DATE, condition: null, maxTemperatureC: null, maxTemperatureAt: null, minTemperatureC: null, minTemperatureAt: null, provider: "local-fixture", fetchStatus: "unavailable", errorCode: "fixture_missing", fetchedAt: null },
-    { id: "synthetic-audit-weather-005", farmId: farm5.id, farmName: farm5.name, environment: farm5.environment, weatherScope: "farm", weatherDate: "2026-08-20", condition: "多雲", maxTemperatureC: 30.1, maxTemperatureAt: "2026-08-20T13:00:00+08:00", minTemperatureC: 24.5, minTemperatureAt: "2026-08-20T05:30:00+08:00", provider: "local-fixture", fetchStatus: "ok", errorCode: null, fetchedAt: "2026-08-20T06:00:00Z" },
+    { id: "synthetic-audit-weather-001", farmId: null, farmName: "本地稽核區域", environment: "production", weatherScope: "area", weatherDate: "2026-08-27", condition: "晴時多雲", maxTemperatureC: 30.2, maxTemperatureAt: "2026-08-27T13:00:00+08:00", minTemperatureC: 24.8, minTemperatureAt: "2026-08-27T05:30:00+08:00", provider: "local-fixture", fetchStatus: "captured", errorCode: null, fetchedAt: "2026-08-27T06:00:00Z" },
+    { id: "synthetic-audit-weather-002", farmId: null, farmName: "本地稽核區域", environment: "production", weatherScope: "area", weatherDate: "2026-08-28", condition: "炎熱", maxTemperatureC: 32.4, maxTemperatureAt: "2026-08-28T13:00:00+08:00", minTemperatureC: 25.6, minTemperatureAt: "2026-08-28T05:30:00+08:00", provider: "local-fixture", fetchStatus: "captured", errorCode: null, fetchedAt: "2026-08-28T06:00:00Z" },
+    { id: "synthetic-audit-weather-003", farmId: null, farmName: "本地稽核區域", environment: "production", weatherScope: "area", weatherDate: "2026-08-29", condition: "短暫雨", maxTemperatureC: 28.7, maxTemperatureAt: "2026-08-29T12:00:00+08:00", minTemperatureC: 23.4, minTemperatureAt: "2026-08-29T05:30:00+08:00", provider: "local-fixture", fetchStatus: "backfilled", errorCode: null, fetchedAt: "2026-08-30T06:00:00Z" },
+    { id: "synthetic-audit-weather-004", farmId: null, farmName: "本地稽核區域", environment: "production", weatherScope: "area", weatherDate: "2026-08-30", condition: "炎熱", maxTemperatureC: 33.8, maxTemperatureAt: "2026-08-30T13:00:00+08:00", minTemperatureC: 26.2, minTemperatureAt: "2026-08-30T05:30:00+08:00", provider: "local-fixture", fetchStatus: "captured", errorCode: null, fetchedAt: "2026-08-30T06:00:00Z" },
+    { id: "synthetic-audit-weather-005", farmId: null, farmName: "本地稽核區域", environment: "production", weatherScope: "area", weatherDate: auditToday(), condition: "晴時多雲", maxTemperatureC: 31.2, maxTemperatureAt: "2026-08-31T13:00:00+08:00", minTemperatureC: 25.1, minTemperatureAt: "2026-08-31T05:30:00+08:00", provider: "local-fixture", fetchStatus: "captured", errorCode: null, fetchedAt: "2026-08-31T06:00:00Z" },
   ];
+
+  for (const event of abnormalEvents) {
+    const snapshot = weather.find((row) => row.weatherDate === event.occurredDate);
+    event.weatherDate = snapshot?.weatherDate ?? null;
+    event.maxTemperatureC = snapshot?.maxTemperatureC ?? null;
+    event.maxTemperatureAt = snapshot?.maxTemperatureAt ?? null;
+  }
 
   const audit = [
     auditRecord("synthetic-audit-log-001", "migration", "local_fixture_loaded", "audit_environment", "synthetic-audit-org", "system", "本地固定基線", null, { farms: 5, caretakers: 6 }, ["farms", "caretakers"], 1),
@@ -420,11 +445,11 @@ function baselineState(): LocalAuditState {
   ];
 
   const finance: FinanceData = {
-    totals: { allocated: 124000, expense: 38000, net: 86000 },
+    totals: { gross: 175000, allocated: 124000, expense: 38000, net: 86000 },
     investors: [
-      { id: "synthetic-audit-investor-001", name: "稽核投資人甲", amount: 62000 },
-      { id: "synthetic-audit-investor-002", name: "稽核投資人乙", amount: 37000 },
-      { id: "synthetic-audit-investor-003", name: "稽核投資人丙", amount: 25000 },
+      { id: "synthetic-audit-investor-001", name: "稽核投資人甲", amount: 65500 },
+      { id: "synthetic-audit-investor-002", name: "稽核投資人乙", amount: 41700 },
+      { id: "synthetic-audit-investor-003", name: "稽核投資人丙", amount: 16800 },
     ],
     farms: [
       { id: farm1.id, name: farm1.name, playerGroupEquityFraction: farm1.playerGroupEquityFraction, net: 21000 },
@@ -437,18 +462,18 @@ function baselineState(): LocalAuditState {
       { id: "synthetic-audit-distribution-003", farmId: farm5.id, farmName: farm5.name, distributionDate: "2026-08-25", grossProfitLoss: 50000, allocatedProfitLoss: 49000, expense: 8000, netIncome: 41000, sourceDataset: "local-fixture" },
     ],
     allocations: [
-      { id: "synthetic-audit-allocation-001", distributionId: "synthetic-audit-distribution-001", investorName: "稽核投資人甲", amount: 33000 },
-      { id: "synthetic-audit-allocation-002", distributionId: "synthetic-audit-distribution-002", investorName: "稽核投資人乙", amount: 37000 },
-      { id: "synthetic-audit-allocation-003", distributionId: "synthetic-audit-distribution-002", investorName: "稽核投資人丙", amount: 5000 },
-      { id: "synthetic-audit-allocation-004", distributionId: "synthetic-audit-distribution-003", investorName: "稽核投資人甲", amount: 29000 },
-      { id: "synthetic-audit-allocation-005", distributionId: "synthetic-audit-distribution-003", investorName: "稽核投資人丙", amount: 20000 },
+      { id: "synthetic-audit-allocation-001", distributionId: "synthetic-audit-distribution-001", investorName: "稽核投資人甲", amount: 16500 },
+      { id: "synthetic-audit-allocation-002", distributionId: "synthetic-audit-distribution-001", investorName: "稽核投資人乙", amount: 16500 },
+      { id: "synthetic-audit-allocation-003", distributionId: "synthetic-audit-distribution-002", investorName: "稽核投資人乙", amount: 25200 },
+      { id: "synthetic-audit-allocation-004", distributionId: "synthetic-audit-distribution-002", investorName: "稽核投資人丙", amount: 16800 },
+      { id: "synthetic-audit-allocation-005", distributionId: "synthetic-audit-distribution-003", investorName: "稽核投資人甲", amount: 49000 },
     ],
     farmInvestorEquity: [
-      { id: "synthetic-audit-equity-001", farmName: farm1.name, investorName: "稽核投資人甲", equityFraction: 0.5, source: "local-fixture", effectiveDate: "2026-08-01" },
-      { id: "synthetic-audit-equity-002", farmName: farm1.name, investorName: "稽核投資人乙", equityFraction: 0.5, source: "local-fixture", effectiveDate: "2026-08-01" },
-      { id: "synthetic-audit-equity-003", farmName: farm2.name, investorName: "稽核投資人乙", equityFraction: 0.6, source: "local-fixture", effectiveDate: "2026-08-01" },
-      { id: "synthetic-audit-equity-004", farmName: farm2.name, investorName: "稽核投資人丙", equityFraction: 0.4, source: "local-fixture", effectiveDate: "2026-08-01" },
-      { id: "synthetic-audit-equity-005", farmName: farm5.name, investorName: "稽核投資人甲", equityFraction: 1, source: "local-fixture", effectiveDate: "2026-08-01" },
+      { id: "synthetic-audit-equity-001", farmName: farm1.name, investorName: "稽核投資人甲", equityFraction: 0.3, source: "local-fixture", effectiveDate: "2026-08-01" },
+      { id: "synthetic-audit-equity-002", farmName: farm1.name, investorName: "稽核投資人乙", equityFraction: 0.3, source: "local-fixture", effectiveDate: "2026-08-01" },
+      { id: "synthetic-audit-equity-003", farmName: farm2.name, investorName: "稽核投資人乙", equityFraction: 0.36, source: "local-fixture", effectiveDate: "2026-08-01" },
+      { id: "synthetic-audit-equity-004", farmName: farm2.name, investorName: "稽核投資人丙", equityFraction: 0.24, source: "local-fixture", effectiveDate: "2026-08-01" },
+      { id: "synthetic-audit-equity-005", farmName: farm5.name, investorName: "稽核投資人甲", equityFraction: 0.98, source: "local-fixture", effectiveDate: "2026-08-01" },
     ],
   };
 
@@ -483,6 +508,107 @@ export function resetLocalAuditState(): void {
 
 export function getLocalAuditStateSnapshot(): LocalAuditState {
   return copy(localState);
+}
+
+export interface FixtureGraphValidation {
+  operational: { correctionsChecked: number; reversalsChecked: number; invalidLinks: number; cycles: number; duplicateActiveReplacements: number };
+  abnormal: { correctionsChecked: number; reversalsChecked: number; invalidLinks: number; cycles: number; duplicateActiveReplacements: number };
+  pass: boolean;
+}
+
+function countCorrectionCycles<T extends { id: string; correctionOfEventId?: string | null; correctionOfId?: string | null }>(rows: T[], parentKey: "correctionOfEventId" | "correctionOfId"): number {
+  const parents = new Map(rows.map((row) => [row.id, row[parentKey] ?? null]));
+  let cycles = 0;
+  for (const row of rows) {
+    const seen = new Set<string>();
+    let cursor: string | null | undefined = row.id;
+    while (cursor) {
+      if (seen.has(cursor)) { cycles += 1; break; }
+      seen.add(cursor);
+      cursor = parents.get(cursor) ?? null;
+    }
+  }
+  return cycles;
+}
+
+export function validateFixtureGraphs(state: LocalAuditState = localState): FixtureGraphValidation {
+  const eventIds = new Set(state.events.map((event) => event.id));
+  const operationalCorrections = state.events.filter((event) => event.correctionOfEventId);
+  const operationalInvalidLinks = operationalCorrections.filter((event) => {
+    const parent = state.events.find((candidate) => candidate.id === event.correctionOfEventId);
+    return !parent || parent.id === event.id || !parent.reversedAt;
+  }).length;
+  const operationalReplacementCounts = new Map<string, number>();
+  for (const event of operationalCorrections) if (!event.reversedAt && event.correctionOfEventId) operationalReplacementCounts.set(event.correctionOfEventId, (operationalReplacementCounts.get(event.correctionOfEventId) ?? 0) + 1);
+  const operationalDuplicateReplacements = [...operationalReplacementCounts.values()].filter((count) => count > 1).length;
+  const operationalReversals = state.events.filter((event) => event.reversedAt);
+  const operationalReversalInvalid = operationalReversals.filter((event) => !event.reversedAt || !eventIds.has(event.id)).length;
+  const operational = { correctionsChecked: operationalCorrections.length, reversalsChecked: operationalReversals.length, invalidLinks: operationalInvalidLinks + operationalReversalInvalid, cycles: countCorrectionCycles(state.events, "correctionOfEventId"), duplicateActiveReplacements: operationalDuplicateReplacements };
+
+  const abnormalIds = new Set(state.abnormalEvents.map((event) => event.id));
+  const abnormalCorrections = state.abnormalEvents.filter((event) => event.correctionOfId);
+  const abnormalInvalidCorrections = abnormalCorrections.filter((event) => {
+    const parent = state.abnormalEvents.find((candidate) => candidate.id === event.correctionOfId);
+    return !parent || parent.id === event.id || parent.status !== "corrected" || event.status !== "active";
+  }).length;
+  const abnormalReplacementCounts = new Map<string, number>();
+  for (const event of abnormalCorrections) if (event.status === "active" && event.correctionOfId) abnormalReplacementCounts.set(event.correctionOfId, (abnormalReplacementCounts.get(event.correctionOfId) ?? 0) + 1);
+  const abnormalDuplicateReplacements = [...abnormalReplacementCounts.values()].filter((count) => count > 1).length;
+  const abnormalReversals = state.abnormalEvents.filter((event) => event.status === "reversal");
+  const abnormalInvalidReversals = abnormalReversals.filter((event) => !event.reversalOfId || !abnormalIds.has(event.reversalOfId) || state.abnormalEvents.find((candidate) => candidate.id === event.reversalOfId)?.status !== "reversed").length;
+  const abnormal = { correctionsChecked: abnormalCorrections.length, reversalsChecked: abnormalReversals.length, invalidLinks: abnormalInvalidCorrections + abnormalInvalidReversals, cycles: countCorrectionCycles(state.abnormalEvents, "correctionOfId"), duplicateActiveReplacements: abnormalDuplicateReplacements };
+  const pass = operational.invalidLinks === 0 && operational.cycles === 0 && operational.duplicateActiveReplacements === 0
+    && abnormal.invalidLinks === 0 && abnormal.cycles === 0 && abnormal.duplicateActiveReplacements === 0;
+  return { operational, abnormal, pass };
+}
+
+export interface FinanceInvariantValidation {
+  arithmetic: boolean;
+  domain: boolean;
+  issues: string[];
+  pass: boolean;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+export function validateSyntheticFinance(state: LocalAuditState = localState): FinanceInvariantValidation {
+  const issues: string[] = [];
+  const farms = new Map(state.farms.map((farm) => [farm.id, farm]));
+  const distributions = state.finance.distributions;
+  const allocationsByDistribution = new Map<string, Array<Record<string, unknown>>>();
+  for (const allocation of state.finance.allocations) {
+    const key = String(allocation.distributionId ?? "");
+    allocationsByDistribution.set(key, [...(allocationsByDistribution.get(key) ?? []), allocation]);
+  }
+  const equityByFarm = new Map<string, Array<Record<string, unknown>>>();
+  for (const equity of state.finance.farmInvestorEquity) {
+    const farmName = String(equity.farmName ?? "");
+    equityByFarm.set(farmName, [...(equityByFarm.get(farmName) ?? []), equity]);
+  }
+  for (const distribution of distributions) {
+    const farm = farms.get(String(distribution.farmId ?? ""));
+    const gross = Number(distribution.grossProfitLoss ?? NaN);
+    const allocated = Number(distribution.allocatedProfitLoss ?? NaN);
+    const expense = Number(distribution.expense ?? NaN);
+    const net = Number(distribution.netIncome ?? NaN);
+    const expectedAllocated = roundMoney(gross * Number(farm?.playerGroupEquityFraction ?? NaN));
+    const allocationRows = allocationsByDistribution.get(String(distribution.id ?? "")) ?? [];
+    const allocationTotal = roundMoney(allocationRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0));
+    if (!farm || !Number.isFinite(gross) || !Number.isFinite(allocated) || allocated !== expectedAllocated || roundMoney(allocated - expense) !== net || allocationTotal !== roundMoney(allocated)) issues.push(`distribution:${String(distribution.id ?? "unknown")}`);
+    const equityRows = equityByFarm.get(String(farm?.name ?? "")) ?? [];
+    const equityTotal = roundMoney(equityRows.reduce((sum, row) => sum + Number(row.equityFraction ?? 0), 0));
+    if (farm && equityTotal !== roundMoney(farm.playerGroupEquityFraction)) issues.push(`equity:${farm.id}`);
+  }
+  const distributionSums = { gross: roundMoney(distributions.reduce((sum, row) => sum + Number(row.grossProfitLoss ?? 0), 0)), allocated: roundMoney(distributions.reduce((sum, row) => sum + Number(row.allocatedProfitLoss ?? 0), 0)), expense: roundMoney(distributions.reduce((sum, row) => sum + Number(row.expense ?? 0), 0)), net: roundMoney(distributions.reduce((sum, row) => sum + Number(row.netIncome ?? 0), 0)) };
+  for (const key of ["gross", "allocated", "expense", "net"] as const) if (Number(state.finance.totals[key] ?? NaN) !== distributionSums[key]) issues.push(`total:${key}`);
+  const investorSums = new Map<string, number>();
+  for (const allocation of state.finance.allocations) { const name = String(allocation.investorName ?? ""); investorSums.set(name, roundMoney((investorSums.get(name) ?? 0) + Number(allocation.amount ?? 0))); }
+  for (const investor of state.finance.investors) if (roundMoney(Number(investor.amount ?? NaN)) !== (investorSums.get(String(investor.name ?? "")) ?? 0)) issues.push(`investor:${String(investor.id ?? "unknown")}`);
+  const arithmetic = issues.filter((issue) => issue.startsWith("distribution:") || issue.startsWith("total:")).length === 0;
+  const domain = issues.length === 0;
+  return { arithmetic, domain, issues, pass: arithmetic && domain };
 }
 
 function parseBody(init: RequestInit): Record<string, unknown> {
@@ -555,16 +681,17 @@ function flockStock(flock: Flock): number {
 }
 
 function dashboardPayload(): Record<string, unknown> {
+  const today = auditToday();
   const activeFlocks = localState.flocks.filter((flock) => flock.status === "active");
-  const todayEvents = effectiveEvents().filter((event) => event.eventDate === LOCAL_AUDIT_ANCHOR_DATE);
+  const todayEvents = effectiveEvents().filter((event) => event.eventDate === today);
   const activeFarms = localState.farms.filter((farm) => farm.active);
   const warnings = ["本地稽核模式：所有數據均為固定虛擬資料。"];
   return {
-    asOf: LOCAL_AUDIT_ANCHOR_DATE,
+    asOf: today,
     counts: { farms: activeFarms.length, productionFarms: activeFarms.filter((farm) => farm.environment === "production").length, testFarms: activeFarms.filter((farm) => farm.environment === "test").length, caretakers: localState.caretakers.filter((caretaker) => caretaker.active).length, activeFlocks: activeFlocks.length },
     stock: activeFlocks.reduce((total, flock) => total + flockStock(flock), 0),
     today: { mortality: todayEvents.filter((event) => event.intent === "mortality").reduce((sum, event) => sum + event.quantity, 0), cull: todayEvents.filter((event) => event.intent === "cull").reduce((sum, event) => sum + event.quantity, 0) },
-    upcomingShipments: activeFlocks.filter((flock) => flock.expectedShipmentDate && flock.expectedShipmentDate >= LOCAL_AUDIT_ANCHOR_DATE && daysBetween(LOCAL_AUDIT_ANCHOR_DATE, flock.expectedShipmentDate) <= 7).length,
+    upcomingShipments: activeFlocks.filter((flock) => flock.expectedShipmentDate && flock.expectedShipmentDate >= today && daysBetween(today, flock.expectedShipmentDate) <= 7).length,
     finance: { net: localState.finance.totals.net },
     dataHealth: { warnings },
   };
@@ -593,48 +720,157 @@ function pageSlice<T>(items: T[], params: URLSearchParams, defaultSize: number):
   return { items: items.slice(start, start + limit), nextCursor: start + limit < items.length ? "synthetic-cursor-1" : null };
 }
 
+type LocalChartGranularity = ChartResponse["granularity"];
+
+const LOCAL_CHART_METRICS = new Set([
+  "mortality", "mortality-cumulative", "mortality-rate", "stock", "cull", "cull-cumulative",
+  "feed", "feed-cumulative", "water", "water-cumulative", "shipment", "farm-profit", "portfolio-net", "finance",
+  "weather-max", "weather-min",
+]);
+
+function shiftAuditDate(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function auditChartBuckets(from: string, to: string, granularity: LocalChartGranularity): string[] {
+  const values: string[] = [];
+  let cursor = from;
+  if (granularity === "monthly") {
+    cursor = `${from.slice(0, 7)}-01`;
+  } else if (granularity === "weekly") {
+    const date = new Date(`${from}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+    cursor = date.toISOString().slice(0, 10);
+  }
+  while (cursor <= to && values.length < 2000) {
+    values.push(cursor);
+    if (granularity === "monthly") {
+      const date = new Date(`${cursor}T00:00:00Z`);
+      date.setUTCMonth(date.getUTCMonth() + 1, 1);
+      cursor = date.toISOString().slice(0, 10);
+    } else cursor = shiftAuditDate(cursor, granularity === "weekly" ? 7 : 1);
+  }
+  return values;
+}
+
+function auditChartBucket(date: string, granularity: LocalChartGranularity): string {
+  if (granularity === "monthly") return `${date.slice(0, 7)}-01`;
+  if (granularity === "weekly") {
+    const value = new Date(`${date}T00:00:00Z`);
+    value.setUTCDate(value.getUTCDate() - ((value.getUTCDay() + 6) % 7));
+    return value.toISOString().slice(0, 10);
+  }
+  return date;
+}
+
+function assignmentCovers(farmId: string, caretakerId: string, date: string): boolean {
+  return localState.caretakers.some((caretaker) => caretaker.assignments?.some((assignment) => assignment.farmId === farmId && assignment.isPrimary !== false && assignment.effectiveFrom <= date && (!assignment.effectiveTo || assignment.effectiveTo >= date) && caretaker.id === caretakerId));
+}
+
+function eventMatchesChartScope(event: OperationalEvent, params: URLSearchParams): boolean {
+  const environment = params.get("environment");
+  return (!params.get("farmId") || event.farmId === params.get("farmId"))
+    && (!params.get("houseId") || event.houseId === params.get("houseId"))
+    && (!params.get("flockId") || event.flockId === params.get("flockId"))
+    && (!environment || event.environment === environment)
+    && (!params.get("caretakerId") || assignmentCovers(event.farmId, params.get("caretakerId") as string, event.eventDate));
+}
+
+function flockMatchesChartScope(flock: Flock, params: URLSearchParams): boolean {
+  const farm = localState.farms.find((item) => item.id === flock.farmId);
+  const environment = params.get("environment");
+  return Boolean(farm)
+    && (!params.get("farmId") || flock.farmId === params.get("farmId"))
+    && (!params.get("houseId") || flock.houseId === params.get("houseId"))
+    && (!params.get("flockId") || flock.id === params.get("flockId"))
+    && (!environment || farm?.environment === environment)
+    && (!params.get("caretakerId") || assignmentCovers(flock.farmId, params.get("caretakerId") as string, flock.chickInDate));
+}
+
+function chartEventValues(metric: string, params: URLSearchParams, from: string, to: string, buckets: string[], granularity: LocalChartGranularity): number[] {
+  const intent = metric === "mortality-rate" ? "mortality" : metric.replace(/-cumulative$/, "");
+  const values = new Map(buckets.map((bucket) => [bucket, 0]));
+  for (const event of effectiveEvents()) {
+    if (event.eventDate < from || event.eventDate > to || event.intent !== intent || !eventMatchesChartScope(event, params)) continue;
+    const bucket = auditChartBucket(event.eventDate, granularity);
+    if (values.has(bucket)) values.set(bucket, (values.get(bucket) ?? 0) + event.quantity);
+  }
+  return buckets.map((bucket) => values.get(bucket) ?? 0);
+}
+
 function chartPayload(metric: string, params: URLSearchParams): ChartResponse {
-  const from = params.get("from") ?? "2026-08-25";
-  const to = params.get("to") ?? LOCAL_AUDIT_ANCHOR_DATE;
-  const granularity = (params.get("granularity") as ChartResponse["granularity"] | null) ?? "daily";
-  const scoped = filterScopedEvents(params);
-  const dates = ["2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28", "2026-08-29", "2026-08-30", LOCAL_AUDIT_ANCHOR_DATE].filter((date) => date >= from && date <= to);
-  const values = dates.map((date) => {
-    const dayEvents = scoped.filter((event) => event.eventDate === date && !event.reversedAt);
-    if (metric === "weather-max") return localState.weather.filter((row) => row.weatherDate === date && (!params.get("farmId") || row.farmId === params.get("farmId"))).reduce((max, row) => Math.max(max, row.maxTemperatureC ?? 0), 0);
-    if (metric === "weather-min") {
-      const values = localState.weather.filter((row) => row.weatherDate === date && (!params.get("farmId") || row.farmId === params.get("farmId"))).flatMap((row) => row.minTemperatureC === null ? [] : [row.minTemperatureC]);
-      return values.length ? Math.min(...values) : 0;
+  const from = params.get("from") ?? shiftAuditDate(auditToday(), -29);
+  const to = params.get("to") ?? auditToday();
+  if (from > to) throw localError(400, "invalid_date_range", "圖表日期範圍無效。");
+  const granularity = params.get("granularity") === "weekly" || params.get("granularity") === "monthly" ? params.get("granularity") as LocalChartGranularity : "daily";
+  const buckets = auditChartBuckets(from, to, granularity);
+  if (!LOCAL_CHART_METRICS.has(metric)) throw localError(400, "invalid_metric", "不支援的圖表指標。");
+
+  if (metric === "weather-max" || metric === "weather-min") {
+    if (params.get("farmId")) requireFarm(params.get("farmId") as string);
+    const values = new Map<string, number[]>();
+    for (const row of localState.weather) {
+      if (row.weatherScope !== "area" || !["captured", "backfilled"].includes(row.fetchStatus) || row.weatherDate < from || row.weatherDate > to) continue;
+      const temperature = metric === "weather-max" ? row.maxTemperatureC : row.minTemperatureC;
+      if (temperature === null) continue;
+      const bucket = auditChartBucket(row.weatherDate, granularity);
+      const group = values.get(bucket) ?? [];
+      group.push(temperature);
+      values.set(bucket, group);
     }
-    const intent = metric.replace(/-cumulative$/, "");
-    return dayEvents.filter((event) => event.intent === intent).reduce((sum, event) => sum + event.quantity, 0);
-  });
-  const cumulative = metric.endsWith("-cumulative");
-  const series = cumulative ? values.map((_, index) => values.slice(0, index + 1).reduce((sum, value) => sum + value, 0)) : values;
+    return { metric, from, to, granularity, unit: "°C", definition: "區域每日天氣資料的溫度平均；雞場篩選只驗證範圍，不複製區域列。", status: "ok", series: buckets.filter((bucket) => values.has(bucket)).map((bucket) => ({ date: bucket, value: Number((values.get(bucket) as number[]).reduce((sum, value) => sum + value, 0) / (values.get(bucket) as number[]).length) })), derived: true };
+  }
+
   if (metric === "stock") {
-    const scopeFlocks = localState.flocks.filter((flock) => flock.status === "active" && (!params.get("farmId") || flock.farmId === params.get("farmId")) && (!params.get("houseId") || flock.houseId === params.get("houseId")) && (!params.get("flockId") || flock.id === params.get("flockId")));
-    const stock = scopeFlocks.reduce((sum, flock) => sum + flockStock(flock), 0);
-    return { metric, from, to, granularity, unit: "隻", definition: "本地虛擬批次的目前存欄。", status: scopeFlocks.length ? "ok" : "insufficient-data", series: dates.map((date) => ({ date, value: stock })), denominator: stock, derived: true };
+    const scopedFlocks = localState.flocks.filter((flock) => flock.status !== "cancelled" && flock.chickInDate <= to && flockMatchesChartScope(flock, params));
+    const scopedEvents = effectiveEvents().filter((event) => event.eventDate <= to && ["mortality", "cull", "shipment"].includes(event.intent) && eventMatchesChartScope(event, params));
+    const series = buckets.map((bucket) => {
+      const initial = scopedFlocks.filter((flock) => flock.chickInDate <= bucket).reduce((sum, flock) => sum + flock.initialCount, 0);
+      const removed = scopedEvents.filter((event) => event.eventDate <= bucket).reduce((sum, event) => sum + event.quantity, 0);
+      return { date: bucket, value: initial - removed };
+    });
+    return { metric, from, to, granularity, unit: "隻", definition: "批次初始數量減去有效的死亡、淘汰、出雞紀錄；已出雞批次仍納入歷史日期。", status: "ok", series, denominator: series.length ? series[series.length - 1].value : 0, derived: true };
   }
+
   if (metric === "mortality-rate") {
-    const denominator = localState.flocks.filter((flock) => flock.status === "active" && (!params.get("farmId") || flock.farmId === params.get("farmId"))).reduce((sum, flock) => sum + flock.initialCount, 0);
-    return { metric, from, to, granularity, unit: "%", definition: "本地虛擬資料的死亡數除以初始數量。", status: denominator ? "ok" : "insufficient-data", series: denominator ? dates.map((date, index) => ({ date, value: Number((((series[index] ?? 0) / denominator) * 100).toFixed(3)) })) : [], denominator, derived: true };
+    const denominator = localState.flocks.filter((flock) => flock.status !== "cancelled" && flock.chickInDate <= to && flockMatchesChartScope(flock, params)).reduce((sum, flock) => sum + flock.initialCount, 0);
+    const mortality = chartEventValues(metric, params, from, to, buckets, granularity);
+    return denominator ? { metric, from, to, granularity, unit: "%", definition: "死亡數除以該範圍批次初始數量。", status: "ok", series: mortality.map((value, index) => ({ date: buckets[index], value: value / denominator * 100 })), denominator, derived: true } : { metric, from, to, granularity, unit: "%", definition: "死亡數除以該範圍批次初始數量；缺少分母時不顯示。", status: "insufficient-data", series: [], denominator: 0, derived: true };
   }
-  if (metric === "farm-profit" || metric === "portfolio-net") {
-    const value = metric === "farm-profit" ? Number(localState.finance.farms.find((farm) => farm.id === params.get("farmId"))?.net ?? 0) : localState.finance.totals.net;
-    return { metric, from, to, granularity, unit: "NT$", definition: "本地虛擬財務快照；不連正式資料。", status: metric === "farm-profit" && !params.get("farmId") ? "insufficient-data" : "ok", series: metric === "farm-profit" && !params.get("farmId") ? [] : dates.map((date) => ({ date, value })), derived: true };
+
+  const financeMetric = metric === "finance" ? "portfolio-net" : metric;
+  if (financeMetric === "farm-profit" || financeMetric === "portfolio-net") {
+    const farmId = params.get("farmId");
+    if (financeMetric === "farm-profit" && !farmId) throw localError(400, "farm_required", "各場盈虧趨勢需要指定雞場。");
+    const values = new Map(buckets.map((bucket) => [bucket, 0]));
+    for (const row of localState.finance.distributions) {
+      const farm = localState.farms.find((item) => item.id === row.farmId);
+      if (!farm || farm.environment !== "production" || (params.get("environment") === "test") || (farmId && row.farmId !== farmId)) continue;
+      const date = String(row.distributionDate ?? "");
+      if (date < from || date > to) continue;
+      const bucket = auditChartBucket(date, granularity);
+      if (values.has(bucket)) values.set(bucket, (values.get(bucket) ?? 0) + Number(row.netIncome ?? 0));
+    }
+    return { metric, from, to, granularity, unit: "元", definition: financeMetric === "farm-profit" ? "Production 指定雞場 profit_distributions.net_income。" : "Production 全 portfolio profit_distributions.net_income。", status: "ok", series: buckets.map((date) => ({ date, value: values.get(date) ?? 0 })), derived: true };
   }
-  const unit = metric === "feed" || metric === "feed-cumulative" ? "kg" : metric === "water" || metric === "water-cumulative" ? "L" : metric === "weather-max" || metric === "weather-min" ? "°C" : "隻";
-  return { metric, from, to, granularity, unit, definition: `本地虛擬資料的${metric}趨勢。`, status: scoped.length || metric.startsWith("weather") ? "ok" : "insufficient-data", series: scoped.length || metric.startsWith("weather") ? dates.map((date, index) => ({ date, value: series[index] ?? 0 })) : [], derived: false };
+
+  const values = chartEventValues(metric, params, from, to, buckets, granularity);
+  const cumulative = metric.endsWith("-cumulative");
+  let running = 0;
+  const series = values.map((value, index) => ({ date: buckets[index], value: cumulative ? (running += value) : value }));
+  const unit = metric === "feed" || metric === "feed-cumulative" ? "kg" : metric === "water" || metric === "water-cumulative" ? "L" : "隻";
+  return { metric, from, to, granularity, unit, definition: `依${granularity === "daily" ? "日" : granularity === "weekly" ? "週" : "月"}整理的有效${metric}數量。`, status: "ok", series, derived: cumulative };
 }
 
 function timelinePayload(params: URLSearchParams): TimelineItem[] {
   const eventRows = filterScopedEvents(params).map((event): TimelineItem => {
-    const weather = localState.weather.find((row) => row.farmId === event.farmId && row.weatherDate === event.eventDate);
+    const weather = localState.weather.find((row) => row.weatherScope === "area" && row.weatherDate === event.eventDate);
     return { id: event.id, itemType: "operational", farmId: event.farmId, farmName: event.farmName, environment: event.environment, houseId: event.houseId, houseName: event.house, flockId: event.flockId, occurredDate: event.eventDate, sortAt: event.createdAt, eventType: event.intent, quantity: event.quantity, unit: event.unit, rawText: event.note, status: event.reversedAt ? "reversed" : "active", weatherCondition: weather?.condition ?? null, maxTemperatureC: weather?.maxTemperatureC ?? null, maxTemperatureAt: weather?.maxTemperatureAt ?? null, minTemperatureC: weather?.minTemperatureC ?? null, minTemperatureAt: weather?.minTemperatureAt ?? null, weatherStatus: weather?.fetchStatus ?? null };
   });
   const abnormalRows = filterScopedAbnormal(params).map((event): TimelineItem => {
-    const weather = localState.weather.find((row) => row.farmId === event.farmId && row.weatherDate === event.occurredDate);
+    const weather = localState.weather.find((row) => row.weatherScope === "area" && row.weatherDate === event.occurredDate);
     return { id: event.id, itemType: "abnormal", farmId: event.farmId, farmName: event.farmName, environment: event.environment, houseId: event.houseId, houseName: event.houseName, flockId: event.flockId, occurredDate: event.occurredDate, sortAt: event.createdAt, eventType: event.category, quantity: null, unit: null, rawText: event.rawText, status: event.status, weatherCondition: weather?.condition ?? null, maxTemperatureC: weather?.maxTemperatureC ?? null, maxTemperatureAt: weather?.maxTemperatureAt ?? null, minTemperatureC: weather?.minTemperatureC ?? null, minTemperatureAt: weather?.minTemperatureAt ?? null, weatherStatus: weather?.fetchStatus ?? null };
   });
   return [...eventRows, ...abnormalRows].sort((a, b) => b.sortAt.localeCompare(a.sortAt));
@@ -661,7 +897,7 @@ function testToolsPayload(): TestToolsData {
 }
 
 function technicalInfoPayload(): TechnicalInfo {
-  return { service: "local-audit-memory-adapter", accountName: "本地稽核虛擬帳號", conversationMode: "local_synthetic", conversationModel: LOCAL_AUDIT_MODEL, ambientModel: LOCAL_AUDIT_MODEL, queue: { name: "memory-only", batchSize: 10, timeoutSeconds: 0, maxRetries: 0 }, schedules: ["固定錨點：2026-08-31"], migration: "local-baseline", secretsIncluded: false, rawPayloadIncluded: false, note: "本地稽核模式不連 Worker、D1、LINE、Queue 或 Workers AI；資料只存在目前分頁記憶體。" };
+  return { service: "local-audit-memory-adapter", accountName: "本地稽核虛擬帳號", conversationMode: "local_synthetic", conversationModel: LOCAL_AUDIT_MODEL, ambientModel: LOCAL_AUDIT_MODEL, queue: { name: "memory-only", batchSize: 10, timeoutSeconds: 0, maxRetries: 0 }, schedules: [`固定錨點：${auditToday()}`], migration: "local-baseline", secretsIncluded: false, rawPayloadIncluded: false, note: "本地稽核模式不連 Worker、D1、LINE、Queue 或 Workers AI；資料只存在目前分頁記憶體。" };
 }
 
 function parsePath(path: string): { pathname: string; params: URLSearchParams; parts: string[] } {
@@ -717,7 +953,7 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
     if (parts.length === 4 && parts[3] === "caretakers" && method === "POST") {
       const farm = requireFarm(id);
       const caretaker = requireCaretaker(String(body.caretakerId ?? ""));
-      const effectiveFrom = typeof body.effectiveFrom === "string" ? body.effectiveFrom : LOCAL_AUDIT_ANCHOR_DATE;
+      const effectiveFrom = typeof body.effectiveFrom === "string" ? body.effectiveFrom : auditToday();
       const isPrimary = body.isPrimary === true;
       updateCaretakerAssignments();
       if (isPrimary) {
@@ -834,7 +1070,7 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
       const flock = body.flockId ? requireFlock(String(body.flockId)) : null;
       const quantity = Number(body.quantity);
       if (!Number.isFinite(quantity) || quantity <= 0 || typeof body.intent !== "string") throw localError(400, "local_audit_invalid_operational_event", "本地稽核營運事件欄位不足。");
-      const event: OperationalEvent = { id: nextLocalId("event"), farmId: farm.id, farmName: farm.name, environment: farm.environment, source: "local_audit", houseId: house?.id ?? null, house: house?.name ?? null, flockId: flock?.id ?? null, intent: body.intent, quantity, unit: typeof body.unit === "string" ? body.unit : "隻", eventDate: typeof body.eventDate === "string" ? body.eventDate : LOCAL_AUDIT_ANCHOR_DATE, note: typeof body.note === "string" ? body.note : null, reversedAt: null, reversalReason: null, sourceEventId: `synthetic-source-${nextLocalId("source")}`, createdAt: timestamp(localState.sequence) };
+      const event: OperationalEvent = { id: nextLocalId("event"), farmId: farm.id, farmName: farm.name, environment: farm.environment, source: "local_audit", houseId: house?.id ?? null, house: house?.name ?? null, flockId: flock?.id ?? null, intent: body.intent, quantity, unit: typeof body.unit === "string" ? body.unit : "隻", eventDate: typeof body.eventDate === "string" ? body.eventDate : auditToday(), note: typeof body.note === "string" ? body.note : null, reversedAt: null, reversalReason: null, sourceEventId: `synthetic-source-${nextLocalId("source")}`, createdAt: timestamp(localState.sequence) };
       localState.events.unshift(event);
       addAudit("operational_event_created", "operational_event", event.id, "本地稽核建立營運事件", null, { intent: event.intent, quantity: event.quantity, farmId: event.farmId }, ["intent", "quantity", "farmId"]);
       return copy({ event }) as T;
@@ -848,11 +1084,16 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
     if (parts.length === 4 && parts[3] === "correct" && method === "POST") {
       const original = localState.events.find((item) => item.id === id);
       if (!original) throw localError(404, "local_audit_event_not_found", "本地稽核資料找不到這筆營運事件。");
+      if (original.reversedAt) throw localError(409, "already_reversed", "本地稽核原事件已反轉，不能重複修正。");
       const quantity = Number(body.quantity);
       if (!Number.isFinite(quantity) || quantity <= 0) throw localError(400, "local_audit_invalid_correction", "本地稽核修正數量必須大於 0。");
+      original.reversedAt = timestamp(localState.sequence);
+      original.reversalReason = typeof body.reason === "string" ? body.reason : "本地稽核修正先反轉原事件";
       const correction = { ...original, id: nextLocalId("event"), quantity, correctionOfEventId: original.id, sourceEventId: `synthetic-source-${nextLocalId("source")}`, createdAt: timestamp(localState.sequence), note: typeof body.note === "string" ? body.note : original.note };
+      correction.reversedAt = null;
+      correction.reversalReason = null;
       localState.events.unshift(correction);
-      addAudit("operational_event_corrected", "operational_event", correction.id, typeof body.reason === "string" ? body.reason : "本地稽核修正", { quantity: original.quantity }, { quantity: correction.quantity, correctionOfEventId: original.id }, ["quantity", "correctionOfEventId"]);
+      addAudit("operational_event_corrected", "operational_event", correction.id, typeof body.reason === "string" ? body.reason : "本地稽核修正", { quantity: original.quantity, reversedAt: null }, { quantity: correction.quantity, correctionOfEventId: original.id, originalReversed: true }, ["quantity", "correctionOfEventId", "originalReversed"]);
       return copy({ ok: true, changed: true, message: "本地虛擬事件已建立修正鏈。", correctionEventId: correction.id, originalEventId: original.id }) as T;
     }
   }
@@ -878,7 +1119,7 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
       const flock = body.flockId ? requireFlock(String(body.flockId)) : localState.flocks.find((item) => item.farmId === farm.id) ?? null;
       const rawText = typeof body.rawText === "string" ? body.rawText.trim() : "";
       if (!rawText) throw localError(400, "local_audit_invalid_abnormal_event", "本地稽核異常內容不可為空白。");
-      const event = abnormalRecord(nextLocalId("abnormal"), farm, house ?? houseRecord(nextLocalId("house"), farm, "場級", null), flock ?? flockRecord(nextLocalId("flock"), farm, house ?? houseRecord(nextLocalId("house"), farm, "場級", null), "AUDIT-SCOPE", LOCAL_AUDIT_ANCHOR_DATE, 0, null, "active"), rawText, "other", LOCAL_AUDIT_ANCHOR_DATE, ["待分類"]);
+      const event = abnormalRecord(nextLocalId("abnormal"), farm, house ?? houseRecord(nextLocalId("house"), farm, "場級", null), flock ?? flockRecord(nextLocalId("flock"), farm, house ?? houseRecord(nextLocalId("house"), farm, "場級", null), "AUDIT-SCOPE", auditToday(), 0, null, "active"), rawText, "other", auditToday(), ["待分類"]);
       localState.abnormalEvents.unshift(event);
       addAudit("abnormal_created", "abnormal_event", event.id, "本地稽核建立異常", null, { rawText: event.rawText, farmId: event.farmId }, ["rawText", "farmId"]);
       return copy({ created: true, id: event.id, rawText: event.rawText }) as T;
@@ -886,9 +1127,14 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
     if (parts.length === 4 && parts[3] === "reverse" && method === "POST") {
       const event = localState.abnormalEvents.find((item) => item.id === id);
       if (!event) throw localError(404, "local_audit_abnormal_not_found", "本地稽核資料找不到這筆異常。");
-      event.status = "reversed"; event.reversalOfId = event.id; event.reason = typeof body.reason === "string" ? body.reason : null;
-      addAudit("abnormal_reversed", "abnormal_event", event.id, event.reason ?? "本地稽核反轉異常", { status: "active" }, { status: event.status }, ["status", "reason"]);
-      return copy({ ok: true, changed: true, message: "本地虛擬異常已反轉。" }) as T;
+      if (event.status !== "active") throw localError(409, "already_inactive", "本地稽核異常已修正或反轉。");
+      const reason = typeof body.reason === "string" ? body.reason : null;
+      event.status = "reversed";
+      event.reason = reason;
+      const reversal = { ...event, id: nextLocalId("abnormal"), status: "reversal", reversalOfId: event.id, correctionOfId: null, classificationStatus: "skipped", reason, createdAt: timestamp(localState.sequence) };
+      localState.abnormalEvents.unshift(reversal);
+      addAudit("abnormal_reversed", "abnormal_event", event.id, reason ?? "本地稽核反轉異常", { status: "active" }, { status: event.status, reversalId: reversal.id }, ["status", "reason"]);
+      return copy({ ok: true, changed: true, message: "本地虛擬異常已反轉。", reversalId: reversal.id }) as T;
     }
     if (parts.length === 4 && parts[3] === "correct" && method === "POST") {
       const original = localState.abnormalEvents.find((item) => item.id === id);
@@ -906,7 +1152,8 @@ export async function localAuditRequest<T>(path: string, init: RequestInit = {})
   if (pathname === "/api/weather" && method === "GET") {
     const from = params.get("from");
     const to = params.get("to");
-    return copy({ weather: localState.weather.filter((row) => (!params.get("farmId") || row.farmId === params.get("farmId")) && (!from || row.weatherDate >= from) && (!to || row.weatherDate <= to)) }) as T;
+    if (params.get("farmId")) requireFarm(params.get("farmId") as string);
+    return copy({ weather: localState.weather.filter((row) => row.weatherScope === "area" && ["captured", "backfilled"].includes(row.fetchStatus) && (!from || row.weatherDate >= from) && (!to || row.weatherDate <= to)) }) as T;
   }
   if (pathname === "/api/timeline" && method === "GET") {
     const page = pageSlice(timelinePayload(params), params, 100);

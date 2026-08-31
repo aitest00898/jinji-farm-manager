@@ -55,8 +55,8 @@ describe("mobile navigation information architecture", () => {
 });
 
 describe("Web management safety contract", () => {
-  it("uses the existing Worker API by default", () => {
-    expect(API_BASE).toBe("https://chicken-line-production.jinji-assistant.workers.dev");
+  it("does not embed a remote production API in the audit build", () => {
+    expect(API_BASE).toBe("");
   });
   it("does not put an admin password or token in the public API base", () => {
     expect(API_BASE).not.toMatch(/FARM_ADMIN_PASSWORD_HASH|Bearer/iu);

@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { NAV_ITEMS } from "../src/navigation";
 
+// LOCAL_ADAPTER_E2E: exercises the in-memory audit adapter; it must not contact a remote origin.
 const LOCAL_URL = "./?audit=local#/dashboard";
+const LOCAL_ORIGIN = `http://127.0.0.1:${process.env.AUDIT_PORT ?? "5173"}`;
 
 async function loginLocal(
   page: import("@playwright/test").Page,
@@ -24,14 +26,14 @@ test.describe("local external audit environment", () => {
     const pageErrors: string[] = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
-      if (["http:", "https:"].includes(url.protocol) && url.origin !== "http://127.0.0.1:5173") externalRequests.push(request.url());
+      if (["http:", "https:"].includes(url.protocol) && url.origin !== LOCAL_ORIGIN) externalRequests.push(request.url());
     });
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await loginLocal(page);
     await expect(page.locator(".local-audit-banner")).toHaveText("本地稽核模式 / 100% 虛擬資料 / 不連正式環境");
     await expect(page.locator(".top-actions")).toContainText("本地稽核");
     await expect(page.locator(".farm-row")).toHaveCount(5);
-    await expect(page.locator("body")).not.toContainText("chicken-line-production.jinji-assistant.workers.dev");
+    await expect(page.locator("body")).not.toContainText("https://");
     await expect(externalRequests).toEqual([]);
     expect(pageErrors).toEqual([]);
   });
@@ -40,7 +42,7 @@ test.describe("local external audit environment", () => {
     const externalRequests: string[] = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
-      if (["http:", "https:"].includes(url.protocol) && url.origin !== "http://127.0.0.1:5173") externalRequests.push(request.url());
+      if (["http:", "https:"].includes(url.protocol) && url.origin !== LOCAL_ORIGIN) externalRequests.push(request.url());
     });
     for (const item of NAV_ITEMS) {
       await loginLocal(page, `#/${item.key}`, item.label);

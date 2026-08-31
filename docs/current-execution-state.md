@@ -14,6 +14,28 @@ This section is the authoritative current summary for a new Codex session.
 The dated sections below are preserved evidence snapshots and historical gate
 records; they do not override this section or authorize new work.
 
+## Current audit-only parity work (2026-08-31)
+
+This branch contains a disposable external-audit repair only. It is not the
+Production source of truth and is not a deployment request.
+
+```text
+AUDIT_ENVIRONMENT_CONTRACT_PARITY = L2_REPAIR_IN_PROGRESS
+AUDIT_REPAIR_SCOPE = SYNTHETIC_MEMORY_ONLY_WEB_MIRROR
+LOCAL_SEMANTIC_OPERATION_DENOMINATOR = 33
+PRODUCTION_RUNTIME_EXERCISE = NOT_DONE
+PRODUCTION_DATA_CHANGED = NO
+WORKER_OR_PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_SOURCE_EDITED = NO
+MAIN_CHANGE_REQUESTED = NO
+```
+
+The audit-only changes mirror the source-read chart, correction/reversal,
+weather/time, finance-fixture, and reliability contracts, while retaining
+strict synthetic-data and no-remote-request boundaries. The operation
+inventory, parity report, and export scanner are audit artifacts; they do not
+create a new Gate or authorize Production work.
+
 ```text
 REPOSITORY = aitest00898/jinji-farm-manager
 MAIN_HANDOFF_ALIGNED_AT_REVIEW_START = YES

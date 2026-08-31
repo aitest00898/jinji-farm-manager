@@ -1,0 +1,30 @@
+{
+  "input": { "maxFileSize": 1500000 },
+  "output": {
+    "filePath": ".audit-output/02-local-adapter.xml",
+    "style": "xml",
+    "filePathStyle": "target-relative",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "showLineNumbers": true,
+    "truncateBase64": true
+  },
+  "include": [
+    "src/local-audit.ts",
+    "src/api.ts",
+    "src/local-audit.test.ts",
+    "docs/operation-inventory.md",
+    "docs/production-contract-parity.md",
+    "docs/external-local-audit.md"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": false,
+    "customPatterns": [".audit-output/**", "**/node_modules/**", "**/dist/**", "**/.env*"]
+  },
+  "security": { "enableSecurityCheck": true },
+  "tokenCount": { "encoding": "o200k_base" }
+}

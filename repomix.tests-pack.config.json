@@ -1,0 +1,36 @@
+{
+  "input": { "maxFileSize": 1500000 },
+  "output": {
+    "filePath": ".audit-output/03-tests-and-contracts.xml",
+    "style": "xml",
+    "filePathStyle": "target-relative",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "showLineNumbers": true,
+    "truncateBase64": true
+  },
+  "include": [
+    "tests/**",
+    "src/App.test.tsx",
+    "src/local-audit.test.ts",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "docs/operation-inventory.md",
+    "docs/production-contract-parity.md",
+    "scripts/audit-security-scan.mjs"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": false,
+    "customPatterns": [".audit-output/**", "**/node_modules/**", "**/dist/**", "**/.env*"]
+  },
+  "security": { "enableSecurityCheck": true },
+  "tokenCount": { "encoding": "o200k_base" }
+}
