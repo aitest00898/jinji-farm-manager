@@ -81,11 +81,21 @@ async function installMockApi(page: Page): Promise<MockState> {
   return state;
 }
 
-async function login(page: Page) {
-  await page.goto("./");
+async function submitLogin(page: Page, expectedHeading = "總覽") {
   await page.getByLabel("管理密碼").fill("test-only-fixture");
   await page.getByRole("button", { name: "登入管理中心" }).click();
-  await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: expectedHeading, exact: true })).toBeVisible();
+}
+
+async function login(page: Page) {
+  await page.goto("./");
+  await submitLogin(page);
+}
+
+async function ensureAuthenticatedRoute(page: Page, heading: string) {
+  const loginButton = page.getByRole("button", { name: "登入管理中心" });
+  if (await loginButton.isVisible()) await submitLogin(page, heading);
+  else await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
 }
 
 async function openDrawer(page: Page) {
@@ -118,6 +128,33 @@ async function fakeSwipe(page: Page, options: { startX?: number; startY: number;
 async function expectNoBodyOverflow(page: Page) {
   const dimensions = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(dimensions.width).toBeLessThanOrEqual(dimensions.client);
+}
+
+type BrowserErrorCapture = { consoleErrors: string[]; pageErrors: string[]; unhandledRejections: string[] };
+
+async function installBrowserErrorCapture(page: Page): Promise<BrowserErrorCapture> {
+  const errors: BrowserErrorCapture = { consoleErrors: [], pageErrors: [], unhandledRejections: [] };
+  await page.addInitScript(() => {
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event.reason instanceof Error ? event.reason.message : String(event.reason);
+      console.error(`[playwright-unhandled-rejection] ${reason}`);
+    });
+  });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const messageText = message.text();
+    const marker = "[playwright-unhandled-rejection] ";
+    if (messageText.startsWith(marker)) errors.unhandledRejections.push(messageText.slice(marker.length));
+    else errors.consoleErrors.push(messageText);
+  });
+  page.on("pageerror", (error) => errors.pageErrors.push(error.message));
+  return errors;
+}
+
+async function expectNoBrowserErrors(errors: BrowserErrorCapture) {
+  expect(errors.consoleErrors).toEqual([]);
+  expect(errors.pageErrors).toEqual([]);
+  expect(errors.unhandledRejections).toEqual([]);
 }
 
 test.describe("mobile navigation information architecture", () => {
@@ -187,6 +224,88 @@ test.describe("mobile navigation information architecture", () => {
     await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
     await expect(page.locator(".route-context")).toContainText("金雞測試場");
     await expect(page.locator(".farm-card")).toHaveCount(1);
+  });
+
+  test("direct routes and contextual hashes survive reload without browser errors", async ({ page }) => {
+    const errors = await installBrowserErrorCapture(page);
+    const directRoutes = [
+      { hash: "#/dashboard", heading: "總覽" },
+      { hash: "#/farms", heading: "雞場" },
+      { hash: "#/flocks", heading: "批次" },
+      { hash: "#/events", heading: "營運紀錄" },
+      { hash: "#/finance", heading: "財務" },
+      { hash: "#/audit", heading: "變更紀錄" },
+      { hash: "#/system", heading: "系統狀態" },
+    ];
+
+    for (const route of directRoutes) {
+      await page.goto(`./${route.hash}`);
+      await expect(page).toHaveURL(new RegExp(`${route.hash}$`));
+      await ensureAuthenticatedRoute(page, route.heading);
+      await expect(page.locator(".topbar h1")).toHaveText(route.heading);
+      await page.reload();
+      await expect(page).toHaveURL(new RegExp(`${route.hash}$`));
+      await ensureAuthenticatedRoute(page, route.heading);
+      await expect(page).toHaveURL(new RegExp(`${route.hash}$`));
+      await expect(page.locator(".topbar h1")).toHaveText(route.heading);
+    }
+
+    await page.goto("./#/farms?farmId=test-farm");
+    await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
+    await ensureAuthenticatedRoute(page, "雞場");
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await page.reload();
+    await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
+    await ensureAuthenticatedRoute(page, "雞場");
+    await expect(page).toHaveURL(/#\/farms\?farmId=test-farm$/);
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+
+    await page.goto("./#/events?farmId=test-farm&intent=mortality");
+    await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
+    await ensureAuthenticatedRoute(page, "營運紀錄");
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".mobile-card").last()).toContainText("死亡");
+    await page.reload();
+    await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
+    await ensureAuthenticatedRoute(page, "營運紀錄");
+    await expect(page).toHaveURL(/#\/events\?farmId=test-farm&intent=mortality$/);
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await expect(page.locator(".mobile-card").last()).toContainText("死亡");
+
+    await page.goto("./#/flocks?farmId=test-farm");
+    await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
+    await ensureAuthenticatedRoute(page, "批次");
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+    await page.reload();
+    await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
+    await ensureAuthenticatedRoute(page, "批次");
+    await expect(page).toHaveURL(/#\/flocks\?farmId=test-farm$/);
+    await expect(page.locator(".route-context")).toContainText("金雞測試場");
+
+    await page.goto("./#/farms?farmId=missing-farm");
+    await expect(page).toHaveURL(/#\/farms\?farmId=missing-farm$/);
+    await ensureAuthenticatedRoute(page, "雞場");
+    await expect(page.getByRole("heading", { name: "雞場", exact: true })).toBeVisible();
+    await expect(page.locator(".farm-card")).toHaveCount(1);
+    await page.reload();
+    await expect(page).toHaveURL(/#\/farms\?farmId=missing-farm$/);
+    await ensureAuthenticatedRoute(page, "雞場");
+    await expect(page).toHaveURL(/#\/farms\?farmId=missing-farm$/);
+    await expect(page.getByRole("heading", { name: "雞場", exact: true })).toBeVisible();
+    await expect(page.locator(".farm-card")).toHaveCount(1);
+
+    await page.goto("./#/dashboard");
+    await ensureAuthenticatedRoute(page, "總覽");
+    await page.getByRole("button", { name: "查看目前存欄", exact: true }).click();
+    await expect(page).toHaveURL(/#\/flocks$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/#\/dashboard$/);
+    await expect(page.locator(".topbar h1")).toHaveText("總覽");
+    await page.goForward();
+    await expect(page).toHaveURL(/#\/flocks$/);
+    await expect(page.locator(".topbar h1")).toHaveText("批次");
+
+    await expectNoBrowserErrors(errors);
   });
 
   test("boundary swipe changes pages while normal, slow, horizontal, input, and chart gestures remain safe", async ({ page }) => {

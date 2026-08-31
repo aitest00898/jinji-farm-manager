@@ -169,9 +169,15 @@ retest decision.
   finance, farm rows, shipment reminders, and active flock rows now lead to
   semantic destinations with optional hash-query context. Existing bare routes
   continue to work, and context can be cleared without changing data.
-- `WEB_IA_VERIFICATION = UNIT_14_PASS; TYPECHECK_PASS; BUILD_PASS; CHROMIUM_E2E_23_PASS; IPHONE_WEBKIT_E2E_23_PASS`.
-  The verification used mock/local data only. No Worker, Pages, D1, Queue,
-  LINE, Cron, or Workers AI operation was performed.
+- `WEB_IA_VERIFICATION = UNIT_14_PASS; TYPECHECK_PASS; BUILD_PASS; CHROMIUM_E2E_24_PASS; IPHONE_WEBKIT_E2E_24_PASS; DIRECT_URL_REFRESH_PASS; CONTEXT_QUERY_REFRESH_PASS; BACK_FORWARD_NAVIGATION_PASS; CONSOLE_ERRORS_0; PAGE_ERRORS_0; UNHANDLED_REJECTIONS_0`.
+  The added route/reload regression used mock/local data only and covers the
+  seven primary direct hashes, three contextual query hashes, invalid-query
+  fail-safe behavior, and browser history. No Worker, Pages, D1, Queue, LINE,
+  Cron, or Workers AI operation was performed.
+- `WEB_IA_LOCAL_PREVIEW = HTTP_200; VIEWPORT_390X844_CHECK = PASS; PRIMARY_NAV_COUNT = 12; SECONDARY_CONTEXT_LINKS = REACHABLE; BROWSER_ERROR_LOG = EMPTY`.
+  The Codex in-app browser preview remains local-only; no Pages or Worker
+  deployment was performed. Subjective human ratings were not recorded after
+  the user delegated the navigation walkthrough.
 - `BACKEND_BUSINESS_LOGIC_CHANGED = NO`; the Query B farm-resolution source
   fix and its tests remain present and unchanged, ready for a separately
   authorized future deployment/retest. `NEW_CRON_FORENSIC = NO`.
