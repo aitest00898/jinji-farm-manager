@@ -17,8 +17,8 @@ records; they do not override this section or authorize new work.
 ```text
 REPOSITORY = aitest00898/jinji-farm-manager
 MAIN_HANDOFF_ALIGNED = YES
-MAIN_HEAD = bce64da9f7fa90e46f2d83200912059898aa9a31
-HANDOFF_HEAD = bce64da9f7fa90e46f2d83200912059898aa9a31
+MAIN_HEAD = 82b197be7162526f8b1336ede552c860e6653c21
+HANDOFF_HEAD = 82b197be7162526f8b1336ede552c860e6653c21
 
 PRODUCTION_WORKER = b0e6ba83-6841-4849-b8d6-cd10b2d6d8f6
 HEALTH = PASS; current read-only HTTP 200
@@ -54,26 +54,27 @@ PAGES_SOURCE_OF_TRUTH_CONVERGENCE = COMPLETE
 
 ### Current open items — not proven Production blockers
 
-- `LINE_CARETAKER_MASTER_FLOW = READY_FOR_L3_ACCEPTANCE (PLAN_A)`: the L1
-  read-only preflight found the existing test farm `金雞測試場` active with
-  zero caretakers, zero current primary caretakers, zero assignments, and
-  zero caretaker history. A separate human-approved L3 run may use this farm
-  with one explicitly temporary caretaker; no L3 mutation occurred here.
-  Existing Web paths are admin-protected: create
-  `POST /api/caretakers`, assign `POST /api/farms/:farmId/caretakers` with
-  `isPrimary=true`, and archive `PATCH /api/caretakers/:id` with
-  `active=false`. There is no separate unassign, assignment-end, or restore
-  endpoint. Archiving suppresses the caretaker from normal LINE relationship
-  queries through the active filter, but the assignment row and
-  create/assign/archive Audit history remain. Business-effective state is
-  restorable for this zero-primary baseline; exact historical state is not.
-  This permanent test history requires explicit L3 acceptance.
-  The deterministic caretaker-to-farms and farm-to-caretakers routing tests
-  pass; the targeted local regression set passed 27/27 tests across five
-  existing files. `/health` and `/ready` returned HTTP 200, and all remote
-  D1 reads reported `rows_written=0`. The caretaker-to-farms query remains
-  read-only but does not filter assignment effective dates; there is no
-  current impact because this test farm has no assignments.
+- `LINE_CARETAKER_MASTER_FLOW = FAIL_BOUNDED_AFTER_PLAN_A_CLEANUP`: the
+  human-approved Plan A run created one temporary caretaker, assigned it as
+  primary to the test farm, and then archived it. Web and D1 evidence shows
+  `active=0`, one retained assignment row, and the complete create/assign/archive
+  Audit history. The active caretaker relationship count is now zero, so the
+  archived caretaker is excluded by the normal LINE relationship filters; the
+  assignment row remains permanently because there is no unassign/end/restore
+  API. The pre-mutation zero-primary business view is restored for active
+  relationship queries, but exact historical state is not restored.
+  Query A (caretaker to farms) returned `金雞測試場`. Query B (farm to
+  caretakers) was sent with `@AI` but no valid reply was evidenced; two extra
+  no-mention messages also appeared in the user-supplied screenshot. Four
+  real LINE user messages were therefore observed in total, not the planned
+  two. No third LINE query was sent. Therefore the strict two-query real-LINE
+  acceptance is bounded FAIL, not PASS. Query-time D1 counts for operational,
+  abnormal, finance, and technical LINE tables were unchanged (61, 8, 12,
+  2, 1, 0 respectively). Post-cleanup read-only baselines remain 8 active
+  production farms, 1 active test farm, 1 active flock, stock 963, today
+  mortality 0, and production finance net 429338.6. The caretaker and
+  assignment Web paths remain admin-protected and the deterministic local
+  routing tests remain passed.
 - `REAL_GROUP_OPERATION_STRESS = CURRENT_OPEN`: no dedicated bounded stress
   acceptance artifact is recorded after the completed normal LINE/Web flow.
   This is confidence work and is not by itself a reason to block ordinary
@@ -113,10 +114,10 @@ below, but are no longer current classifications:
 
 ```text
 PRIORITY_1 = LINE_CARETAKER_MASTER_FLOW
-PRIORITY_1_REASON = Only remaining clearly user-facing master/setup journey without recorded end-to-end acceptance
+PRIORITY_1_REASON = Plan A cleanup is complete, but the exact farm-to-caretaker LINE response remains unproven and needs a separately bounded decision
 PRIORITY_2 = REAL_GROUP_OPERATION_STRESS
 PRIORITY_3 = OPERATIONAL_TEST_DATA_SCOPE_REVIEW
-NEXT_RECOMMENDED_TASK = BOUNDED_REAL_ACCEPTANCE_OF_EXISTING_LINE_CARETAKER_AND_MASTER_DATA_FLOW
+NEXT_RECOMMENDED_TASK = DECIDE_Whether_to_OPEN_A_BOUNDED_QUERY_B_DIAGNOSTIC; DO_NOT_SEND_A_THIRD_QUERY
 ```
 
 These priorities describe decision-ready follow-up, not a new Gate. No V2
