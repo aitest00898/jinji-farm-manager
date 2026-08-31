@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 test-results/
+.audit-output/
 
 # Backend dependencies and Cloudflare generated state.
 /backend/node_modules/

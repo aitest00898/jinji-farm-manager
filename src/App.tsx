@@ -26,6 +26,7 @@ import {
   type TimelineItem,
   type WeatherDaily,
 } from "./api";
+import { isLocalAuditMode } from "./local-audit";
 import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, type NavIconName, type NavKey } from "./navigation";
 
 export { NAV_GROUPS, NAV_ITEMS } from "./navigation";
@@ -262,6 +263,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
 }
 
 function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
+  const localAudit = isLocalAuditMode();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -279,10 +281,10 @@ function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
       setBusy(false);
     }
   }
-  return <main className="login-shell"><section className="login-card">
+  return <main className="login-shell">{localAudit && <div className="local-audit-banner" role="status">本地稽核模式 / 100% 虛擬資料 / 不連正式環境</div>}<section className="login-card">
     <div className="brand-mark">🐔</div><p className="eyebrow">金雞協會助理Ai</p><h1>雞場管理中心</h1>
-    <p className="muted">使用現有管理密碼登入。密碼只送往 Worker 驗證，不會保存在瀏覽器。</p>
-    <form onSubmit={submit}><label>管理密碼<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary full" disabled={busy || !password}>{busy ? "驗證中…" : "登入管理中心"}</button></form>
+    <p className="muted">{localAudit ? "本地稽核登入：只接受虛擬密碼；不會連線或驗證正式環境。" : "使用現有管理密碼登入。密碼只送往 Worker 驗證，不會保存在瀏覽器。"}</p>
+    <form onSubmit={submit}><label>{localAudit ? "本地稽核密碼" : "管理密碼"}<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary full" disabled={busy || !password}>{busy ? "驗證中…" : localAudit ? "登入本地稽核環境" : "登入管理中心"}</button></form>
     {error && <p className="error-text" role="alert">{error}</p>}
   </section></main>;
 }
@@ -329,6 +331,7 @@ function SimpleChart({ chart }: { chart: ChartResponse | null }) {
 }
 
 export default function App() {
+  const localAudit = isLocalAuditMode();
   const [authenticated, setAuthenticated] = useState(false);
   const [route, setRoute] = useState<RouteLocation>(routeFromHash);
   const page = route.page;
@@ -487,7 +490,7 @@ export default function App() {
   }
 
   if (!authenticated) return <Login onLogin={login} />;
-  return <div className="app-shell">
+  return <div className="app-shell">{localAudit && <div className="local-audit-banner" role="status">本地稽核模式 / 100% 虛擬資料 / 不連正式環境</div>}
     {drawerOpen && <button className="drawer-backdrop" aria-label="關閉導覽選單" onClick={() => setDrawerOpen(false)} />}
     <aside ref={sidebarRef} className={`sidebar ${drawerOpen ? "drawer-open" : ""}`} id="primary-navigation" aria-label="管理中心導覽">
       <div className="brand"><span>🐔</span><div><strong>金雞協會助理Ai</strong><small>農場管理中心</small></div><button className="drawer-close icon-button" aria-label="關閉導覽選單" onClick={() => setDrawerOpen(false)}>×</button></div>
@@ -500,10 +503,10 @@ export default function App() {
           </button>)}</div>
         </div>)}
       </nav>
-      <div className="sidebar-foot"><span>共用正式 D1</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
+      <div className="sidebar-foot"><span>{localAudit ? "100% 虛擬資料" : "共用正式 D1"}</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
     </aside>
     <main className="content" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
+      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">{localAudit ? "本地稽核" : "Worker 線上"}</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
       {routeScope && <div className="route-context" role="status"><span>{routeScope}</span><button type="button" className="text-button" onClick={() => navigateTo(page)}>{contextFarm ? "清除雞場篩選" : "清除篩選"}</button></div>}
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}
@@ -802,7 +805,8 @@ function AnalysisReportView({ result }: { result: AnalysisResult | null }) {
 }
 
 function AiView({ result, question, setQuestion, busy, onAsk }: { result: AnalysisResult | null; question: string; setQuestion: (value: string) => void; busy: boolean; onAsk: () => void }) {
-  return <section className="page"><div className="panel ai-workspace"><div className="ai-workspace-heading"><div><p className="eyebrow">AI 營運助理</p><h2>詢答與分析</h2></div><span className="pill">唯讀</span></div><p className="muted">只讀取已驗證的營運、異常、天氣與財務摘要；固定查詢仍直接由 D1 回答。</p><div className="ai-question-block"><strong>快速提問</strong><span className="muted">點一下帶入問題，不會直接送出。</span><div className="quick-prompts">{["這一批最近有哪些異常？", "哪一場最近需要注意？", "異常發生時的天氣有什麼共同點？"].map((prompt) => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div><form className="ai-question-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}><label>請輸入問題<textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：最近哪一場最需要注意？" /></label><button className="primary full" disabled={busy || !question.trim()}>{busy ? "分析中…" : "開始分析"}</button></form><div className="ai-result-block"><strong>分析結果</strong><AnalysisReportView result={result} /></div></div></section>;
+  const localAudit = isLocalAuditMode();
+  return <section className="page"><div className="panel ai-workspace"><div className="ai-workspace-heading"><div><p className="eyebrow">AI 營運助理</p><h2>詢答與分析</h2></div><span className="pill">唯讀</span></div><p className="muted">{localAudit ? "模擬分析結果：使用固定虛擬資料，不呼叫 Workers AI。" : "只讀取已驗證的營運、異常、天氣與財務摘要；固定查詢仍直接由 D1 回答。"}</p><div className="ai-question-block"><strong>快速提問</strong><span className="muted">點一下帶入問題，不會直接送出。</span><div className="quick-prompts">{["這一批最近有哪些異常？", "哪一場最近需要注意？", "異常發生時的天氣有什麼共同點？"].map((prompt) => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div></div><form className="ai-question-form" onSubmit={(event) => { event.preventDefault(); onAsk(); }}><label>請輸入問題<textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：最近哪一場最需要注意？" /></label><button className="primary full" disabled={busy || !question.trim()}>{busy ? "分析中…" : "開始分析"}</button></form><div className="ai-result-block"><strong>{localAudit ? "模擬分析結果" : "分析結果"}</strong><AnalysisReportView result={result} /></div></div></section>;
 }
 
 function OrganizationView({ organization, farms }: { organization: { id: string; name: string; active: boolean } | null; farms: Farm[] }) { return <section className="page"><div className="panel"><PanelTitle title="協會與投資組合" />{organization ? <><div className="setting-row"><span>名稱</span><strong>{organization.name}</strong></div><div className="setting-row technical-row"><span>組織識別碼</span><code>{organization.id}</code></div><div className="setting-row"><span>狀態</span><StatusPill tone={organization.active ? "good" : "neutral"}>{organization.active ? "啟用" : "停用"}</StatusPill></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個（含測試雞場）</strong></div><p className="notice">LINE 群組綁定協會投資組合；同一群組可管理多個雞場，營運事件再由雞場、雞舍與批次定位。</p></> : <EmptyState detail="尚未取得協會投資組合資料，請重新整理後再試。" />}</div></section>; }
@@ -868,6 +872,6 @@ function LineGroupsView({ groups, onToggle }: { groups: LineGroup[]; onToggle: (
   </section>;
 }
 
-function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>金雞協會助理Ai / @550rsdwc</strong></div><div className="setting-row"><span>後端服務</span><strong>chicken-line-production</strong></div><div className="setting-row"><span>資料庫</span><strong>共用正式資料</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>@cf/meta/llama-3.2-3b-instruct</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>需要到 LINE Developers 網頁確認</strong></div><div className="notice">目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。編修會沿用目前登入狀態，並保留完整變更紀錄供查閱。</div></div></section>; }
+function SettingsView({ farms, organization }: { farms: Farm[]; organization: { id: string; name: string; active: boolean } | null }) { const localAudit = isLocalAuditMode(); return <section className="page"><div className="panel settings"><PanelTitle title="系統設定" /><div className="setting-row"><span>LINE 助理</span><strong>{localAudit ? "本地稽核虛擬助理" : "金雞協會助理Ai / @550rsdwc"}</strong></div><div className="setting-row"><span>後端服務</span><strong>{localAudit ? "local-audit-memory-adapter" : "chicken-line-production"}</strong></div><div className="setting-row"><span>資料庫</span><strong>{localAudit ? "記憶體虛擬資料（重新載入即重置）" : "共用正式資料"}</strong></div><div className="setting-row technical-row"><span>AI 模型</span><strong>{localAudit ? "synthetic-audit-fixture" : "@cf/meta/llama-3.2-3b-instruct"}</strong></div><div className="setting-row"><span>協會組織</span><strong>{organization?.name ?? "—"}</strong></div><div className="setting-row"><span>雞場範圍</span><strong>{farms.length} 個雞場（含測試）</strong></div><div className="setting-row"><span>LINE 訊息重送</span><strong>{localAudit ? "本地模式不連 LINE" : "需要到 LINE Developers 網頁確認"}</strong></div><div className="notice">{localAudit ? "這是 100% 虛擬資料；本地操作只存在目前分頁記憶體，不會寫入正式環境。" : "目前程式沒有可驗證的人工重送設定結果，也不會自行猜測或修改外部設定。編修會沿用目前登入狀態，並保留完整變更紀錄供查閱。"}</div></div></section>; }
 
 function EquityView({ finance }: { finance: FinanceData | null }) { if (!finance) return <Loading />; return <section className="page"><div className="panel"><PanelTitle title="投資人與雞場持股" /><p className="muted">顯示正式雞場的實際投資人持股；測試雞場不納入股權與財務歷史。</p>{finance.farmInvestorEquity.length ? <DataTable className="dense-table" headers={["雞場", "投資人", "實際持股", "來源", "生效日"]}>{finance.farmInvestorEquity.map((row) => <tr key={String(row.id)}><td>{String(row.farmName)}</td><td>{String(row.investorName)}</td><td>{(Number(row.equityFraction) * 100).toFixed(4)}%</td><td>{String(row.source ?? "—")}</td><td>{String(row.effectiveDate ?? "—")}</td></tr>)}</DataTable> : <EmptyState detail="目前沒有投資人持股資料。" />}</div></section>; }

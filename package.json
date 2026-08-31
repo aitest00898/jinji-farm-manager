@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "audit:local": "VITE_LOCAL_AUDIT_MODE=1 vite --host 127.0.0.1",
+    "audit:scan": "node scripts/audit-security-scan.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",

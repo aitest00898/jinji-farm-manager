@@ -1,0 +1,64 @@
+{
+  "$schema": "https://repomix.com/schemas/repomix-schema.json",
+  "input": {
+    "maxFileSize": 1500000
+  },
+  "output": {
+    "filePath": ".audit-output/web-ux-audit.xml",
+    "style": "xml",
+    "filePathStyle": "target-relative",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "files": true,
+    "showLineNumbers": true,
+    "truncateBase64": true,
+    "topFilesLength": 15
+  },
+  "include": [
+    "AGENTS.md",
+    "README.md",
+    ".gitignore",
+    "package.json",
+    "package-lock.json",
+    "index.html",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "src/**",
+    "tests/**",
+    "public/**",
+    ".github/workflows/pages.yml",
+    "docs/external-local-audit.md",
+    "scripts/audit-security-scan.mjs",
+    "repomix.audit.config.json",
+    "repomix.web-ux.config.json"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDotIgnore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      ".git/**",
+      "backend/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/coverage/**",
+      "**/test-results/**",
+      "**/playwright-report/**",
+      "**/.wrangler/**",
+      "**/.env*",
+      "**/.dev.secrets.local*",
+      "**/.dev.vars*",
+      ".audit-output/**",
+      "repomix-output.*"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  },
+  "tokenCount": {
+    "encoding": "o200k_base"
+  }
+}

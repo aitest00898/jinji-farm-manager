@@ -19,6 +19,10 @@
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+.local-audit-banner { position: sticky; top: 0; z-index: 60; width: 100%; padding: 9px 16px; background: #264b3c; color: #f3fff7; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .04em; box-shadow: 0 2px 8px #1e332822; }
+.login-shell > .local-audit-banner { position: fixed; inset: 0 0 auto; }
+.login-shell:has(> .local-audit-banner) { padding-top: 48px; }
+
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--canvas); }
 body { margin: 0; min-width: 320px; overflow-x: hidden; background: var(--canvas); }

@@ -182,6 +182,41 @@ retest decision.
   fix and its tests remain present and unchanged, ready for a separately
   authorized future deployment/retest. `NEW_CRON_FORENSIC = NO`.
 
+## 2026-08-31 Local external audit candidate (current L2 work)
+
+- `LOCAL_EXTERNAL_AUDIT_BRANCH = external-audit-local-2026-08-31`, based on
+  the reviewed `main` tip `aa675c9f7b69b5f8f601f8faa0181a30af0e97dd`.
+  This work is intentionally not on `main`, is not a Pages release, and has
+  no Worker or Production deployment.
+- `LOCAL_AUDIT_MODE = IMPLEMENTED`: the existing Web App, components, route
+  tree, and `ApiClient` contract are reused; `?audit=local` or the explicitly
+  named `npm run audit:local` command selects a deterministic in-memory
+  adapter. The mode has a hard same-origin network guard and does not fall
+  back to the Production Worker, D1, LINE, Queue, Cloudflare API, or Workers
+  AI. Its banner is `本地稽核模式 / 100% 虛擬資料 / 不連正式環境`.
+- `LOCAL_SYNTHETIC_BASELINE = 5 farms / 9 houses / 8 flocks / 6 active
+  caretakers / 23 operational events / 4 reliability rows`: all identifiers,
+  names, events, finance, caretaker relationships, pending/reliability rows,
+  and AI output are synthetic. The fixed data anchor is `2026-08-31`; local
+  writes update memory and prepend Audit rows only, and reload/restart restores
+  baseline.
+- `LOCAL_AUDIT_VERIFICATION = PASS`: 18 Vitest tests, TypeScript check, Vite
+  build, 54 Playwright tests across Chromium and WebKit (including every 24
+  route key and 390x844 mobile coverage), and the bounded security scan all
+  passed. The local browser suite observed zero external HTTP(S) requests,
+  zero browser errors, and verified stateful mutation plus reload reset.
+- `LOCAL_EXPORT_PREPARATION = READY`: `repomix.audit.config.json` and
+  `repomix.web-ux.config.json` both generated ignored `.audit-output`
+  packages. `npm run audit:scan` reported `SECRET_SCAN=PASS`,
+  `PRODUCTION_IDENTIFIER_SCAN=PASS`, `LARGE_FILE_SCAN=PASS`,
+  `BINARY_SCAN=PASS`, and `SAFE_FOR_REPOMIX=YES`. The practical handoff
+  instructions are in `docs/external-local-audit.md`.
+- This package is capable of source, architecture, Web/UX, local functional,
+  business-flow, and static-security review only. It does not prove
+  Production runtime, real LINE, Cloudflare, remote D1, Queue, Cron, or real
+  Workers AI behavior. The existing `QUERY_B_DEPLOYED = NO` and
+  `REAL_LINE_CARETAKER_MASTER_FLOW = FAIL_BOUNDED` states are unchanged.
+
 ## Historical status snapshot — 2026-08-29 (preserved; not current state)
 
 ### DONE

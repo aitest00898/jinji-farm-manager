@@ -1,3 +1,5 @@
+import { isLocalAuditMode, localAuditRequest } from "./local-audit";
+
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)
   ?? "https://chicken-line-production.jinji-assistant.workers.dev";
 
@@ -55,7 +57,7 @@ export interface Flock { id: string; farmId: string; houseId: string; batchCode:
 export interface CaretakerAssignment { id?: string; farmId: string; farmName: string; effectiveFrom: string; effectiveTo: string | null; isPrimary: boolean }
 export interface Caretaker { id: string; name: string; active: boolean; note: string | null; version: number; assignments?: CaretakerAssignment[] }
 export interface Dashboard { asOf: string; counts: { farms: number; productionFarms: number; testFarms: number; caretakers: number; activeFlocks: number }; stock: number; today: Record<string, number>; upcomingShipments: number; finance: { net: number }; dataHealth: { warnings: string[] } }
-export interface OperationalEvent { id: string; farmId: string; farmName: string; environment: string; houseId: string | null; house: string | null; flockId: string | null; intent: string; quantity: number; unit: string; eventDate: string; note: string | null; reversedAt: string | null; reversalReason: string | null; reversalOfEventId?: string | null; correctionOfEventId?: string | null; sourceEventId: string; createdAt: string }
+export interface OperationalEvent { id: string; farmId: string; farmName: string; environment: string; houseId: string | null; house: string | null; flockId: string | null; intent: string; quantity: number; unit: string; eventDate: string; note: string | null; reversedAt: string | null; reversalReason: string | null; reversalOfEventId?: string | null; correctionOfEventId?: string | null; source?: string; sourceEventId: string; createdAt: string }
 export interface ChartPoint { date: string; value: number }
 export interface ChartResponse { metric: string; from: string; to: string; granularity: "daily" | "weekly" | "monthly"; unit: string; definition: string; status: "ok" | "insufficient-data"; series: ChartPoint[]; denominator?: number; derived?: boolean }
 export interface AbnormalEvent { id: string; farmId: string; farmName: string; environment: string; houseId: string | null; houseName: string | null; flockId: string | null; occurredAt: string | null; occurredDate: string; approximatePeriod: string | null; reportedAt: string; rawText: string; source: string; category: string | null; tags: string[]; confidence: number | null; classificationStatus: string; weatherDate: string | null; maxTemperatureC?: number | null; maxTemperatureAt?: string | null; status: string; correctionOfId: string | null; reversalOfId: string | null; reason: string | null; createdAt: string }
@@ -233,6 +235,7 @@ export class ApiClient {
   setToken(token: string | null): void { this.token = token; }
   hasToken(): boolean { return Boolean(this.token); }
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    if (isLocalAuditMode()) return localAuditRequest<T>(path, init);
     const headers = new Headers(init.headers);
     headers.set("content-type", "application/json");
     if (this.token) headers.set("authorization", `Bearer ${this.token}`);
