@@ -26,8 +26,8 @@ describe("local external audit fixture", () => {
     expect([...state.farms, ...state.houses, ...state.flocks, ...state.caretakers].every((item) => item.id.startsWith("synthetic-audit-"))).toBe(true);
     const serialized = JSON.stringify(state);
     expect(serialized).not.toContain("workers.dev");
-    expect(serialized).not.toContain("金雞測試場");
-    expect(serialized).not.toContain("TEST-BATCH-001");
+    expect(serialized).not.toContain("remote-production-farm-marker");
+    expect(serialized).not.toContain("remote-production-batch-marker");
   });
 
   it("keeps stock and finance arithmetic deterministic at the fixed anchor", () => {
