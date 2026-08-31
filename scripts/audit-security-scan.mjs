@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ignoredSegments = new Set([".git", "node_modules", "dist", "coverage", "test-results", "playwright-report", ".wrangler", ".vite", ".audit-output"]);
-const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com"]);
+const allowedRemoteHosts = new Set(["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "github.com", "githubusercontent.com", "opencollective.com"]);
 const maxFileSize = 1_500_000;
 
 function ignored(path) {
