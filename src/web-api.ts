@@ -31,7 +31,6 @@ import { handlePhaseApi } from "./phase-api";
 import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
-  LINE_EVENT_RECOVERY_CRON,
   markRetainedLineEventManuallyRecorded,
   manuallyRecoverLineEvent,
   manuallyRecoverLineEvents,
@@ -1682,7 +1681,7 @@ async function technicalInfo(request: Request, env: WebApiEnv, session: SessionR
     conversationModel: env.CONVERSATION_MODEL ?? PRODUCTION_AI_MODEL,
     ambientModel: PRODUCTION_AI_MODEL,
     queue: { name: "chicken-line-events", batchSize: 10, timeoutSeconds: 0, maxRetries: 3 },
-    schedules: [AMBIENT_DIGEST_CRON, dailyReviewCronExpression(), LINE_EVENT_RECOVERY_CRON],
+    schedules: [AMBIENT_DIGEST_CRON, dailyReviewCronExpression()],
     migration: "0031_conversation_v2_group_rollout_observability.sql",
     secretsIncluded: false,
     rawPayloadIncluded: false,

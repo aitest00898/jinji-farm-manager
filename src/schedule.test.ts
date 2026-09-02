@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AMBIENT_DIGEST_CRON, dailyReviewCronExpression, scheduledJobForCron } from "./daily-review";
-import { LINE_EVENT_RECOVERY_CRON } from "./reliability";
 
 const TAIPEI = "Asia/Taipei";
 const AMBIENT_HOURS = [6, 9, 12, 15, 18];
@@ -38,13 +37,13 @@ function sevenDates(startDate: string): string[] {
 }
 
 describe("Production scheduled trigger contract", () => {
-  it("keeps the three intended triggers and no weather trigger", () => {
+  it("keeps only the two active product triggers and no recovery trigger", () => {
     const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as { triggers: { crons: string[] } };
-    expect(wrangler.triggers.crons).toEqual([AMBIENT_DIGEST_CRON, dailyReviewCronExpression(), LINE_EVENT_RECOVERY_CRON]);
-    expect(wrangler.triggers.crons).toHaveLength(3);
+    expect(wrangler.triggers.crons).toEqual([AMBIENT_DIGEST_CRON, dailyReviewCronExpression()]);
+    expect(wrangler.triggers.crons).toHaveLength(2);
+    expect(wrangler.triggers.crons).not.toContain("*/2 * * * *");
     expect(scheduledJobForCron(AMBIENT_DIGEST_CRON)).toBe("ambient_digest");
     expect(scheduledJobForCron(dailyReviewCronExpression())).toBe("daily_review");
-    expect(scheduledJobForCron(LINE_EVENT_RECOVERY_CRON)).toBe("recovery");
     expect(scheduledJobForCron("0 6 * * *")).toBe("unknown");
   });
 
@@ -70,7 +69,7 @@ describe("Production scheduled trigger contract", () => {
     expect(scheduledJobForCron("0 13 * * *")).toBe("daily_review");
   });
 
-  it("keeps the local-time boundaries closed and recovery isolated", () => {
+  it("keeps the local-time boundaries closed", () => {
     const localDate = "2026-08-22";
     const ambientInstants = new Set(AMBIENT_HOURS.map((hour) => taipeiDateAtUtc(localDate, hour).toISOString()));
     const reviewInstant = taipeiDateAtUtc(localDate, 21).toISOString();
@@ -87,6 +86,5 @@ describe("Production scheduled trigger contract", () => {
     expect(reviewInstant).not.toBe(at(20, 59));
     expect(reviewInstant).not.toBe(at(21, 1));
     expect(scheduledJobForCron("0 2 * * *")).toBe("unknown");
-    expect(scheduledJobForCron(LINE_EVENT_RECOVERY_CRON)).toBe("recovery");
   });
 });

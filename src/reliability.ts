@@ -1309,11 +1309,12 @@ export async function redactExpiredLineEventPayloads(env: ReliabilityDbEnv, now 
         AND payload_json <> '{"redacted":true}'
         AND lifecycle_status NOT IN ('received', 'queued', 'processing', 'reply_pending', 'retry_waiting')`,
   ).bind(nowIsoValue).run();
-  await env.DB.prepare(
+  const replyResult = await env.DB.prepare(
     `UPDATE line_events
         SET reply_payload_json = NULL
       WHERE payload_expires_at IS NOT NULL AND julianday(payload_expires_at) <= julianday(?)
-        AND lifecycle_status IN ('reply_completed', 'retained')`,
+        AND lifecycle_status IN ('reply_completed', 'retained')
+        AND reply_payload_json IS NOT NULL`,
   ).bind(nowIsoValue).run();
   const redisplay = await env.DB.prepare(
     `UPDATE line_events
@@ -1323,7 +1324,10 @@ export async function redactExpiredLineEventPayloads(env: ReliabilityDbEnv, now 
         AND julianday(redisplay_expires_at) <= julianday(?)
         AND reply_outcome = 'uncertain'`,
   ).bind(nowIsoValue).run();
-  return changedCount + Number(result.meta.changes ?? 0) + Number(redisplay.meta.changes ?? 0);
+  return changedCount
+    + Number(result.meta.changes ?? 0)
+    + Number(replyResult.meta.changes ?? 0)
+    + Number(redisplay.meta.changes ?? 0);
 }
 
 export async function getReliabilityStatus(

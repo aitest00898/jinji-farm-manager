@@ -293,6 +293,22 @@ describe("LINE reliability lifecycle and fault recovery", () => {
     expect(recovery.scanned).toBe(0);
   });
 
+  it("does not rewrite an already cleared reply payload on repeated expiry cleanup", async () => {
+    const db = new MemoryD1();
+    const source = event("fault-idempotent-cleanup");
+    await ensureLineEventReceipt(env(db), source, "2035-01-01T00:00:00.000Z");
+    db.exec(`UPDATE line_events
+       SET lifecycle_status='retained',
+           payload_json='{"redacted":true}',
+           reply_payload_json='reply',
+           retained_until='2035-01-08T00:00:00.000Z',
+           payload_expires_at='2035-01-01T00:00:01.000Z'
+       WHERE event_id='fault-idempotent-cleanup'`);
+    const now = new Date("2035-01-02T00:00:00.000Z");
+    expect(await redactExpiredLineEventPayloads(env(db), now)).toBe(1);
+    expect(await redactExpiredLineEventPayloads(env(db), now)).toBe(0);
+  });
+
   it("moves an unfinished event to retained metadata when its raw payload expires", async () => {
     const db = new MemoryD1();
     const source = event("fault-expired-active");

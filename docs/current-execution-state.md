@@ -2063,3 +2063,26 @@ traffic, D1 data, Candidate, Prompt, schema, model, or Ground Truth was changed
 by this observation. The zero automation-action counters above do not prove the
 unobserved live run had zero side effects; live-run counters remain explicitly
 unknown. No rollback condition was source-backed, so rollback was not run.
+
+## Two-minute automatic recovery schedule cancellation — 2026-09-02
+
+The Production configuration now registers only the Ambient Digest and Daily
+Review triggers. The high-frequency `*/2 * * * *` automatic recovery trigger
+was removed after the Cloudflare D1 usage review identified repeated scheduled
+cleanup writes as the dominant source of the daily `rows_written` overage.
+The existing manual Web/LINE recovery functions remain available. The tested
+configuration and idempotence guard were deployed to the Production Worker;
+the new version has 100% traffic and the live Worker reports healthy and ready.
+
+```text
+ACTIVE_CONFIGURED_CRONS = 0 1,4,7,10,22 * * * ; 0 13 * * *
+REMOVED_CRON = */2 * * * *
+AUTOMATIC_RECOVERY = DISABLED_IN_SOURCE_CONFIG
+MANUAL_RECOVERY = PRESERVED
+PRODUCTION_DEPLOYMENT = COMPLETED
+DEPLOYED_VERSION_ID = 9742faa8-dfbe-4b1e-9af1-1c81ed35b594
+LIVE_CRON_TRIGGERS = 2
+LIVE_HEALTH = HTTP_200
+LIVE_READY = HTTP_200
+PRODUCTION_DATA_CHANGED = NO
+```

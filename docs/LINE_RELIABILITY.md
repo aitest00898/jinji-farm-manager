@@ -90,7 +90,7 @@ flowchart LR
 | 業務／回覆分離 | `markBusinessCompleted()`, `markReplyAttempted()`, `markReplyCompleted()` | 先保存回覆 payload，再送 LINE；回覆失敗不重做業務 |
 | Consumer retry | `src/index.ts` `queue()` | 失敗事件依階段記錄，未達上限 `message.retry()`，已保留則 ack，避免 Queue 無限重播 |
 | Watchdog | `src/reliability.ts` `recoverStalledLineEvents()` | 每次少量找出卡住事件，使用 recovery lease 後逐筆重新排入 Queue |
-| Cron routing | `src/daily-review.ts` `scheduledJobForCron()`; `src/index.ts` `executeScheduledJob()` | `*/2 * * * *` 只進 recovery branch；不會跑 Ambient、Weather 或 Daily Review |
+| Cron routing | `src/daily-review.ts` `scheduledJobForCron()`; `src/index.ts` `executeScheduledJob()` | Production 已取消 `*/2 * * * *` 自動 recovery trigger；手動 recovery 仍走既有管理流程 |
 | 手動恢復 | `src/web-api.ts` `recoverUnfinished()`; `src/reliability.ts` `manuallyRecoverLineEvents()` | 既有登入／管理權限後，只重排仍有 payload 且尚無 durable success 的事件 |
 | 系統狀態 | `src/reliability.ts` `getReliabilityStatus()` / `formatReliabilityStatusForLine()` | 對 Web 與管理者 LINE 顯示正常、較慢或需要處理 |
 | Readiness | `src/index.ts` `/ready` | 同時檢查 D1、卡住事件與保留事件；失敗回 HTTP 503；`/health` 只表示 Worker 活著 |
@@ -205,7 +205,7 @@ LINE 的 `系統狀態` 是第二入口，需先有現有管理者 session；Web
 
 - Conversation V2 model 沒有更換；目前仍由 `CONVERSATION_MODEL` 使用 `@cf/meta/llama-3.2-3b-instruct`。
 - Ambient model、Finance、Weather、Quick Record 五分鐘規則與 Queue `max_batch_timeout=0` 沒有改動。
-- Hourly Ambient、Daily Review 的既有 cron 保留；恢復是額外的 `*/2 * * * *` branch。
+- Hourly Ambient、Daily Review 的既有 cron 保留；兩分鐘自動 recovery cron 已取消，手動恢復流程保留。
 - 不會用 Production 建立 synthetic official event；正式資料的既有 idempotency、Resolver、Validator、Business Logic、Audit 仍是唯一寫入邊界。
 
 ## 11. 已知 residual risk
@@ -277,9 +277,8 @@ LINE 的「系統狀態」是輔助入口；LINE 本身異常時，Web 才是主
 |---|---|---|---|
 | `0 1,4,7,10,22 * * *` | 每天 09:00、12:00、15:00、18:00、06:00 | Ambient 整理 | 只在有新的可處理資訊時推送；不重送既有未完成資料 |
 | `0 13 * * *` | 每天 21:00 | 今日營運總覽 | 依台灣當日 00:00–21:00；待確認資料另列；無人回覆不修改資料 |
-| `*/2 * * * *` | 每 2 分鐘 | 訊息恢復 | 只處理可靠性狀態，不跑 Ambient、Weather 或 Daily Review |
 
-原本的每小時 Ambient 與 20:30 Review 排程已不再註冊。Weather 保留互動查詢，但不再由排程執行。這三條排程彼此是獨立 branch，避免把維運恢復誤跑成營運整理或日結。
+原本的每小時 Ambient 與 20:30 Review 排程已不再註冊。2026-09-02 起，兩分鐘自動 recovery trigger 也不再註冊；手動 recovery 仍可由已驗證的管理流程執行。Weather 保留互動查詢，但不再由排程執行。歷史部署證據如下，保留原始三條排程紀錄，不代表目前設定。
 
 ## 15. Final closeout deployment evidence
 
