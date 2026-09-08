@@ -26,6 +26,8 @@ WEB_START_HEAD = 39d31e7ae9fdcdb163231b25534b0978e88c62aa
 WEB_FINAL_HEAD = fb05acdc0bbfe80ae7a0013d079b6d4ec63b4251
 PRODUCTION_BRANCH = feat/full-recording-taxonomy-foundation
 PRODUCTION_START_HEAD = 740bc870c2e6dedf13565663c93d3d688b0a77ec
+PRODUCTION_GITHUB_REPOSITORY = aitest00898/jinji-farm-manager
+PRODUCTION_GITHUB_BRANCH = feat/full-recording-taxonomy-foundation
 ```
 
 The canonical snapshot is identical between the Production TypeScript
@@ -52,10 +54,11 @@ execution. This was an execution-environment adjustment, not a Production
 database privilege change. Production D1 was neither read nor written.
 
 Targeted tests, Web/Production parity, TypeScript checks, and both repositories'
-full local regression suites passed. The Web feature branch was pushed to its
-existing GitHub remote; the Production branch has no remote and remains a
-local commit only. Existing untracked audit/export artifacts were preserved
-and were not staged.
+full local regression suites passed. Both feature branches are now synchronized
+to their intended GitHub repositories: the Web Lab branch remains in its
+existing remote, and the Production branch is pushed to
+`aitest00898/jinji-farm-manager`. Existing untracked audit/export artifacts
+were preserved and were not staged.
 
 ```text
 CONTRACT_SCHEMA_TYPE_PARITY = PASS
