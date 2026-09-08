@@ -4,6 +4,7 @@ import {
   deriveRecordingFields,
   normalizeRecordingDraft,
   parseCanonicalRecordingText,
+  recordingTaxonomyContractSnapshot,
   resolveTaipeiDate,
   stockEffectForRecord,
   taxonomyDefinitionFor,
@@ -91,6 +92,12 @@ describe("recording taxonomy foundation", () => {
     expect(() => validateRecordingDraft(draft({ taxonomyId: "O9", quantity: 1.5 }))).toThrow("RECORDING_INTEGER_INVALID:quantity");
     expect(() => validateRecordingDraft(draft({ taxonomyId: "O9", quantity: -1 }))).toThrow("RECORDING_NUMBER_INVALID:quantity");
     expect(() => validateRecordingDraft(draft({ taxonomyId: "O9", quantity: 5, totalCount: 5 }))).toThrow("RECORDING_UNSUPPORTED_FIELD:totalCount");
+    expect(() => validateRecordingDraft(draft({ taxonomyId: "O9", workflowStatus: "pending" }))).toThrow("RECORDING_UNSUPPORTED_FIELD:workflowStatus");
+    expect(() => validateRecordingDraft(draft({
+      taxonomyId: "O4", family: "operational_event", type: "event", subtype: "weigh",
+      quantity: undefined, houseId: "house-test", flockId: "flock-test", averageWeight: 1.8, sex: "mixed",
+      chickInDate: "2026-09-01", ageDays: 6,
+    }))).toThrow("RECORDING_DERIVED_FIELD_MISMATCH:ageDays");
     expect(() => validateRecordingDraft(draft({
       taxonomyId: "A12",
       family: "operational_observation",
@@ -107,7 +114,7 @@ describe("recording taxonomy foundation", () => {
       quantity: undefined,
       submittedAt: timestamp,
       content: "檢驗",
-      status: "completed",
+      workflowStatus: "completed",
     }))).toThrow("RECORDING_REQUIRED_FIELD:result");
     expect(() => validateRecordingDraft(draft({
       taxonomyId: "A2",
@@ -117,6 +124,7 @@ describe("recording taxonomy foundation", () => {
       quantity: 3,
       extent: "small",
     }))).toThrow("OBSERVATION_QUANTITY_FORBIDDEN:quantity");
+    expect(() => validateRecordingDraft(draft({ taxonomyId: "O6", family: "operational_action", type: "action", subtype: "lab_test", quantity: undefined, submittedAt: timestamp, content: "檢驗", workflowStatus: "waiting_result", reminderDueAt: "2026-09-12T01:00:00.000Z" }))).toThrow("RECORDING_DERIVED_FIELD_MISMATCH:reminderDueAt");
   });
 
   it("derives totals, average weight, age, and lab reminder without inventing input", () => {
@@ -133,6 +141,34 @@ describe("recording taxonomy foundation", () => {
     expect(resolveTaipeiDate("昨天", now)).toBe("2026-09-07");
     expect(resolveTaipeiDate("2026-09-01", now)).toBe("2026-09-01");
     expect(resolveTaipeiDate("下週", now)).toBeNull();
+  });
+
+  it("keeps the O6 three-day reminder deterministic across workflow states", () => {
+    const submittedAt = "2026-09-08T01:00:00.000Z";
+    const waiting = normalizeRecordingDraft({ subtype: "lab_test", submittedAt, content: "檢驗", workflowStatus: "waiting_result" });
+    const completed = normalizeRecordingDraft({ subtype: "lab_test", submittedAt, content: "檢驗", workflowStatus: "completed", result: "陰性", completedAt: "2026-09-08T02:00:00.000Z" });
+    expect(waiting.reminderDueAt).toBe("2026-09-11T01:00:00.000Z");
+    expect(completed.reminderDueAt).toBe("2026-09-11T01:00:00.000Z");
+    expect(Date.parse("2026-09-10T23:59:59.000Z")).toBeLessThan(Date.parse(String(waiting.reminderDueAt)));
+    expect(Date.parse("2026-09-11T01:00:00.000Z")).toBeGreaterThanOrEqual(Date.parse(String(waiting.reminderDueAt)));
+    expect(Date.parse(String(completed.completedAt))).toBeLessThan(Date.parse(String(completed.reminderDueAt)));
+    expect(Date.parse("2026-09-12T01:00:00.000Z")).toBeGreaterThan(Date.parse(String(completed.reminderDueAt)));
+  });
+
+  it("exposes one deterministic cross-surface contract snapshot", () => {
+    const snapshot = recordingTaxonomyContractSnapshot();
+    expect(snapshot).toHaveLength(25);
+    expect(snapshot.find((item) => item.id === "O6")).toMatchObject({
+      family: "operational_action",
+      canonicalType: "action",
+      requiredFields: ["submittedAt", "content", "workflowStatus"],
+      derivedFields: ["reminderDueAt"],
+    });
+    expect(snapshot.find((item) => item.id === "O9")).toMatchObject({
+      family: "operational_event",
+      canonicalType: "event",
+      stockEffect: -1,
+    });
   });
 
   it("preserves known fields and asks the minimum missing question", () => {
@@ -166,11 +202,22 @@ describe("recording taxonomy golden corpus", () => {
   it("passes deterministic classification and field thresholds", () => {
     const metrics = runTaxonomyGoldenCorpus(new Date("2026-09-08T01:00:00.000Z"));
     expect(metrics.failures).toEqual([]);
+    expect(metrics.totalCases).toBe(TAXONOMY_GOLDEN_CASES.length + TAXONOMY_GOLDEN_EDGE_CASES.length);
+    expect(metrics.recordWorthinessPrecision).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.recordWorthinessRecall).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.taxonomyPrecision).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.taxonomyRecall).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.subtypePrecision).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.subtypeRecall).toBeGreaterThanOrEqual(0.95);
     expect(metrics.precision).toBeGreaterThanOrEqual(0.95);
     expect(metrics.recall).toBeGreaterThanOrEqual(0.95);
     expect(metrics.falsePositiveRate).toBeLessThanOrEqual(0.02);
+    expect(metrics.fieldPrecision).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.fieldRecall).toBeGreaterThanOrEqual(0.95);
+    expect(metrics.fieldValueAccuracy).toBeGreaterThanOrEqual(0.95);
     expect(metrics.fieldSwapErrors).toBe(0);
     expect(metrics.unsafeFieldInvention).toBe(0);
+    expect(metrics.allowedFieldViolations).toBe(0);
     expect(metrics.knownFieldPreservation).toBeGreaterThanOrEqual(0.95);
     expect(metrics.minimumQuestionAccuracy).toBe(1);
   });

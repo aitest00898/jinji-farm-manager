@@ -12,6 +12,8 @@ export interface GoldenExpected {
   missingFields?: readonly string[];
   fields?: Readonly<Record<string, unknown>>;
   questionStartsWith?: string;
+  reason?: string;
+  allowedFields?: readonly string[];
 }
 
 export interface GoldenCase {
@@ -33,8 +35,8 @@ export const TAXONOMY_GOLDEN_CASES: readonly GoldenCase[] = Object.freeze([
   { id: "O3-shipment", text: scope + "出雞100 公雞 總重180kg", goldPositive: true, expected: { taxonomyId: "O3", subtype: "shipment", recordWorthiness: "record", fields: { quantity: 100, sex: "male", totalWeight: 180 } } },
   { id: "O4-weigh", text: scope + "磅重1.8kg 母雞", goldPositive: true, expected: { taxonomyId: "O4", subtype: "weigh", recordWorthiness: "record", fields: { averageWeight: 1.8, sex: "female", flockText: "A" } } },
   { id: "O5-feed-order", text: scope + "叫飼料 玉米廠 500kg", goldPositive: true, expected: { taxonomyId: "O5", subtype: "feed_order", recordWorthiness: "record", fields: { vendor: "玉米廠", weight: 500, weightUnit: "kg" } } },
-  { id: "O6-lab-test", text: scope + "送驗 新城雞瘟", goldPositive: true, expected: { taxonomyId: "O6", subtype: "lab_test", recordWorthiness: "record", fields: { content: "新城雞瘟", status: "waiting_result" } } },
-  { id: "O7-disinfection", text: scope + "清消 完成", goldPositive: true, expected: { taxonomyId: "O7", subtype: "disinfection", recordWorthiness: "record", fields: { completionStatus: "completed" } } },
+  { id: "O6-lab-test", text: scope + "送驗 新城雞瘟", goldPositive: true, expected: { taxonomyId: "O6", subtype: "lab_test", recordWorthiness: "record", fields: { content: "新城雞瘟", workflowStatus: "waiting_result" } } },
+  { id: "O7-disinfection", text: scope + "清消 完成", goldPositive: true, expected: { taxonomyId: "O7", subtype: "disinfection", recordWorthiness: "record", fields: { workflowStatus: "completed" } } },
   { id: "O8-maintenance", text: scope + "設備維護 水線", goldPositive: true, expected: { taxonomyId: "O8", subtype: "maintenance", recordWorthiness: "record", fields: { maintenanceContent: "水線" } } },
   { id: "O9-mortality", text: scope + "死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5 } } },
   { id: "O9-cull", text: scope + "淘汰2", goldPositive: true, expected: { taxonomyId: "O9", subtype: "cull", recordWorthiness: "record", fields: { quantity: 2 } } },
@@ -90,18 +92,45 @@ export const TAXONOMY_GOLDEN_EDGE_CASES: readonly GoldenCase[] = Object.freeze([
   { id: "negated-is-not-record", text: "不是死亡5", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "ignore" } },
   { id: "ordinary-chat-is-not-record", text: "晚安，明天見", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "ignore" } },
   { id: "unknown-is-candidate", text: "金雞測試場 一舍 有點怪怪的", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate" } },
+  { id: "today-is-explicitly-recorded", text: "今天 金雞測試場 測試一舍 批次A 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-08T00:00:00+08:00" } } },
+  { id: "tomorrow-is-not-recorded", text: "明天 金雞測試場 測試一舍 批次A 死亡5", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "ignore", reason: "future_or_hypothetical" } },
+  { id: "yesterday-is-explicitly-recorded", text: "昨天 金雞測試場 測試一舍 批次A 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-07T00:00:00+08:00" } } },
+  { id: "explicit-date-is-preserved", text: "2026-09-01 金雞測試場 測試一舍 批次A 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-01T00:00:00+08:00" } } },
+  { id: "farm-only-scope-is-a-record", text: "金雞測試場 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { farmText: "金雞測試場", quantity: 5 } } },
+  { id: "farm-house-scope-without-flock", text: "金雞測試場 測試一舍 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { farmText: "金雞測試場", houseText: "測試一舍", quantity: 5 } } },
+  { id: "same-quantity-is-genuinely-new", text: "今天 金雞測試場 測試一舍 批次B 新增死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-08T00:00:00+08:00" } } },
+  { id: "correction-is-not-a-new-record", text: "修正 金雞測試場 測試一舍 死亡5改成3", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "correction_candidate" } },
+  { id: "uncertainty-is-not-a-new-record", text: "金雞測試場 測試一舍 可能死亡5", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "uncertain_candidate" } },
+  { id: "question-is-not-a-record", text: "死亡幾隻？", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "ignore", reason: "question_or_query" } },
+  { id: "duplicate-relation-is-not-a-new-record", text: "金雞測試場 測試一舍 剛才那筆死亡5不是新增", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "duplicate_or_relation_candidate" } },
+  { id: "conflicting-values-stay-closed", text: "金雞測試場 測試一舍 死亡5還是8", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "conflicting_values_candidate" } },
+  { id: "multi-message-stays-closed", text: "第一則死亡5，第二則咳嗽", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "multi_message_candidate" } },
+  { id: "multi-user-stays-closed", text: "甲說死亡5，乙說死亡3", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "multi_user_ambiguity_candidate" } },
 ]);
 
 export interface GoldenMetrics {
+  totalCases: number;
   taxonomyCases: number;
   categoriesCovered: number;
   subtypesCovered: number;
+  recordWorthinessPrecision: number;
+  recordWorthinessRecall: number;
+  taxonomyPrecision: number;
+  taxonomyRecall: number;
+  subtypePrecision: number;
+  subtypeRecall: number;
+  classificationPrecision: number;
+  classificationRecall: number;
   precision: number;
   recall: number;
   falsePositiveRate: number;
+  fieldPrecision: number;
+  fieldRecall: number;
+  fieldValueAccuracy: number;
   fieldAccuracy: number;
   fieldSwapErrors: number;
   unsafeFieldInvention: number;
+  allowedFieldViolations: number;
   knownFieldPreservation: number;
   minimumQuestionAccuracy: number;
   failures: string[];
@@ -117,6 +146,7 @@ function checkExpected(item: GoldenCase, actual: CanonicalTextParse): string[] {
   if (actual.taxonomyId !== expected.taxonomyId) failures.push(item.id + ":taxonomyId");
   if (actual.subtype !== expected.subtype) failures.push(item.id + ":subtype");
   if (actual.recordWorthiness !== expected.recordWorthiness) failures.push(item.id + ":recordWorthiness");
+  if (expected.reason && actual.reason !== expected.reason) failures.push(item.id + ":reason");
   if (expected.missingFields && JSON.stringify(actual.missingFields) !== JSON.stringify(expected.missingFields)) failures.push(item.id + ":missingFields");
   Object.entries(expected.fields || {}).forEach(([field, value]) => {
     if (!sameValue(actual.fields[field], value)) failures.push(item.id + ":field:" + field);
@@ -125,34 +155,126 @@ function checkExpected(item: GoldenCase, actual: CanonicalTextParse): string[] {
   return failures;
 }
 
+const SCOPE_FIELDS = new Set(["farmText", "houseText", "flockText"]);
+const FIELD_SWAP_PAIRS: readonly (readonly [string, string])[] = [
+  ["quantity", "weight"],
+  ["vendor", "content"],
+  ["farmText", "houseText"],
+  ["houseText", "flockText"],
+  ["sex", "subtype"],
+  ["result", "content"],
+];
+
+function allowedFieldsForCase(item: GoldenCase): Set<string> {
+  const allowed = new Set<string>([
+    "farmText",
+    "houseText",
+    "flockText",
+    "occurredAt",
+  ]);
+  Object.keys(item.expected.fields || {}).forEach((field) => allowed.add(field));
+  (item.expected.allowedFields || []).forEach((field) => allowed.add(field));
+  if (item.expected.taxonomyId === null) {
+    allowed.add("rawText");
+  } else {
+    const definition = RECORDING_TAXONOMY.find((entry) => entry.id === item.expected.taxonomyId);
+    definition?.requiredFields.forEach((field) => allowed.add(field));
+    definition?.optionalFields.forEach((field) => allowed.add(field));
+    definition?.derivedFields.forEach((field) => allowed.add(field));
+    if (item.expected.taxonomyId === "O6") allowed.add("submittedAt");
+  }
+  return allowed;
+}
+
+function fieldQuality(item: GoldenCase, actual: CanonicalTextParse): {
+  correct: number;
+  expected: number;
+  unsafe: number;
+  swaps: number;
+} {
+  const expectedFields = item.expected.fields || {};
+  const actualKeys = Object.keys(actual.fields).filter((field) => !SCOPE_FIELDS.has(field));
+  const allowed = allowedFieldsForCase(item);
+  const correct = Object.entries(expectedFields).filter(([field, value]) => sameValue(actual.fields[field], value)).length;
+  const unsafe = actualKeys.filter((field) => !allowed.has(field)).length;
+  let swaps = 0;
+  for (const [left, right] of FIELD_SWAP_PAIRS) {
+    const expectedLeft = expectedFields[left];
+    const expectedRight = expectedFields[right];
+    const actualLeft = actual.fields[left];
+    const actualRight = actual.fields[right];
+    if (expectedLeft !== undefined && expectedRight !== undefined
+      && sameValue(actualLeft, expectedRight) && sameValue(actualRight, expectedLeft)
+      && !sameValue(actualLeft, expectedLeft)) swaps += 1;
+    else if (expectedLeft !== undefined && expectedRight === undefined
+      && sameValue(actualLeft, undefined) && sameValue(actualRight, expectedLeft)) swaps += 1;
+    else if (expectedRight !== undefined && expectedLeft === undefined
+      && sameValue(actualRight, undefined) && sameValue(actualLeft, expectedRight)) swaps += 1;
+  }
+  return { correct, expected: Object.keys(expectedFields).length, unsafe, swaps };
+}
+
 export function runTaxonomyGoldenCorpus(now = new Date()): GoldenMetrics {
   const all = [...TAXONOMY_GOLDEN_CASES, ...TAXONOMY_GOLDEN_EDGE_CASES];
   const results = all.map((item) => ({ item, actual: parseCanonicalRecordingText(item.text, now) }));
   const failures = results.flatMap(({ item, actual }) => checkExpected(item, actual));
-  const positives = results.filter(({ item }) => item.goldPositive);
   const negatives = results.filter(({ item }) => !item.goldPositive);
-  const predictedPositive = results.filter(({ actual }) => actual.taxonomyId !== null && actual.recordWorthiness !== "ignore");
-  const truePositive = positives.filter(({ item, actual }) => actual.taxonomyId === item.expected.taxonomyId && actual.subtype === item.expected.subtype).length;
+  const expectedWorthwhile = results.filter(({ item }) => item.expected.recordWorthiness !== "ignore");
+  const predictedWorthwhile = results.filter(({ actual }) => actual.recordWorthiness !== "ignore");
+  const worthwhileTruePositive = results.filter(({ item, actual }) =>
+    item.expected.recordWorthiness !== "ignore" && actual.recordWorthiness !== "ignore").length;
+  const taxonomyExpected = results.filter(({ item }) => item.expected.taxonomyId !== null);
+  const taxonomyPredicted = results.filter(({ actual }) => actual.taxonomyId !== null && actual.recordWorthiness !== "ignore");
+  const taxonomyTruePositive = results.filter(({ item, actual }) =>
+    item.expected.taxonomyId !== null && actual.taxonomyId === item.expected.taxonomyId).length;
+  const subtypeExpected = results.filter(({ item }) => item.expected.taxonomyId !== null && item.expected.subtype !== null);
+  const subtypePredicted = results.filter(({ actual }) => actual.taxonomyId !== null && actual.subtype !== null && actual.recordWorthiness !== "ignore");
+  const subtypeTruePositive = results.filter(({ item, actual }) =>
+    item.expected.taxonomyId !== null
+    && item.expected.subtype !== null
+    && actual.taxonomyId === item.expected.taxonomyId
+    && actual.subtype === item.expected.subtype).length;
   const falsePositive = negatives.filter(({ actual }) => actual.taxonomyId !== null && actual.recordWorthiness !== "ignore").length;
-  const expectedFieldCount = results.reduce((sum, row) => sum + Object.keys(row.item.expected.fields || {}).length, 0);
-  const preservedFieldCount = results.reduce((sum, row) => sum + Object.entries(row.item.expected.fields || {}).filter(([field, value]) => sameValue(row.actual.fields[field], value)).length, 0);
+  const fieldQualityTotals = results.map(({ item, actual }) => fieldQuality(item, actual));
+  const expectedFieldCount = fieldQualityTotals.reduce((sum, row) => sum + row.expected, 0);
+  const preservedFieldCount = fieldQualityTotals.reduce((sum, row) => sum + row.correct, 0);
+  const unsafeFieldInvention = fieldQualityTotals.reduce((sum, row) => sum + row.unsafe, 0);
+  const fieldSwapErrors = fieldQualityTotals.reduce((sum, row) => sum + row.swaps, 0);
   const questionCases = results.filter(({ item }) => Boolean(item.expected.questionStartsWith));
   const questionPasses = questionCases.filter(({ item, actual }) => String(actual.clarificationQuestion || "").startsWith(item.expected.questionStartsWith || "")).length;
   const categories = new Set(TAXONOMY_GOLDEN_CASES.map((item) => item.expected.taxonomyId).filter(Boolean));
   const subtypes = new Set(TAXONOMY_GOLDEN_CASES.map((item) => item.expected.taxonomyId + ":" + item.expected.subtype));
-  const fieldSwapErrors = results.filter(({ actual }) => actual.fields.quantity !== undefined && ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16"].includes(actual.taxonomyId || "")).length;
-  const unsafeFieldInvention = results.filter(({ actual }) => actual.fields.extent === "small" || actual.fields.extent === "medium" || actual.fields.extent === "large")
-    .filter(({ item, actual }) => !item.expected.fields || item.expected.fields.extent === undefined).length;
+  const recordWorthinessPrecision = predictedWorthwhile.length ? worthwhileTruePositive / predictedWorthwhile.length : 1;
+  const recordWorthinessRecall = expectedWorthwhile.length ? worthwhileTruePositive / expectedWorthwhile.length : 1;
+  const taxonomyPrecision = taxonomyPredicted.length ? taxonomyTruePositive / taxonomyPredicted.length : 1;
+  const taxonomyRecall = taxonomyExpected.length ? taxonomyTruePositive / taxonomyExpected.length : 1;
+  const subtypePrecision = subtypePredicted.length ? subtypeTruePositive / subtypePredicted.length : 1;
+  const subtypeRecall = subtypeExpected.length ? subtypeTruePositive / subtypeExpected.length : 1;
+  const fieldPrecision = (preservedFieldCount + unsafeFieldInvention) ? preservedFieldCount / (preservedFieldCount + unsafeFieldInvention) : 1;
+  const fieldRecall = expectedFieldCount ? preservedFieldCount / expectedFieldCount : 1;
   return {
+    totalCases: all.length,
     taxonomyCases: TAXONOMY_GOLDEN_CASES.length,
     categoriesCovered: categories.size,
     subtypesCovered: subtypes.size,
-    precision: predictedPositive.length ? truePositive / predictedPositive.length : 1,
-    recall: positives.length ? truePositive / positives.length : 1,
+    recordWorthinessPrecision,
+    recordWorthinessRecall,
+    taxonomyPrecision,
+    taxonomyRecall,
+    subtypePrecision,
+    subtypeRecall,
+    classificationPrecision: subtypePrecision,
+    classificationRecall: subtypeRecall,
+    precision: taxonomyPrecision,
+    recall: taxonomyRecall,
     falsePositiveRate: negatives.length ? falsePositive / negatives.length : 0,
-    fieldAccuracy: expectedFieldCount ? preservedFieldCount / expectedFieldCount : 1,
+    fieldPrecision,
+    fieldRecall,
+    fieldValueAccuracy: fieldRecall,
+    fieldAccuracy: fieldRecall,
     fieldSwapErrors,
     unsafeFieldInvention,
+    allowedFieldViolations: unsafeFieldInvention,
     knownFieldPreservation: expectedFieldCount ? preservedFieldCount / expectedFieldCount : 1,
     minimumQuestionAccuracy: questionCases.length ? questionPasses / questionCases.length : 1,
     failures,

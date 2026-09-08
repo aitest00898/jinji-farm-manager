@@ -35,6 +35,12 @@ export type O6Status = (typeof O6_STATUSES)[number];
 export const ACTION_COMPLETION_STATUSES = ["pending", "completed"] as const;
 export type ActionCompletionStatus = (typeof ACTION_COMPLETION_STATUSES)[number];
 
+export const RECORD_LIFECYCLE_STATES = ["active", "reversed", "corrected", "replacement"] as const;
+export type RecordLifecycleState = (typeof RECORD_LIFECYCLE_STATES)[number];
+
+export const ACTION_WORKFLOW_STATES = ["pending", "waiting_result", "completed"] as const;
+export type ActionWorkflowState = (typeof ACTION_WORKFLOW_STATES)[number];
+
 export const WEIGHT_UNITS = ["kg", "bag"] as const;
 export type WeightUnit = (typeof WEIGHT_UNITS)[number];
 
@@ -97,8 +103,8 @@ export const RECORDING_TAXONOMY: readonly TaxonomyDefinition[] = Object.freeze([
   definition("O3", "出雞", "operational_event", "event", ["shipment"], ["quantity", "sex"], ["houseId", "flockId", "totalWeight"], ["averageWeight"], -1, "none", "show", "shipment", "manual_candidate", "future_bounded"),
   definition("O4", "磅重", "operational_event", "event", ["weigh"], ["houseId", "flockId", "averageWeight", "sex"], ["chickInDate"], ["ageDays"], 0, "none", "show", "weighing", "manual_candidate", "future_bounded"),
   definition("O5", "叫飼料", "operational_action", "action", ["feed_order"], ["vendor", "weight", "weightUnit"], ["houseId"], [], 0, "none", "show", "feed_order", "manual_candidate", "future_bounded"),
-  definition("O6", "送驗", "operational_action", "action", ["lab_test"], ["submittedAt", "content", "status"], ["houseId", "flockId", "result", "completedAt"], ["reminderDueAt"], 0, "follow_up", "reminder", "lab_test", "manual_candidate", "future_bounded"),
-  definition("O7", "清消", "operational_action", "action", ["disinfection"], ["completionStatus"], ["houseId", "flockId"], [], 0, "follow_up", "show", "disinfection", "manual_candidate", "future_bounded"),
+  definition("O6", "送驗", "operational_action", "action", ["lab_test"], ["submittedAt", "content", "workflowStatus"], ["houseId", "flockId", "result", "completedAt"], ["reminderDueAt"], 0, "follow_up", "reminder", "lab_test", "manual_candidate", "future_bounded"),
+  definition("O7", "清消", "operational_action", "action", ["disinfection"], ["workflowStatus"], ["houseId", "flockId"], [], 0, "follow_up", "show", "disinfection", "manual_candidate", "future_bounded"),
   definition("O8", "設備維護", "operational_action", "action", ["maintenance"], ["maintenanceContent"], ["houseId"], [], 0, "follow_up", "show", "maintenance", "manual_candidate", "future_bounded"),
   definition("O9", "死亡／淘汰", "operational_event", "event", ["mortality", "cull"], ["quantity"], ["houseId", "flockId", "sex"], [], -1, "none", "show", "existing_quick_record", "existing_manual_candidate", "current_v1"),
   definition("A1", "死亡異常", "operational_observation", "observation", ["mortality_abnormality"], ["extent", "linkedMortalityEventId"], ["houseId", "flockId", "detail"], [], 0, "follow_up", "show", "observation", "observation_candidate", "current_coarse"),
@@ -123,6 +129,40 @@ const TAXONOMY_BY_ID = new Map<TaxonomyId, TaxonomyDefinition>(
   RECORDING_TAXONOMY.map((item) => [item.id, item]),
 );
 
+export interface RecordingTaxonomyContractRow {
+  id: TaxonomyId;
+  family: RecordingFamily;
+  canonicalType: string;
+  canonicalSubtypes: readonly string[];
+  requiredFields: readonly string[];
+  optionalFields: readonly string[];
+  derivedFields: readonly string[];
+  stockEffect: StockEffect;
+  todoEffect: TodoEffect;
+  calendarEffect: CalendarEffect;
+  webTarget: string;
+  lineTarget: string;
+  ambientTarget: string;
+}
+
+export function recordingTaxonomyContractSnapshot(): readonly RecordingTaxonomyContractRow[] {
+  return Object.freeze(RECORDING_TAXONOMY.map((item) => Object.freeze({
+    id: item.id,
+    family: item.family,
+    canonicalType: item.canonicalType,
+    canonicalSubtypes: [...item.canonicalSubtypes],
+    requiredFields: [...item.requiredFields],
+    optionalFields: [...item.optionalFields],
+    derivedFields: [...item.derivedFields],
+    stockEffect: item.stockEffect,
+    todoEffect: item.todoEffect,
+    calendarEffect: item.calendarEffect,
+    webTarget: item.webTarget,
+    lineTarget: item.lineTarget,
+    ambientTarget: item.ambientTarget,
+  })));
+}
+
 export interface RecordingDraft {
   id?: unknown;
   taxonomyId?: unknown;
@@ -141,6 +181,8 @@ export interface RecordingDraft {
   actorId?: unknown;
   confirmedBy?: unknown;
   clientOperationId?: unknown;
+  workflowStatus?: unknown;
+  lifecycleStatus?: unknown;
   correctionOfId?: unknown;
   reversalOfId?: unknown;
   replacementOfId?: unknown;
@@ -234,10 +276,9 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("RECORDING_OBJECT_INVALID");
   const record = input as RecordingDraft;
   nonEmptyText(requiredValue(record, "id"), "id", 160);
+  const taxonomyId = nonEmptyText(requiredValue(record, "taxonomyId"), "taxonomyId", 20);
   const definition = definitionForInput(record);
-  if (record.taxonomyId !== undefined && record.taxonomyId !== null) {
-    if (record.taxonomyId !== definition.id) fail("RECORDING_TAXONOMY_MISMATCH", "taxonomyId");
-  }
+  if (taxonomyId !== definition.id) fail("RECORDING_TAXONOMY_MISMATCH", "taxonomyId");
   isoTimestamp(requiredValue(record, "occurredAt"), "occurredAt");
   isoTimestamp(requiredValue(record, "createdAt"), "createdAt");
   nonEmptyText(requiredValue(record, "farmId"), "farmId", 160);
@@ -249,8 +290,16 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
   if (record.clientOperationId !== undefined && record.clientOperationId !== null) nonEmptyText(record.clientOperationId, "clientOperationId", 200);
   if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) nonEmptyText(record.sourceMessageId, "sourceMessageId", 200);
   if (record.sourceCandidateId !== undefined && record.sourceCandidateId !== null) nonEmptyText(record.sourceCandidateId, "sourceCandidateId", 200);
+  if (record.workflowStatus !== undefined && record.workflowStatus !== null) enumValue(record.workflowStatus, ACTION_WORKFLOW_STATES, "workflowStatus");
+  if (record.lifecycleStatus !== undefined && record.lifecycleStatus !== null) enumValue(record.lifecycleStatus, RECORD_LIFECYCLE_STATES, "lifecycleStatus");
+  if (record.workflowStatus !== undefined && record.workflowStatus !== null && definition.id !== "O6" && definition.id !== "O7") {
+    fail("RECORDING_UNSUPPORTED_FIELD", "workflowStatus");
+  }
   for (const field of ["correctionOfId", "reversalOfId", "replacementOfId"] as const) {
     if (record[field] !== undefined && record[field] !== null) nonEmptyText(record[field], field, 200);
+  }
+  for (const field of ["detail", "measurement", "evidence"] as const) {
+    if (record[field] !== undefined && record[field] !== null) nonEmptyText(record[field], field, 240);
   }
 
   for (const field of definition.requiredFields) requiredValue(record, field);
@@ -285,10 +334,17 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
     finiteNumber(record.averageWeight, "averageWeight", true);
     enumValue(record.sex, RECORDING_SEXES, "sex");
     if (record.weightUnit !== undefined && record.weightUnit !== null) enumValue(record.weightUnit, ["kg"] as const, "weightUnit");
-    if (record.chickInDate !== undefined && record.chickInDate !== null) {
-      if (typeof record.chickInDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(record.chickInDate)) fail("RECORDING_DATE_INVALID", "chickInDate");
-      if (record.ageDays !== undefined && record.ageDays !== null) nonNegativeInteger(record.ageDays, "ageDays");
-    }
+      if (record.chickInDate !== undefined && record.chickInDate !== null) {
+        if (typeof record.chickInDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(record.chickInDate)) fail("RECORDING_DATE_INVALID", "chickInDate");
+        if (!isoDate(record.chickInDate)) fail("RECORDING_DATE_INVALID", "chickInDate");
+        if (record.ageDays !== undefined && record.ageDays !== null) {
+          const ageDays = nonNegativeInteger(record.ageDays, "ageDays");
+          const expectedAgeDays = (Date.parse(String(record.occurredAt).slice(0, 10) + "T00:00:00Z") - Date.parse(record.chickInDate + "T00:00:00Z")) / 86_400_000;
+          if (!Number.isInteger(expectedAgeDays) || expectedAgeDays < 0 || ageDays !== expectedAgeDays) fail("RECORDING_DERIVED_FIELD_MISMATCH", "ageDays");
+        }
+      } else if (record.ageDays !== undefined && record.ageDays !== null) {
+        fail("RECORDING_DERIVED_FIELD_MISMATCH", "ageDays");
+      }
   }
 
   if (definition.id === "O5") {
@@ -300,15 +356,19 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
   if (definition.id === "O6") {
     isoTimestamp(record.submittedAt, "submittedAt");
     nonEmptyText(record.content, "content");
-    enumValue(record.status, O6_STATUSES, "status");
-    if (record.status === "completed") {
+    enumValue(record.workflowStatus, O6_STATUSES, "workflowStatus");
+    if (record.workflowStatus === "completed") {
       nonEmptyText(requiredValue(record, "result"), "result");
       isoTimestamp(record.completedAt, "completedAt");
     }
-    if (record.reminderDueAt !== undefined && record.reminderDueAt !== null) isoTimestamp(record.reminderDueAt, "reminderDueAt");
+    if (record.reminderDueAt !== undefined && record.reminderDueAt !== null) {
+      isoTimestamp(record.reminderDueAt, "reminderDueAt");
+      const expectedReminder = Date.parse(String(record.submittedAt)) + 3 * 86_400_000;
+      if (Date.parse(String(record.reminderDueAt)) !== expectedReminder) fail("RECORDING_DERIVED_FIELD_MISMATCH", "reminderDueAt");
+    }
   }
 
-  if (definition.id === "O7") enumValue(record.completionStatus, ACTION_COMPLETION_STATUSES, "completionStatus");
+  if (definition.id === "O7") enumValue(record.workflowStatus, ACTION_COMPLETION_STATUSES, "workflowStatus");
   if (definition.id === "O8") nonEmptyText(record.maintenanceContent, "maintenanceContent");
 
   if (definition.family === "operational_event" && definition.id === "O9") {
@@ -330,6 +390,7 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
 function isoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
   const parsed = new Date(value + "T00:00:00Z");
+  if (!Number.isFinite(parsed.getTime())) return false;
   return parsed.toISOString().slice(0, 10) === value;
 }
 
@@ -368,6 +429,14 @@ function timestampForDate(value: string, now: Date): string | null {
   if (/^\d{4}-\d{2}-\d{2}T/u.test(value) && Number.isFinite(Date.parse(value))) return value;
   const date = resolveTaipeiDate(value, now);
   return date ? date + "T00:00:00+08:00" : null;
+}
+
+function occurredAtFromText(text: string, now: Date): string | undefined {
+  const explicit = /(\d{4}-\d{2}-\d{2})/u.exec(text);
+  if (explicit) return timestampForDate(explicit[1], now) || undefined;
+  const relative = /今天|今日|昨天|昨晚/u.exec(text);
+  if (relative) return timestampForDate(relative[0], now) || undefined;
+  return undefined;
 }
 
 export function deriveRecordingFields(input: RecordingDraft): Record<string, unknown> {
@@ -626,16 +695,25 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   if (typeof rawText !== "string") return unknownCandidate(String(rawText ?? ""), "raw_text_invalid");
   const text = rawText.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (!text) return ignored("empty");
+  if (/[?？]/u.test(text) && /(?:請問|查詢|查询|目前|多少|幾|几|哪|是否|嗎|吗)/u.test(text)) return ignored("question_or_query");
   if (/^(?:請問|查詢|查询|目前|多少|哪裡|哪裡|哪裡有|怎麼|怎么|為什麼|为什么)/u.test(text) && !/(?:死亡|淘汰|入雛|入雏|疫苗|用藥|用药|送驗|送验|清消|消毒|維護|维护|叫飼料|叫饲料|出雞|出鸡|磅重|稱重|咳嗽|喘|異常|异常)/u.test(text)) return ignored("question_or_query");
   if (/(?:如果|假設|假设|打算|預計|预计|明天|下週|下周|以後|以后)/u.test(text)) return ignored("future_or_hypothetical");
   if (/(?:沒有|没有|沒|未|不是|並非|并非)\s*(?:死亡|淘汰|出雞|出鸡|入雛|入雏)/u.test(text)) return ignored("negated_record");
+  if (/(?:更正|修正|改成|記錯|记错|撤銷|撤销|取消|回滾|回滚)/u.test(text)) return unknownCandidate(text, "correction_candidate");
+  if (/(?:可能|好像|好似|疑似|不確定|不确定|似乎)/u.test(text)) return unknownCandidate(text, "uncertain_candidate");
+  if (/(?:重複|重复|同一筆|同一笔|不是新增|剛才那筆|刚才那笔)/u.test(text)) return unknownCandidate(text, "duplicate_or_relation_candidate");
+  if (/(?:還是|还是|或者|或是)/u.test(text) && /\d/u.test(text)) return unknownCandidate(text, "conflicting_values_candidate");
+  if (/(?:第一則|第一则|第二則|第二则|多則|多则|多筆|多笔|兩則|两则|兩筆|两笔|同時|同时)/u.test(text) && /(?:死亡|淘汰|咳|喘|異常|异常|臭)/u.test(text)) return unknownCandidate(text, "multi_message_candidate");
+  if (/(?:甲|乙|A|B)\s*(?:說|说|表示)/u.test(text)) return unknownCandidate(text, "multi_user_ambiguity_candidate");
   if (/(?:笑話|哈哈|開玩笑|开玩笑|晚安|早安|謝謝|谢谢)/u.test(text)) return ignored("irrelevant_chatter");
 
   const scope = scopeFields(text);
+  const occurredAt = occurredAtFromText(text, now);
+  const dateFields: Record<string, unknown> = occurredAt ? { occurredAt } : {};
   const baseMissing = (): string[] => (scope.farmText ? [] : ["farmScope"]);
 
   if (/入雛|入雏|進雛|进雏/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const male = numberAfter(text, /(?:公雞|公鸡|雄)\s*(\d+)/u);
     const female = numberAfter(text, /(?:母雞|母鸡|雌)\s*(\d+)/u);
     if (male !== undefined) fields.maleCount = male;
@@ -653,7 +731,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/疫苗|接種|接种|用藥|用药|補充品|补充品|維生素|维生素/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const content = text.replace(/.*?(疫苗|接種|接种|用藥|用药|補充品|补充品|維生素|维生素)/u, "").trim();
     if (content) fields.content = content;
     const subtype = /用藥|用药/u.test(text) ? "medication" : /補充品|补充品|維生素|维生素/u.test(text) ? "supplement" : "vaccination";
@@ -661,7 +739,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/出雞|出鸡|出欄|出栏|出貨|出货/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const quantity = numberAfter(text, /(?:出雞|出鸡|出欄|出栏|出貨|出货)\s*(\d+)/u);
     if (quantity !== undefined) fields.quantity = quantity;
     fields.sex = /公雞|公鸡|雄/u.test(text) ? "male" : /母雞|母鸡|雌/u.test(text) ? "female" : /混合/u.test(text) ? "mixed" : "unspecified";
@@ -674,7 +752,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/磅重|稱重|称重|平均體重|平均体重/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const weight = numberAfter(text, /(?:磅重|稱重|称重|平均體重|平均体重)\s*(\d+(?:\.\d+)?)\s*(?:kg|公斤)?/u);
     if (weight !== undefined) fields.averageWeight = weight;
     fields.sex = /公雞|公鸡|雄/u.test(text) ? "male" : /母雞|母鸡|雌/u.test(text) ? "female" : "unspecified";
@@ -686,7 +764,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/叫飼料|叫饲料|叫料|訂飼料|订饲料|訂料|订料|訂購飼料|订购饲料/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const weight = numberAfter(text, /(\d+(?:\.\d+)?)\s*(?:kg|公斤|包)/u);
     if (weight !== undefined) {
       fields.weight = weight;
@@ -701,9 +779,9 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/送驗|送验|檢驗|检验|化驗|化验/u.test(text)) {
-    const submittedAt = now.toISOString();
+    const submittedAt = occurredAt || now.toISOString();
     const completed = /結果|结果|完成/u.test(text);
-    const fields: Record<string, unknown> = { ...scope, occurredAt: submittedAt, submittedAt, status: completed ? "completed" : "waiting_result" };
+    const fields: Record<string, unknown> = { ...scope, occurredAt: submittedAt, submittedAt, workflowStatus: completed ? "completed" : "waiting_result" };
     const content = text.replace(/.*?(送驗|送验|檢驗|检验|化驗|化验)/u, "").replace(/結果|结果|完成/u, "").trim();
     if (content) fields.content = content;
     const missing = baseMissing().concat(content ? [] : ["content"]);
@@ -712,19 +790,19 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   }
 
   if (/清消|消毒/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope, completionStatus: /完成|做完/u.test(text) ? "completed" : "pending" };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields, workflowStatus: /完成|做完/u.test(text) ? "completed" : "pending" };
     return parseResult("O7", "disinfection", fields, baseMissing(), "known_disinfection");
   }
 
   if (/設備維護|設備保養|設備保养|維修|维修|保養|保养/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const content = text.replace(/.*?(設備維護|設備保養|設備保养|維修|维修|保養|保养)/u, "").trim();
     if (content) fields.maintenanceContent = content;
     return parseResult("O8", "maintenance", fields, baseMissing().concat(content ? [] : ["maintenanceContent"]), "known_maintenance");
   }
 
   if (/(?:死亡|死雞|死鸡|淘汰|掛了|挂了)/u.test(text) && !/死亡異常|死亡率異常/u.test(text)) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const mortality = numberAfter(text, /(?:死亡|死雞|死鸡)\s*(\d+)/u);
     const cull = numberAfter(text, /(?:淘汰|掛了|挂了)\s*(\d+)/u);
     const isCull = cull !== undefined && mortality === undefined;
@@ -736,7 +814,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   const abnormal = abnormalMatch(text);
   if (abnormal) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const extent = /小範圍|小范围/u.test(text) ? "small" : /中範圍|中范围/u.test(text) ? "medium" : /大範圍|大范围/u.test(text) ? "large" : undefined;
     if (extent) fields.extent = extent;
     const missing = baseMissing().concat(extent ? [] : ["extent"]);
@@ -752,7 +830,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   const hintedAbnormalId = abnormalCategoryHint(text);
   if (hintedAbnormalId) {
-    const fields: Record<string, unknown> = { ...scope };
+    const fields: Record<string, unknown> = { ...scope, ...dateFields };
     const extent = /小範圍|小范围/u.test(text) ? "small" : /中範圍|中范围/u.test(text) ? "medium" : /大範圍|大范围/u.test(text) ? "large" : undefined;
     if (extent) fields.extent = extent;
     return unresolvedObservationCandidate(

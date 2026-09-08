@@ -8,7 +8,80 @@ This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
 to continue a paused gate.
 
-## Recording taxonomy foundation gate — 2026-09-08
+## Foundation integrity and runtime-bridge gate — 2026-09-08
+
+This single-agent local gate is complete. It hardens the shared recording
+taxonomy contract, proves a read-only runtime bridge and one-authority routing
+map, rehearses the additive migration only against a disposable local D1, and
+does not activate any Production path. It does not authorize Production
+migration, deployment, live AI, LINE acceptance, or recovery Cron changes.
+
+```text
+TASK = SINGLE_AGENT_FOUNDATION_INTEGRITY_RUNTIME_BRIDGE_GATE
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_ALLOWED = 0
+SUBAGENT_TOTAL_USED = 0
+WEB_BRANCH = feat/full-recording-taxonomy-foundation
+WEB_START_HEAD = 39d31e7ae9fdcdb163231b25534b0978e88c62aa
+WEB_FINAL_HEAD = fb05acdc0bbfe80ae7a0013d079b6d4ec63b4251
+PRODUCTION_BRANCH = feat/full-recording-taxonomy-foundation
+PRODUCTION_START_HEAD = 740bc870c2e6dedf13565663c93d3d688b0a77ec
+```
+
+The canonical snapshot is identical between the Production TypeScript
+registry and the Web Lab mirror: 25 category IDs and 46 subtypes. The local
+golden corpus retains all existing cases and adds date, scope, correction,
+uncertainty, query, duplicate, conflict, multi-message, and multi-user
+boundaries. The reported deterministic corpus and field-quality checks pass;
+these are parser/contract metrics, not live AI metrics.
+
+The local runtime bridge maps O1/O4 to `recording_events`, O2/O5/O6/O7/O8 to
+`operational_actions`, O3/O9 to the existing `operational_events` authority,
+and A1–A16 to `abnormal_events`. No route exposes a parallel authoritative
+mortality, cull, or shipment destination. Farm/house/flock resolution is
+fail-closed, and farm-only writes require explicit whole-farm confirmation.
+O6 uses one `workflow_status` plus one `lifecycle_status`; legacy overlapping
+action state columns are absent from the revised unexecuted schema draft.
+
+The migration rehearsal applied the current chain and revised 0038 twice to a
+temporary local Wrangler D1, confirmed old rows remain readable, inserted
+synthetic canonical rows, and exercised foreign-key, idempotency, lineage,
+and derived-field guards. The first sandbox attempt could not bind the local
+Wrangler D1 runtime; the same read/local-only rehearsal then passed under host
+execution. This was an execution-environment adjustment, not a Production
+database privilege change. Production D1 was neither read nor written.
+
+Targeted tests, Web/Production parity, TypeScript checks, and both repositories'
+full local regression suites passed. The Web feature branch was pushed to its
+existing GitHub remote; the Production branch has no remote and remains a
+local commit only. Existing untracked audit/export artifacts were preserved
+and were not staged.
+
+```text
+CONTRACT_SCHEMA_TYPE_PARITY = PASS
+ONE_MORTALITY_FACT_ONE_OFFICIAL_ROW = PASS
+O9_PARALLEL_WRITE = FORBIDDEN
+SHIPMENT_PARALLEL_WRITE = FORBIDDEN
+STOCK_DOUBLE_COUNT = 0
+LEGACY_READ_BRIDGE = PASS
+CANONICAL_WRITE_ROUTING_DEFINED = PASS
+ACTION_WORKFLOW_STATE_UNAMBIGUOUS = PASS
+WEB_PROD_TAXONOMY_PARITY = PASS
+MIGRATION_REHEARSAL = PASS
+LOCAL_RUNTIME_BRIDGE = PASS
+RESOLVER_BOUNDARY = PASS
+DATE_SEMANTICS_ASIA_TAIPEI = PASS
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED_PRODUCTION = NO
+REAL_LINE_PUSH = 0
+QUEUE_WRITES = 0
+WORKERS_AI_CALLS = 0
+CRON_CHANGED = NO
+MODEL_CHANGED = NO
+```
+
+## Earlier recording taxonomy foundation baseline — 2026-09-08
 
 This is the latest bounded local engineering update. It does not reopen the
 Ambient/V2 observations, does not authorize live AI, and does not authorize
@@ -49,9 +122,9 @@ Production D1 read diagnosis remains blocked at the authentication/access
 boundary: no live schema or row evidence was inferred and no auth refresh was
 performed.
 
-Local full Production TypeScript/Vitest regression passed with `65 test files,
-753 passed, 11 skipped` (764 tests total). The Web Lab host-level
-`npm run test:all` also passed: static, 16 unit, 30 integration, finance
+Local full Production TypeScript/Vitest regression passed with `66 test files,
+762 passed, 11 skipped` (773 tests total). The Web Lab host-level
+`npm run test:all` also passed: static, 17 unit, 30 integration, finance
 Chromium/WebKit, workflow actionlint v1.7.7, Chromium/WebKit E2E, visual, and
 security. The visual matrix had zero overflow and zero pixel diff at the
 mobile and desktop reference sizes; browser runs reported zero console/page
