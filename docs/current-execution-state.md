@@ -2285,6 +2285,105 @@ MODEL_CHANGED = NO
 RECOVERY_CRON_REMAINS_DISABLED = YES
 ```
 
+## Full-taxonomy A/B contract failure forensic + structured-output repair gate — 2026-09-08
+
+This gate preserved `FULL_TAXONOMY_LIVE_AB_V1` as immutable evidence and
+audited its output contract, evaluator behavior, existing structured-output
+plumbing, and all 30 Ground Truth cases before any new provider request.
+Four read-only sidecar agents were used in parallel (maximum observed
+concurrency: 4; no nested agents). No V1 case, expected fact, Prompt, or V1
+report was edited.
+
+```text
+TASK = FULL_TAXONOMY_AB_CONTRACT_FAILURE_FORENSIC_AND_STRUCTURED_OUTPUT_REPAIR_GATE
+SUBAGENT_MAX_CONCURRENT_OBSERVED = 4
+SUBAGENT_TOTAL_USED = 4
+V1_IMMUTABLE = YES
+V1_PROVIDER_RESULTS = 3B_HTTP_200:30/30; 8B_HTTP_200:30/30
+V1_JSON_PARSED = 3B:30/30; 8B:22/30
+V1_SCHEMA_PASS = 3B:1/30; 8B:1/30
+V1_SCHEMA_FAILURES = 3B:29; 8B:29
+3B_FAILURE_CODE_DISTRIBUTION = TOP_LEVEL_KEYS:16, UNSUPPORTED_FIELD:9, FIELD_TYPE_OR_VALUE:2, FACT_KEYS:1, FACT_CONTRACT:1
+8B_FAILURE_CODE_DISTRIBUTION = JSON_INVALID:8, TOP_LEVEL_KEYS:21
+EVALUATOR_CENSORING_CONFIRMED = YES
+PROMPT_ONLY_JSON_APPROPRIATE = NO_FOR_FULL_TAXONOMY_MEASUREMENT
+PRIMARY_FAILURE_CLASS = OUTPUT_FORMAT_AND_STRICT_SCHEMA_WITH_EVALUATOR_CENSORING
+MODEL_SEMANTICS_PRIMARY_FAILURE = NOT_PROVEN
+```
+
+The strict V1 evaluator returns `output: null` at the first schema error; the
+case evaluator then uses `output?.facts ?? []`. Consequently the V1 zero
+taxonomy/field metrics are not a valid semantic score for the 29 failed cases.
+The retained safe reports contain no raw completions, so those lost semantic
+signals cannot be reconstructed after the run.
+
+The Ground Truth audit found 22 directly valid cases and 8 intentionally or
+linguistically ambiguous cases (`O04`, `O05`, `M01`–`M04`, `C02`, `C04`). It
+found zero confirmed Ground Truth defects. The ambiguous cases do not justify
+rewriting V1; `C02` correctly stays a correction candidate with no new fact,
+and `C04` has a shared extent attachment ambiguity. The deterministic parser
+collision in `O04` is an implementation concern, not a benchmark rewrite.
+
+The existing V2.1/V2.2 structured-output request shape and developer-only
+transport were reused. Their smaller structured contracts have prior local or
+bounded live evidence, but full StructuredAnalysis schema compatibility had
+not been proven. A new developer-only V2 sidecar was therefore added without
+changing Production:
+
+```text
+V2_VERSION = FULL_TAXONOMY_LIVE_AB_V2
+V2_CASES = SAME_30_V1_CASES_AND_GROUND_TRUTH
+V2_SCHEMA = SAME_IMMUTABLE_FULL_V1_SCHEMA
+V2_PROMPT_CHANGED = NO
+V2_REQUEST_CHANGE = response_format: json_schema + stream:false
+V2_STRICT_EVALUATOR = ORIGINAL_V1_FAIL_CLOSED_VALIDATOR
+V2_DIAGNOSTIC_WRITE_AUTHORITY = NONE
+LOCAL_GATE = PASS
+LOCAL_TARGETED_TESTS = 14/14
+BACKEND_REGRESSION = 792 passed; 11 skipped across 70 files
+```
+
+The bounded V2 live canary reused the raw slash-separated model path and the
+existing dedicated developer authentication. The first 3B canary case
+(`E04-mortality`) was rejected before a provider result:
+
+```text
+V2_CANARY_3B_ATTEMPTED = 1/6
+V2_CANARY_3B_SCHEMA_PASS = 0/1
+V2_CANARY_3B_HTTP_STATUS = 400
+V2_CANARY_3B_ERROR_CLASS = INVALID_REQUEST
+V2_CANARY_3B_ERROR_CODE = NOT_RETAINED_IN_SAFE_REPORT
+V2_CANARY_8B = NOT_RUN
+FULL_V2_AB_RUN = NOT_COMPLETED
+FULL_SCHEMA_REQUEST = REJECTED_AT_FIRST_3B_CANARY
+V2_PROVIDER_CALLS = 1_DEVELOPER_ONLY
+RAW_PROVIDER_COMPLETIONS_RETAINED = NO
+```
+
+Because the common full schema was rejected on the proven raw path, the gate
+stopped without an unnecessary 8B retry or a 30-case run. This proves the
+current full-schema request is not accepted by the tested 3B live path; it
+does not prove 8B incompatibility, nor does it identify which individual
+schema keyword is responsible. No keyword-reduction experiment was started.
+
+```text
+PROD_START_SHA = 318c57e60d50d33f5f8f7e5ebf9e19a64cc3f40e
+PRODUCTION_MODEL_CHANGED = NO
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
+
+The V2 implementation and this evidence update are synchronized to the
+existing feature branch. `main` remains unchanged. This gate does not
+authorize a Production model switch, schema reduction, deployment, or a new
+provider request.
+
 The live provider transport was available, but the frozen semantic prompt and
 model contract did not meet the full taxonomy evaluator (2/26 strict matches).
 This is a bounded live-validation failure, not permission to relax the
