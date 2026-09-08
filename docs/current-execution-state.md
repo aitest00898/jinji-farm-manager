@@ -2,11 +2,81 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-08-29 (Asia/Taipei)
+Last reviewed: 2026-09-08 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
 to continue a paused gate.
+
+## Recording taxonomy foundation gate — 2026-09-08
+
+This is the latest bounded local engineering update. It does not reopen the
+Ambient/V2 observations, does not authorize live AI, and does not authorize
+Production migration or deployment.
+
+```text
+TASK = SINGLE_AGENT_TAXONOMY_FOUNDATION_GATE
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WEB_REMOTE_MAIN_SHA = 2feca0889125579b0761b6d20955f0f69211c639
+PROD_INITIAL_SHA = 456366af07a8324d8253af22a5bc381d295a9286
+WEB_FEATURE_BRANCH = feat/full-recording-taxonomy-foundation
+PROD_FEATURE_BRANCH = feat/full-recording-taxonomy-foundation
+```
+
+The canonical local taxonomy now covers O1–O9 and A1–A16: 25 category IDs
+and 46 subtypes. The Production branch has a side-effect-free
+`src/recording-taxonomy.ts` registry, strict validator, date/derived-field
+helpers, stock-effect mapping, and fail-closed deterministic parser. The Web
+Lab branch has a browser-safe mirror, existing-domain exposure, and an
+append-only local `actions` overlay. No new three-button portal was added.
+
+An additive, non-executed schema draft is
+`migrations/0038_recording_taxonomy_foundation.sql`. It uses semantic event
+and action families and adds abnormal subtype metadata without converting
+existing V1 rows. Existing Production LINE, Ambient, Queue, Cron, Finance,
+Audit, and official write paths remain unchanged in this gate.
+
+The authored deterministic corpus has 46 full subtype cases plus 15 edge/noise
+cases. Local results are 25/25 categories, 46/46 subtypes, 100% precision,
+100% recall, 0% false positives, 0 field swaps, 0 unsafe field invention,
+100% known-field preservation, and 100% minimum-question accuracy. These are
+deterministic parser metrics, not live AI metrics.
+
+The historical recovery Cron `*/2 * * * *` remains intentionally disabled;
+the configured Ambient and Daily Review schedules were not changed. The
+Production D1 read diagnosis remains blocked at the authentication/access
+boundary: no live schema or row evidence was inferred and no auth refresh was
+performed.
+
+Local full Production TypeScript/Vitest regression passed with `65 test files,
+753 passed, 11 skipped` (764 tests total). The Web Lab host-level
+`npm run test:all` also passed: static, 16 unit, 30 integration, finance
+Chromium/WebKit, workflow actionlint v1.7.7, Chromium/WebKit E2E, visual, and
+security. The visual matrix had zero overflow and zero pixel diff at the
+mobile and desktop reference sizes; browser runs reported zero console/page
+errors and zero unexpected requests. An earlier sandbox-only run hit the
+local Finance server timeout and actionlint proxy/DNS limitation; the
+host-level rerun resolved those execution-environment limitations without
+changing source behavior.
+
+```text
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED = NO
+REAL_LINE_PUSH = 0
+QUEUE_WRITES = 0
+WORKERS_AI_CALLS = 0
+CRON_CHANGED = NO
+MODEL_CHANGED = NO
+```
+
+The bounded contract and recovery ablation remain available at
+`/tmp/RECORDING_TAXONOMY_CONTRACT.md` and
+`/tmp/RECOVERY_COST_NECESSITY_ABLATION.md` for this local session. Future
+work still requires a separate decision for schema migration/runtime wiring,
+full taxonomy live-AI evaluation, real LINE shadow acceptance, and any Web
+Production integration.
 
 ## Current status
 
