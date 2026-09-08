@@ -8,7 +8,7 @@ import {
   discoverAmbientSemanticEvalAuth,
 } from "./ambient-semantic-eval-auth.mjs";
 
-const MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const args = process.argv.slice(2);
 const singleD05 = args.includes("--d05-only");
 const MAX_CALLS = singleD05 ? 1 : 3;

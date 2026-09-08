@@ -2283,6 +2283,150 @@ QUEUE_WRITES = 0
 CRON_CHANGED = NO
 MODEL_CHANGED = NO
 RECOVERY_CRON_REMAINS_DISABLED = YES
+
+## 8B Production model migration verification gate — 2026-09-08
+
+This section is the current state for the explicitly authorized feature-branch
+model migration gate. It supersedes the earlier development model freeze only
+for this branch's verified source handoff. It does not represent a
+Production deployment.
+
+```text
+REPOSITORY = aitest00898/jinji-farm-manager
+BRANCH = feat/full-recording-taxonomy-foundation
+PROD_START_SHA = 0fcc13de306faf9ccdab526f99eafa7f1ff8c984
+PRE_SWITCH_PRODUCTION_MODEL = @cf/meta/llama-3.2-3b-instruct
+TARGET_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+FREE_ONLY_REQUIREMENT = ENFORCED
+PAID_PLAN_ALLOWED = NO
+PAID_ONLY_MODEL_ALLOWED = NO
+OVERAGE_BILLING_ALLOWED = NO
+```
+
+### Official model and JSON Mode evidence
+
+The current Cloudflare catalogue documents both models. The 3B model has an
+80,000-token context window; 8B-fast has a 128,000-token context window. The
+current JSON Mode supported-model list includes 8B-fast and does not list the
+3B model. JSON Mode does not support streaming, while regular text streaming
+is separately supported for both model pages.
+
+- [Cloudflare JSON Mode](https://developers.cloudflare.com/workers-ai/features/json-mode/)
+- [Llama 3.1 8B Instruct Fast](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fast/)
+- [Llama 3.2 3B Instruct](https://developers.cloudflare.com/workers-ai/models/llama-3.2-3b-instruct/)
+- [Workers AI models catalogue](https://developers.cloudflare.com/workers-ai/models/)
+
+```text
+OFFICIAL_3B_MODEL_EXISTS = YES
+OFFICIAL_8B_FAST_MODEL_EXISTS = YES
+OFFICIAL_8B_FAST_DEPRECATED = NO
+JSON_MODE_3B_OFFICIALLY_LISTED = NO
+JSON_MODE_8B_FAST_OFFICIALLY_LISTED = YES
+JSON_MODE_STREAMING_SUPPORTED = NO
+REGULAR_TEXT_STREAMING_SUPPORTED = YES_FOR_BOTH
+```
+
+Previously recorded developer-only 8B bounded JSON Mode evidence is reused:
+S0-S4 passed, S5 was rejected with HTTP 400 / error 8007, and S6-S7 were not
+run. That evidence proves a bounded 8B JSON Mode request path, not full
+StructuredAnalysis compatibility. No new Workers AI call was made in this
+gate.
+
+```text
+PREVIOUS_8B_BOUNDED_JSON_MODE = S0_S4_PASS; S5_HTTP_400_ERROR_8007; S6_S7_NOT_RUN
+DEVELOPER_CANARY_RUN = NOT_NEEDED_PRIOR_EVIDENCE_REUSED
+DEVELOPER_CANARY_HTTP = NOT_RUN
+WORKERS_AI_CALLS = 0
+8B_BOUNDED_JSON_MODE_COMPATIBILITY = PROVEN_S0_S4_ONLY
+8B_FULL_SCHEMA_COMPATIBILITY = NOT_PROVEN
+```
+
+### Routing decision and scope
+
+The canonical `PRODUCTION_AI_MODEL` now points to 8B-fast on this feature
+branch. Analysis, daily brief, abnormal classification, Ambient semantic
+defaults, Conversation legacy/V2 fallback, and current V2.2 production-
+following defaults use that canonical value. The Wrangler `CONVERSATION_MODEL`
+3B override was removed from the feature configuration; an explicit runtime
+override remains supported by the existing code path.
+
+| Route | Feature-branch model after this gate | Decision |
+| --- | --- | --- |
+| Analysis / daily brief / abnormal classification | canonical `PRODUCTION_AI_MODEL` = 8B-fast | switched |
+| Ambient V1/manual/scheduled/background semantic path | `SEMANTIC_AI_MODEL = PRODUCTION_AI_MODEL` | switched |
+| Conversation V2 | explicit `env.CONVERSATION_MODEL`, otherwise canonical 8B-fast | stale config override removed |
+| Legacy conversational path | canonical 8B-fast | switched |
+| V2.2 Shadow / production-following helpers | 8B-fast defaults | switched |
+| V2.2 parity worker | frozen 3B | intentionally unchanged; developer-only historical parity |
+| Full-taxonomy A/B benchmark | explicit frozen `MODEL_3B` and `MODEL_8B` | intentionally unchanged |
+
+```text
+SWITCH_SCOPE = canonical default + semantic alias + remove feature-config Conversation 3B override + current reusable developer-wrapper defaults
+GLOBAL_MODEL_BLAST_RADIUS_AVOIDED = YES
+JSON_MODE_STREAM_CONFLICT = 0
+```
+
+Historical 3B identity remains available only where it is part of a frozen
+comparison contract: `BENCHMARK_MODEL_3B`, `MODEL_3B` in the full-taxonomy
+benchmark, and `AMBIENT_V2_2_PARITY_MODEL`. Historical fixtures and reports
+were not rewritten. The benchmark runner now labels 3B as the historical
+pre-migration baseline and 8B-fast as the current model.
+
+### Compatibility review
+
+```text
+INPUT_PARAMETER_COMPATIBILITY = PASS
+```
+
+Current AI calls use `messages`, bounded `max_tokens`, and `temperature`; no
+new provider-specific parameter was introduced. Structured-output paths use
+`response_format` with `stream:false`; no current structured request combines
+JSON Mode with streaming. The local strict validator and failure-closed
+boundary remain unchanged.
+
+The official context limits are larger for 8B-fast than for 3B. Current source
+shapes bound analysis questions, Ambient relevance, selected source-reference
+counts, and Conversation memory/candidate fields. Raw incoming Conversation
+text has no application-level source-code length cap, so arbitrary oversized
+input is not formally proven safe merely from the model catalogue.
+
+```text
+CONTEXT_LIMIT_COMPATIBILITY = PASS_FOR_OBSERVED_CURRENT_REQUEST_SHAPES
+NO_CURRENT_REQUEST_EXCEEDS_8B_LIMIT = NOT_OBSERVED; ARBITRARY_RAW_INPUT_BOUND_NOT_FORMALLY_PROVEN
+```
+
+This is a documented assurance caveat, not evidence of a current overflowing
+request, and no silent truncation was added in this gate.
+
+### Verification and boundary
+
+```text
+MODEL_ROUTING_TESTS = PASS
+TARGETED_TESTS = 12 files; 162 passed; 1 skipped (163 total)
+PROD_CHECK = PASS (tsc --noEmit; git diff --check)
+PROD_FULL_TESTS = PASS (71 files; 800 passed; 11 skipped; 811 total)
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+PRODUCTION_MODEL_CURRENT_LIVE_STATE = STILL_3B_UNTIL_DEPLOYMENT
+PRODUCTION_DEPLOYED = NO
+MIGRATION_EXECUTED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
+
+The source change is limited to the canonical model/routing defaults, removal
+of the stale feature-config Conversation override, reusable developer-wrapper
+defaults, benchmark identity labeling, and corresponding tests. No Prompt,
+validator/schema acceptance, response-format contract, model-specific
+fallback, Production data, binding, secret, Cron, or deployment was changed.
+
+The migration gate is complete on the feature branch once the verified commit
+is pushed. `READY_FOR_8B_PRODUCTION_DEPLOYMENT_REVIEW = YES` means only that a
+separate explicit L3 deployment review may be considered; it does not authorize
+deployment or a Production AI request.
 ```
 
 ## Multi-track convergence gate — 2026-09-08
@@ -2887,3 +3031,61 @@ QUEUE_WRITES = 0
 CRON_CHANGED = NO
 RECOVERY_CRON_REMAINS_DISABLED = YES
 ```
+
+## Authoritative latest state — 8B Production model migration gate — 2026-09-08
+
+This is the latest state entry in this file and supersedes earlier same-day
+model-routing snapshots that describe the pre-switch source. The switch is
+implemented only on the feature branch until the commit is pushed and reviewed;
+Production remains on 3B until a separate explicit L3 deployment.
+
+```text
+TASK_RESULT = PASS
+BRANCH = feat/full-recording-taxonomy-foundation
+START_HEAD = 0fcc13de306faf9ccdab526f99eafa7f1ff8c984
+FINAL_HANDOFF_HEAD = PENDING_COMMIT
+PRE_SWITCH_PRODUCTION_MODEL = @cf/meta/llama-3.2-3b-instruct
+TARGET_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+FEATURE_BRANCH_MODEL_SWITCH = IMPLEMENTED_LOCAL_PENDING_PUSH
+OFFICIAL_8B_FAST_DEPRECATED = NO
+JSON_MODE_8B_FAST_OFFICIALLY_LISTED = YES
+JSON_MODE_3B_OFFICIALLY_LISTED = NO
+JSON_MODE_STREAMING_SUPPORTED = NO
+INPUT_PARAMETER_COMPATIBILITY = PASS
+CONTEXT_LIMIT_COMPATIBILITY = PASS_FOR_OBSERVED_CURRENT_REQUEST_SHAPES
+NO_CURRENT_REQUEST_EXCEEDS_8B_LIMIT = NOT_OBSERVED; ARBITRARY_RAW_INPUT_BOUND_NOT_FORMALLY_PROVEN
+JSON_MODE_STREAM_CONFLICT = 0
+8B_BOUNDED_JSON_MODE_COMPATIBILITY = PROVEN_S0_S4_ONLY
+8B_FULL_SCHEMA_COMPATIBILITY = NOT_PROVEN
+DEVELOPER_CANARY_RUN = NOT_NEEDED_PRIOR_EVIDENCE_REUSED
+WORKERS_AI_CALLS = 0
+MODEL_ROUTING_TESTS = PASS
+TARGETED_TESTS = 12 files; 162 passed; 1 skipped (163 total)
+PROD_FULL_TESTS = PASS (71 files; 800 passed; 11 skipped; 811 total)
+PRODUCTION_MODEL_CURRENT_LIVE_STATE = STILL_3B_UNTIL_DEPLOYMENT
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+PAID_PLAN_ALLOWED = NO
+OVERAGE_BILLING_ALLOWED = NO
+MAIN_UNCHANGED = YES
+GITHUB_HANDOFF = PENDING_PUSH
+READY_FOR_8B_PRODUCTION_DEPLOYMENT_REVIEW = YES_SEPARATE_EXPLICIT_L3_REQUIRED
+```
+
+The current default routing is analysis/daily brief/abnormal classification,
+Ambient semantic defaults, legacy Conversation, Conversation V2 fallback, and
+V2.2 production-following helpers to 8B-fast. The frozen V2.2 parity lane and
+full-taxonomy A/B benchmark retain explicit 3B historical identity. No Prompt,
+schema/validator acceptance, response-format contract, binding, secret,
+Production data, deployment, migration, LINE, Queue, or Cron was changed.
+
+Official references: [Cloudflare JSON Mode](https://developers.cloudflare.com/workers-ai/features/json-mode/),
+[Llama 3.1 8B Instruct Fast](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fast/),
+and [Llama 3.2 3B Instruct](https://developers.cloudflare.com/workers-ai/models/llama-3.2-3b-instruct/).

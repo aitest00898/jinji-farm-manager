@@ -6,7 +6,7 @@ import {
 import { taipeiDate } from "./master-data";
 import { extractJsonValue } from "./ai-json";
 
-export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 export const ANALYSIS_TOOL_NAMES = [
   "get_farm_summary",

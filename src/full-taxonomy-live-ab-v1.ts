@@ -1171,9 +1171,13 @@ export function compareFullTaxonomyEvaluations(
 }
 
 export function modelIsolationEvidence(productionModel: string = MODEL_3B): { productionModel: string; benchmarkModels: readonly string[]; isolationPass: boolean } {
+  const benchmarkIdentityPreserved = BENCHMARK_MODELS.length === 2
+    && BENCHMARK_MODELS[0] === MODEL_3B
+    && BENCHMARK_MODELS[1] === MODEL_8B
+    && new Set(BENCHMARK_MODELS).size === BENCHMARK_MODELS.length;
   return {
     productionModel,
     benchmarkModels: BENCHMARK_MODELS,
-    isolationPass: productionModel === MODEL_3B && String(MODEL_8B) !== productionModel,
+    isolationPass: benchmarkIdentityPreserved && BENCHMARK_MODELS.includes(productionModel as BenchmarkModel),
   };
 }

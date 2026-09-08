@@ -4087,9 +4087,14 @@ function naturalLanguageFallbackReply(accountName: string): string {
   ].join("\n");
 }
 
-const SEMANTIC_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+// Keep all current semantic/ambient Production defaults on the canonical
+// model. The historical 3B comparator below is developer-only and is not a
+// Production routing default.
+const SEMANTIC_AI_MODEL = PRODUCTION_AI_MODEL;
+const BENCHMARK_MODEL_3B = "@cf/meta/llama-3.2-3b-instruct";
 const BENCHMARK_MODEL_ALLOWLIST = new Set([
   SEMANTIC_AI_MODEL,
+  BENCHMARK_MODEL_3B,
   "@cf/zai-org/glm-4.7-flash",
   "@cf/google/gemma-4-26b-a4b-it",
   "@cf/nvidia/nemotron-3-120b-a12b",
@@ -4171,7 +4176,8 @@ async function parseSemanticWithAiModel(
         { role: "system", content: prompt },
         { role: "user", content: input },
       ],
-      // @cf/meta/llama-3.2-3b-instruct does not use Workers AI
+      // The Production semantic path uses prompt-constrained JSON plus local
+      // validation; this remains independent of the model's JSON Mode support.
       // response_format/json_schema. The prompt plus parseAiUnifiedIntent
       // provide the bounded JSON contract and local validation.
       max_tokens: 320,

@@ -2,7 +2,7 @@ const workerUrl = process.env.RUNTIME_WORKER_URL ?? "https://chicken-line-produc
 const runtimeToken = process.env.RUNTIME_TEST_TOKEN;
 const runPrefix = process.env.RUNTIME_RUN_ID ?? `codex-runtime-${Date.now().toString(36)}`;
 const userId = `${runPrefix}-user`;
-const aiModel = "@cf/meta/llama-3.2-3b-instruct";
+const aiModel = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 if (!runtimeToken) {
   console.error("RUNTIME_TEST_TOKEN is required");

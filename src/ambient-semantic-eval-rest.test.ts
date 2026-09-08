@@ -19,7 +19,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
   it("forwards the exact Production input shape and only returns bounded metadata", async () => {
     const fetchImpl = okFetch();
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
     });
@@ -48,7 +48,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
       { status: 403, headers: { "content-type": "application/json" } },
     ));
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token,
       fetchImpl,
     });
@@ -74,7 +74,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
   it("enforces the nine-call hard limit before a tenth network call", async () => {
     const fetchImpl = okFetch();
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
     });
@@ -88,7 +88,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
   it("supports a smaller developer-only call limit for schema micro diagnostics", async () => {
     const fetchImpl = okFetch();
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
       maxCalls: 3,
@@ -103,7 +103,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
   it("rejects a non-Production model without making a provider call", async () => {
     const fetchImpl = okFetch();
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
     });
@@ -135,7 +135,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
       });
       const fetchImpl = vi.fn(async () => { throw error; });
       const adapter = new DirectWorkersAiRestAdapter({
-        endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+        endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
         token: "test-token-not-a-real-secret",
         fetchImpl,
       });
@@ -160,7 +160,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
     });
     const fetchImpl = vi.fn(async () => { throw error; });
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+        endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
     });
@@ -182,7 +182,7 @@ describe("Direct Workers AI REST semantic-eval adapter", () => {
       init?.signal?.addEventListener("abort", () => reject(new Error("synthetic timeout detail")), { once: true });
     }));
     const adapter = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "test-token-not-a-real-secret",
       fetchImpl,
       timeoutMs: 5,

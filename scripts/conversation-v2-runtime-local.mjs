@@ -151,7 +151,6 @@ async function main() {
     "wrangler", "dev", "--local", "--port", String(port),
     "--var", `RUNTIME_TEST_TOKEN:${token}`,
     "--var", "CONVERSATION_V2_MODE:test_farm",
-    "--var", "CONVERSATION_MODEL:@cf/meta/llama-3.2-3b-instruct",
     "--var", "LINE_CHANNEL_SECRET:local-only-secret",
     "--var", "LINE_CHANNEL_ACCESS_TOKEN:local-only-token",
   ], { stdio: "ignore" });

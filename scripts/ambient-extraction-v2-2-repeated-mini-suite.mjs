@@ -9,7 +9,7 @@ import {
   discoverAmbientSemanticEvalAuth,
 } from "./ambient-semantic-eval-auth.mjs";
 
-const MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const MAX_PROVIDER_CALLS = 9;
 const projectRoot = process.cwd();
 const args = process.argv.slice(2);

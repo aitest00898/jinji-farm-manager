@@ -8,7 +8,7 @@ import {
   discoverAmbientSemanticEvalAuth,
 } from "./ambient-semantic-eval-auth.mjs";
 
-const MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const REAL_MODEL_CALL_LIMIT = 9;
 const args = process.argv.slice(2);
 const realModel = args.includes("--real-model") || process.env.AMBIENT_SEMANTIC_EVAL_REAL_MODEL === "1";

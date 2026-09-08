@@ -6,9 +6,11 @@ const workerUrl = process.env.BENCHMARK_WORKER_URL ?? "https://chicken-line-prod
 const runtimeToken = process.env.RUNTIME_TEST_TOKEN;
 const reportPath = resolve(process.cwd(), "AI_MODEL_BENCHMARK.md");
 const datasetPath = resolve(process.cwd(), "benchmarks/semantic-golden.json");
-const currentModel = "@cf/meta/llama-3.2-3b-instruct";
+const currentModel = "@cf/meta/llama-3.1-8b-instruct-fast";
+const historicalBaselineModel = "@cf/meta/llama-3.2-3b-instruct";
 const candidateModels = [...new Set([
   currentModel,
+  historicalBaselineModel,
   "@cf/zai-org/glm-4.7-flash",
   "@cf/google/gemma-4-26b-a4b-it",
   "@cf/nvidia/nemotron-3-120b-a12b",
@@ -259,6 +261,7 @@ lines.push(
   "## Recommendations",
   "",
   `- Current production model: ${currentModel}`,
+  `- Historical pre-migration baseline: ${historicalBaselineModel}`,
   `- Best overall: ${best("overall")}`,
   `- Best safety: ${best("safety")}`,
   `- Best Chinese semantic proxy (farm + intent + quantity): ${best("farm")}`,

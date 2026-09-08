@@ -3,6 +3,7 @@ import { mkdtemp as mkdtempAsync } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { discoverAmbientSemanticEvalAuth } from "./ambient-semantic-eval-auth";
+import { PRODUCTION_AI_MODEL } from "./analysis";
 import {
   runAmbientExtractionV2RealSmoke,
   type AmbientV2RealSmokeFixture,
@@ -133,7 +134,7 @@ describe("Ambient Extraction V2 real-smoke runner", () => {
       runLimit: 5,
     });
     console.log(`AMBIENT_V2_REAL_SMOKE_SAFE_JSON=${JSON.stringify(report)}`);
-    expect(report.model).toBe("@cf/meta/llama-3.2-3b-instruct");
+    expect(report.model).toBe(PRODUCTION_AI_MODEL);
     expect(report.temperature).toBe(0);
     expect(report.maxTokens).toBe(1536);
     expect(report.peakConcurrency).toBe(1);

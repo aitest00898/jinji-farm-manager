@@ -9,7 +9,7 @@ import {
   discoverAmbientSemanticEvalAuth,
 } from "./ambient-semantic-eval-auth.mjs";
 
-const MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const MAX_PROVIDER_CALLS = 6;
 const projectRoot = process.cwd();
 const markerPrefix = "AMBIENT_V2_2_D07_CONVERGENCE_SAFE_JSON=";

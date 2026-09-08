@@ -10,7 +10,7 @@ import {
 const projectRoot = process.cwd();
 const args = process.argv.slice(2);
 const markerPrefix = "AMBIENT_V2_STRUCTURED_OUTPUT_GATE_REPORT=";
-const model = "@cf/meta/llama-3.2-3b-instruct";
+const model = "@cf/meta/llama-3.1-8b-instruct-fast";
 function fail(code) {
   console.error(code);
   process.exitCode = 2;

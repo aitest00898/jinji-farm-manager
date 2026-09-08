@@ -228,7 +228,7 @@ describe("Ambient V2.2 D07 convergence gate", () => {
     const fixture = loadFixture();
     const result = await runAmbientV2_2D07Convergence({
       endpoint: process.env.AMBIENT_V2_2_D07_CONVERGENCE_ENDPOINT
-        || `https://api.cloudflare.com/client/v4/accounts/${account.value}/ai/run/@cf/meta/llama-3.2-3b-instruct`,
+        || `https://api.cloudflare.com/client/v4/accounts/${account.value}/ai/run/@cf/meta/llama-3.1-8b-instruct-fast`,
       token: auth.auth.token,
       ledgerPath,
       experimentId,
