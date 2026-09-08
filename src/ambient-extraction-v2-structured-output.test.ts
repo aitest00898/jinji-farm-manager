@@ -148,7 +148,7 @@ describe("Ambient V2 structured-output developer boundary", () => {
       }), { status: 200, headers: { "content-type": "application/json" } });
     });
     const direct = new DirectWorkersAiRestAdapter({
-      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct",
+      endpoint: "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast",
       token: "fixture-token-not-a-secret",
       fetchImpl,
     });
@@ -383,7 +383,7 @@ describe("Ambient V2 structured-output developer boundary", () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(requestUrl).toContain("/ai/models/schema?model=%40cf%2Fmeta%2Fllama-3.2-3b-instruct");
+    expect(requestUrl).toContain("/ai/models/schema?model=%40cf%2Fmeta%2Fllama-3.1-8b-instruct-fast");
     expect(audit).toMatchObject({
       httpStatus: 200,
       cloudflareSuccess: true,

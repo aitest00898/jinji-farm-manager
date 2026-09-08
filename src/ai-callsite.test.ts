@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
+import { PRODUCTION_AI_MODEL } from "./analysis";
 
 const sourceRoot = resolve(import.meta.dirname);
 
@@ -12,11 +13,17 @@ describe("Workers AI call-site compatibility", () => {
     expect(source).not.toMatch(/json_schema\s*:/u);
   });
 
-  it("keeps all known production AI paths on the pinned model", () => {
+  it("keeps all known production AI paths on the approved canonical model", () => {
     const files = ["ambient.ts", "analysis.ts", "index.ts", "semantic.ts", "conversational-agent.ts", "conversation-v2.ts"];
     const source = files.map((file) => readFileSync(resolve(sourceRoot, file), "utf8")).join("\n");
-    expect(source).toContain("@cf/meta/llama-3.2-3b-instruct");
+    expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.1-8b-instruct-fast");
+    expect(source).toContain(PRODUCTION_AI_MODEL);
     expect(source).not.toMatch(/env\.AI\.run\([^\n]+,\s*\{[^}]*write/isu);
+  });
+
+  it("pins the Production Conversation override to the approved model", () => {
+    const config = JSON.parse(readFileSync(resolve(sourceRoot, "../wrangler.jsonc"), "utf8")) as { vars?: Record<string, unknown> };
+    expect(config.vars?.CONVERSATION_MODEL).toBe(PRODUCTION_AI_MODEL);
   });
 
   it("keeps the complete production AI invocation inventory explicit", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PRODUCTION_AI_MODEL } from "./analysis";
 import {
   classifyConversationalGoalWithAi,
   CONVERSATIONAL_TOOL_ALLOWLIST,
@@ -63,8 +64,9 @@ describe("bounded conversational agent routing", () => {
   });
 
   it("uses the current model without an unsupported response format", async () => {
-    const run = vi.fn(async (_model: string, input: Record<string, unknown>) => {
+    const run = vi.fn(async (model: string, input: Record<string, unknown>) => {
       expect(input).not.toHaveProperty("response_format");
+      expect(model).toBe(PRODUCTION_AI_MODEL);
       return { response: '{"goal":"EXPLAIN","target":"candidate","field":null,"value":null,"confidence":0.8}' };
     });
     const result = await classifyConversationalGoalWithAi(

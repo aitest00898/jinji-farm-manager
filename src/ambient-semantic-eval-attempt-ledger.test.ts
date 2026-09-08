@@ -15,7 +15,7 @@ import {
 } from "./ambient-semantic-eval-attempt-ledger";
 import { DirectWorkersAiRestAdapter } from "./ambient-semantic-eval-rest";
 
-const endpoint = "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-3b-instruct";
+const endpoint = "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.1-8b-instruct-fast";
 const token = "test-token-not-a-real-secret";
 const input = {
   messages: [{ role: "system" as const, content: "system" }, { role: "user" as const, content: "user" }],

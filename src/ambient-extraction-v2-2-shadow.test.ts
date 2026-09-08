@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { PRODUCTION_AI_MODEL } from "./analysis";
 import { runProductionAmbientExtraction } from "./index";
 import {
   AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST_ENV,
@@ -164,11 +165,12 @@ describe("Ambient V2.2 test-group Shadow", () => {
   });
 
   it("keeps D04 deterministic cull and invokes the residual AI seam once", async () => {
-    const run = vi.fn(async (_model: string, input: Record<string, unknown>) => {
+    const run = vi.fn(async (model: string, input: Record<string, unknown>) => {
       expect(input.response_format).toEqual(AMBIENT_V2_2_STRUCTURED_RESPONSE_FORMAT);
       expect(input.max_tokens).toBe(1536);
       expect(input.temperature).toBe(0);
       expect(input.stream).toBe(false);
+      expect(model).toBe(PRODUCTION_AI_MODEL);
       return providerResponse({
         operations: [],
         abnormalities: [{ detail: "腳傷", quantity: null }],

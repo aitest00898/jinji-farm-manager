@@ -4062,7 +4062,7 @@ function naturalLanguageFallbackReply(accountName: string): string {
   ].join("\n");
 }
 
-const SEMANTIC_AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const SEMANTIC_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const BENCHMARK_MODEL_ALLOWLIST = new Set([
   SEMANTIC_AI_MODEL,
   "@cf/zai-org/glm-4.7-flash",

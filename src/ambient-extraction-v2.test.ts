@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PRODUCTION_AI_MODEL } from "./analysis";
 import { FarmResolver } from "./farm-resolver";
 import { AmbientV2DirectRestAdapter } from "./ambient-extraction-v2-rest";
 import {
@@ -252,7 +253,7 @@ describe("Ambient Extraction V2 frozen specification", () => {
     await adapter.run(buildAmbientV2Request({ safeRef: "D03", sourceIdentity: "safe", text: "synthetic" }), { safeRef: "D03" });
     const capturedCall = captured as { model: string; input: Record<string, unknown> } | null;
     expect(capturedCall).toMatchObject({
-      model: "@cf/meta/llama-3.2-3b-instruct",
+      model: PRODUCTION_AI_MODEL,
       input: { max_tokens: 1536, temperature: 0 },
     });
     expect((capturedCall?.input as { messages?: unknown[] }).messages).toHaveLength(2);

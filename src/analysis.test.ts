@@ -49,7 +49,7 @@ describe("read-only AI analysis boundary", () => {
     expect(report?.possibleCauses[0]?.text).toBe("NT$429338.6 的淨收入");
   });
 
-  it("keeps the production model unchanged", () => {
-    expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.2-3b-instruct");
+  it("uses the approved 8B-fast Production default", () => {
+    expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.1-8b-instruct-fast");
   });
 });
