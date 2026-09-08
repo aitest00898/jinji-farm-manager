@@ -2374,3 +2374,151 @@ for the requested 8B model. It does not prove an 8B semantic score. A future
 comparison requires preserving or re-establishing the exact 26-case set,
 prompt/builders, schema/response contract, preprocessing, evaluator, and
 harness at one immutable source SHA before changing only the model variable.
+
+## Reproducible full-taxonomy 3B vs 8B model A/B benchmark — 2026-09-08
+
+This is a new reproducible benchmark and is not a replay or reinterpretation
+of the historical `3B = 2/26` result. The historical result remains preserved
+above as historical-only evidence. The new benchmark cases, frozen expected
+facts, prompt builder, prompt-visible schema, strict evaluator, preprocessor
+specification, and single-agent direct-REST runner are permanently retained in
+the feature branch. Ground Truth was authored before either provider run and
+was not changed after the first call.
+
+```text
+TASK = SINGLE_AGENT_REPRODUCIBLE_3B_VS_8B_FULL_TAXONOMY_MODEL_AB_BENCHMARK
+BENCHMARK_VERSION = FULL_TAXONOMY_LIVE_AB_V1
+BENCHMARK_CASES = 30
+CASE_DISTRIBUTION = operational_event:6, operational_action:6, operational_observation:6, missing_information:4, multi_fact_correction_contextual:4, negative_control:4
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+
+SOURCE_SHA_BEFORE_LIVE_RUN = 165407b290a9ac5c5280e8d4728bc03245bb45b6
+CASE_SET_HASH = 0a992a19f352bd3d7ba78ae207091f82e949e7a9ca072c64bb3064e413bb50d5
+PROMPT_HASH = 8f2ab48b192da0dc23ff6621ffa439e95929f8733eb22931ef3f62e88bcb38c0
+SCHEMA_HASH = 6cee535aebef33e4c955baa28aee5b5b7b659ae92e7d1baaa876a3b07119b2f0
+EVALUATOR_HASH = 0e0a910f22d005959b3a70ee6fe404a0910f694b8976001312842d0003532c4c
+PREPROCESSOR_HASH = 7d2076379baea27eab05bdc236b99c0c64d83dcbbf1824c3f5f9f8f781e76fed
+HARNESS_HASH = 3413d90248e2f37b26820827049b0822275459e80b629ffe95fc1a0ae3619548
+ONLY_MODEL_VARIABLE_CHANGED = PASS
+REQUEST_CONTRACT = prompt_only_json; max_tokens:800; temperature:0; one case per request; concurrency:1; retries:0
+ENDPOINT_FORM = raw_slash_separated_model_path
+
+MODEL_3B = @cf/meta/llama-3.2-3b-instruct
+MODEL_8B = @cf/meta/llama-3.1-8b-instruct-fast
+3B_PROVIDER_CALLS = 30
+8B_PROVIDER_CALLS = 30
+3B_HTTP_200 = 30
+8B_HTTP_200 = 30
+3B_PROVIDER_RUN = COMPLETED_30_CASES
+8B_PROVIDER_RUN = COMPLETED_30_CASES
+REAL_WORKERS_AI_CALLS = 60_DEVELOPER_ONLY
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+RAW_PROVIDER_COMPLETIONS_RETAINED = NO
+SAFE_USAGE_COST_METADATA = NOT_CAPTURED
+COST_COMPARISON = NOT_MEASURED
+```
+
+The request transport was available for all 60 calls. `HTTP 200` here means
+the provider returned a successful transport envelope; it does not mean the
+model output passed the local contract.
+
+```text
+METRIC                                  3B       8B
+STRICT_EXACT_MATCH                      0/30     0/30
+RECORD_WORTHINESS_PRECISION             0        0
+RECORD_WORTHINESS_RECALL                0        0
+TAXONOMY_PRECISION                      0        0
+TAXONOMY_RECALL                         0        0
+FAMILY_ACCURACY                         0        0
+SUBTYPE_ACCURACY                        0        0
+FIELD_PRECISION                         0        0
+FIELD_RECALL                            0        0
+FIELD_VALUE_ACCURACY                    0        0
+FIELD_SWAP_ERRORS                       0        0
+UNSAFE_FIELD_INVENTION                  9        0
+KNOWN_FIELD_PRESERVATION                0        0
+MISSING_FIELD_DETECTION                 0        0
+MINIMUM_QUESTION_ACCURACY               0        0
+MULTI_FACT_SPLIT_ACCURACY               0        0
+FACT_FUSION_ERRORS                      0        0
+EXTRA_FACT_ERRORS                       0        0
+QUANTITY_CROSS_FACT_CONTAMINATION       0        0
+FALSE_POSITIVE_RATE                     0.25     0
+FALSE_NEGATIVE_RATE                     1        1
+QUESTION_AS_FACT_ERRORS                 1        0
+HYPOTHETICAL_AS_FACT_ERRORS             0        0
+NEGATION_AS_FACT_ERRORS                 0        0
+CORRECTION_AS_NEW_EVENT_ERRORS          0        0
+SCHEMA_VALIDATION_FAILURES              29       29
+JSON_INVALID_CASES                      0        8
+```
+
+Both models therefore failed the full semantic contract on this bounded
+corpus. 8B has one observed safety improvement (`N01-question`) and no
+observed false positive in the four negative controls, but it has eight JSON
+parse failures and no improvement in exact taxonomy, family, subtype, or field
+metrics. The result does not justify a Production model switch and does not
+prove either model's global capability.
+
+```text
+CASE_ID                         3B_EXACT  8B_EXACT  3B_TAX  8B_TAX  3B_FIELD  8B_FIELD  3B_SAFETY  8B_SAFETY  DELTA
+E01-chick-in                    NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+E02-shipment                    NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+E03-weigh                       NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+E04-mortality                   NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+E05-cull                        NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+E06-shipment-colloquial         NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A01-vaccination                 NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A02-medication                  NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A03-feed-order                  NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A04-lab-test                    NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A05-disinfection                NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+A06-maintenance                 NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O01-cough                       NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O02-white-crown                NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O03-green-droppings            NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O04-foot-odor                  NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O05-heat-stress                NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+O06-fan-failure                NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+M01-mortality-missing-quantity NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+M02-appearance-ambiguous       NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+M03-equipment-ambiguous        NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+M04-completed-lab-missing-result NO      NO        0       0       0         0         0           0           EQUAL_FAIL
+C01-mortality-and-cough        NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+C02-correction                 NO        NO        0       0       1         1         0           0           EQUAL_FAIL
+C03-contextual-appearance      NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+C04-two-observations           NO        NO        0       0       0         0         0           0           EQUAL_FAIL
+N01-question                   NO        NO        0       0       0         1         1           0           8B_BETTER
+N02-hypothetical               NO        NO        0       0       1         1         0           0           EQUAL_FAIL
+N03-negation                   NO        NO        0       0       1         1         0           0           EQUAL_FAIL
+N04-casual-chat                NO        NO        0       0       1         1         0           0           EQUAL_FAIL
+```
+
+```text
+IMPROVED_CASES = 1 (N01-question)
+REGRESSED_CASES = 0
+EQUAL_PASS = 0
+EQUAL_FAIL = 29
+MODEL_CAPABILITY_MATTERS = NO_CLEAR_DIFFERENCE
+PRODUCT_RECOMMENDATION = KEEP_3B_FOR_CURRENT_PRODUCTION; DO_NOT_SWITCH_FOR_FULL_TAXONOMY
+```
+
+The benchmark is an engineering comparison on 30 authored cases, not a
+statistical or global model ranking. It does not alter Production routing and
+does not implement a Hybrid design. The benchmark code itself passed the
+full local regression before live inference: 69 test files, 778 passed, 11
+skipped. No Production deployment, D1 read/write, migration, LINE send,
+Queue write, Cron change, or recovery activation occurred.
+
+```text
+PRODUCTION_AI_MODEL_UNCHANGED = YES
+PRODUCTION_DEPLOYED = NO
+MIGRATION_EXECUTED = NO
+LINE_SEND = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
