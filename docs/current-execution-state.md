@@ -2114,7 +2114,9 @@ LIVE_SOURCE_COMMIT_CONFIDENCE = HIGH_NOT_CRYPTOGRAPHICALLY_PROVEN
 FEATURE_BRANCH_HAS_UNRELEASED_NON_MODEL_CHANGES = YES
 RELEASE_BRANCH = release/production-8b-model-switch-20260908
 RELEASE_BASE_SHA = 456366af07a8324d8253af22a5bc381d295a9286
-RELEASE_CANDIDATE_SHA = 85de414
+RELEASE_CODE_SHA = 85de414b2b453fb439988527026822573e3158a5
+RELEASE_CANDIDATE_SHA = 5582c84ee592750cb8d6f1377c026fd4fc9acfb2
+RELEASE_REMOTE_SHA = 5582c84ee592750cb8d6f1377c026fd4fc9acfb2
 PRE_DEPLOY_MODEL = @cf/meta/llama-3.2-3b-instruct
 TARGET_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
 MODEL_ONLY_RUNTIME_DIFF = YES
@@ -2130,11 +2132,17 @@ DRY_RUN = PASS
 RELEASE_TESTS = npm run check; 64 files passed; 745 passed; 11 skipped
 ROLLBACK_TARGET_CAPTURED = 9742faa8-dfbe-4b1e-9af1-1c81ed35b594
 ROLLBACK_COMMAND_READY = npx wrangler rollback 9742faa8-dfbe-4b1e-9af1-1c81ed35b594 --name chicken-line-production -y
-DEPLOY_ATTEMPTS = PENDING
-DEPLOY_RESULT = PENDING
-PRODUCTION_8B_CANARY = PENDING
+DEPLOY_ATTEMPTS = 1
+DEPLOY_RESULT = SUCCESS
+POST_DEPLOY_WORKER_VERSION = 031967a5-9429-402e-8db7-9a8559e93f51
+DEPLOYED_SOURCE_SHA = 5582c84ee592750cb8d6f1377c026fd4fc9acfb2
+POST_DEPLOY_HEALTH = HTTP_200
+POST_DEPLOY_READY = HTTP_200
+INFRA_CONFIG_DRIFT = NO
+LIVE_PRODUCTION_MODEL_AFTER_GATE = @cf/meta/llama-3.1-8b-instruct-fast
+PRODUCTION_8B_CANARY = NOT_RUN_OPTIONAL
 PRODUCTION_8B_CANARY_CALLS = 0
-WORKER_DEPLOYMENT = PENDING
+WORKER_DEPLOYMENT = COMPLETED_100_PERCENT
 PAGES_DEPLOYMENT = NOT_DONE
 PRODUCTION_DATA_CHANGED = NO
 PRODUCTION_D1_WRITES = 0
@@ -2150,7 +2158,19 @@ this release does not change the prompt or structured validator. See
 [Cloudflare Workers AI JSON Mode](https://developers.cloudflare.com/workers-ai/features/json-mode/)
 and the [Llama 3.1 8B Instruct Fast model reference](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fast/).
 
-No Production deployment is recorded in this pre-deploy entry. The final live
-version, deployment result, and post-deploy health/ready/config evidence must
-be added here after the single authorized release attempt. A documentation-only
-handoff commit after deployment must not trigger a second deployment.
+The single authorized deployment completed at release-branch HEAD
+`5582c84ee592750cb8d6f1377c026fd4fc9acfb2`. The Worker reported version
+`031967a5-9429-402e-8db7-9a8559e93f51` with 100% traffic and
+`env.CONVERSATION_MODEL = @cf/meta/llama-3.1-8b-instruct-fast`. The deployment
+output retained both configured Ambient/Daily Review schedules, the existing
+Queue producer/consumer, D1 binding, AI binding, handlers, compatibility date,
+and required secret names. Follow-up `/health` and `/ready` checks returned
+HTTP 200; ready reported normal status with zero unfinished, stalled, recent
+reply-problem, and retained counts.
+
+The existing developer-only `/__codex/runtime/ai` path was not used for a
+Production canary because a canary was optional and bounded deployment
+metadata plus health/readiness evidence were already sufficient. Therefore no
+additional Workers AI request was made. No deployment retry or rollback was
+needed. The final post-deploy documentation update is handoff-only and must not
+trigger another deployment.
