@@ -2292,3 +2292,85 @@ taxonomy, validator, Ground Truth, or safety boundary. A future decision is
 needed on whether a separate Free-only full-taxonomy AI contract should be
 designed; no Production AI, D1, LINE, Queue, Cron, or deployment action was
 performed here.
+
+## Single-agent model routing confirmation and exact 3B vs 8B A/B gate — 2026-09-08
+
+This gate audited the current executable model call-sites before any provider
+call. The requested exact A/B replay was not started because the frozen
+26-case harness used for the prior `2/26` result is not present in the current
+repository or its tracked history, and the current source has moved beyond the
+source SHA recorded for that result. The existing deterministic taxonomy corpus
+and Ambient semantic harness are different contracts and were not substituted.
+
+```text
+TASK = SINGLE_AGENT_MODEL_ROUTING_CONFIRMATION_EXACT_3B_VS_8B_FULL_TAXONOMY_AB_GATE
+SUBAGENT_DISABLED = YES
+BRANCH = feat/full-recording-taxonomy-foundation
+START_HEAD = dee8c75611e1d0f066549638f84c0948082e384e
+REMOTE_HEAD_BEFORE_UPDATE = dee8c75611e1d0f066549638f84c0948082e384e
+
+PRIOR_3B_RESULT_SOURCE_SHA = 2f59e7fe64380297d36a66e6a7950b2c4d4d280b
+PRIOR_3B_MODEL = @cf/meta/llama-3.2-3b-instruct
+PRIOR_3B_PROVIDER_CALLS = 5
+PRIOR_3B_STRICT_TAXONOMY_MATCH = 2_OF_26
+
+CURRENT_PRODUCTION_GENERAL_MODEL = @cf/meta/llama-3.2-3b-instruct
+CURRENT_ANALYSIS_MODEL = PRODUCTION_AI_MODEL -> @cf/meta/llama-3.2-3b-instruct
+CURRENT_AMBIENT_MODEL = SEMANTIC_AI_MODEL / PRODUCTION_AI_MODEL -> @cf/meta/llama-3.2-3b-instruct
+CURRENT_CONVERSATION_MODEL = CONVERSATION_MODEL override, otherwise @cf/meta/llama-3.2-3b-instruct
+CURRENT_V2_2_SHADOW_MODEL = @cf/meta/llama-3.2-3b-instruct
+CURRENT_V2_2_PARITY_MODEL = @cf/meta/llama-3.2-3b-instruct
+CANDIDATE_8B_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+EIGHT_B_LITERAL_IN_CURRENT_EXECUTABLE_SOURCE = NO
+EIGHT_B_CONFIGURED_CALL_SITE = NO
+
+MODEL_ROUTING_MATRIX =
+  analysis/runReadOnlyAnalysis/generateDailyBrief -> PRODUCTION_AI_MODEL (3B)
+  abnormal classification -> PRODUCTION_AI_MODEL (3B)
+  Ambient V1/manual/scheduled/background semantic extraction -> SEMANTIC_AI_MODEL or PRODUCTION_AI_MODEL (same 3B value)
+  Conversation V2 -> CONVERSATION_MODEL override or PRODUCTION_AI_MODEL (3B default)
+  legacy conversational agent -> PRODUCTION_AI_MODEL (3B)
+  V2.2 shadow -> PRODUCTION_AI_MODEL (3B)
+  V2.2 parity worker -> fixed parity model (3B)
+  full-taxonomy current source -> no AI call site; deterministic golden corpus only
+  developer benchmark endpoint -> explicitly gated allowlist; 8B is not allowlisted
+
+CURRENT_DETERMINISTIC_TAXONOMY_GOLDEN_CASES = 46
+CURRENT_AMBIENT_SEMANTIC_HARNESS_CASES = D03_ALONE, D05_D06, FULL_SELECTED
+CURRENT_EXACT_26_CASE_IDS = NOT_FOUND
+CURRENT_EXACT_26_BATCH_DEFINITION = NOT_FOUND
+CURRENT_EXACT_PROMPT_AND_BUILDERS = NOT_FOUND
+CURRENT_EXACT_SCHEMA_AND_RESPONSE_FORMAT = NOT_FOUND
+CURRENT_EXACT_EVALUATOR = NOT_FOUND
+CURRENT_EXACT_PREPROCESSOR = NOT_FOUND
+CURRENT_EXACT_HARNESS = NOT_FOUND
+
+A_B_COMPARABILITY = BLOCKED_SOURCE_DRIFT
+SOURCE_DRIFT_AFTER_PRIOR_RESULT = YES
+SOURCE_DRIFT_FILES = src/index.ts, src/quick-record.ts, src/recording-runtime-bridge.ts, plus canonical bridge files
+FROZEN_CASE_SET_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+PROMPT_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+SCHEMA_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+EVALUATOR_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+PREPROCESSOR_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+HARNESS_HASH = NOT_COMPUTABLE_EXACT_ARTIFACT_MISSING
+
+8B_A_B_REPLAY = NOT_STARTED_BY_COMPARABILITY_RULE
+8B_PROVIDER_CALLS = 0
+TOTAL_NEW_WORKERS_AI_CALLS = 0
+PRODUCTION_AI_MODEL_UNCHANGED = YES
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+REAL_LINE_PUSH = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MIGRATION_EXECUTED_PRODUCTION = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
+
+The current routing audit proves that no production call-site is configured
+for the requested 8B model. It does not prove an 8B semantic score. A future
+comparison requires preserving or re-establishing the exact 26-case set,
+prompt/builders, schema/response contract, preprocessing, evaluator, and
+harness at one immutable source SHA before changing only the model variable.
