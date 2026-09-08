@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FarmResolver } from "./farm-resolver";
 import {
   buildCanonicalRecordingDraft,
+  canonicalCommandForLegacyOperational,
   canonicalRouteForText,
   persistenceRouteForCanonicalRecord,
   readLegacyAbnormalEvent,
@@ -71,6 +72,46 @@ function representativeRecord(id: string): RecordingDraft {
 }
 
 describe("recording runtime bridge", () => {
+  it("bridges direct, Quick, Pending, and Ambient-confirm-compatible operational writes without relabelling consumption", () => {
+    const command = canonicalCommandForLegacyOperational({
+      id: "operational-line-1",
+      intent: "mortality",
+      quantity: 5,
+      unit: "隻",
+      farmId: "farm-test",
+      houseId: "house-test",
+      flockId: "flock-test",
+      occurredAt: createdAt,
+      createdAt,
+      sourceChannel: "line",
+      sourceMessageId: "line-message-1",
+      rawText: "金雞測試場 測試一舍 死亡5",
+      clientOperationId: "line-event-1",
+      actorId: "line-user-1",
+      confirmedBy: "line-operational",
+    });
+    expect(command).toMatchObject({
+      kind: "record_command",
+      taxonomyId: "O9",
+      destination: "operational_events",
+      sourceChannel: "line",
+      clientOperationId: "line-event-1",
+    });
+    expect(command?.record).toMatchObject({ sourceMessageId: "line-message-1", quantity: 5 });
+    expect(canonicalCommandForLegacyOperational({
+      id: "legacy-feed-1",
+      intent: "feed",
+      quantity: 10,
+      unit: "kg",
+      farmId: "farm-test",
+      occurredAt: createdAt,
+      createdAt,
+      sourceChannel: "line",
+      rawText: "飼料10kg",
+      clientOperationId: "line-feed-1",
+    })).toBeNull();
+  });
+
   it("routes a resolved mortality record to the existing sole authority", () => {
     const result = canonicalRouteForText(
       "金雞測試場 測試一舍 批次A 死亡5",

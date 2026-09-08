@@ -1,14 +1,15 @@
 import {
   normalizeRecordingDraft,
   parseCanonicalRecordingText,
-  stockEffectForRecord,
   taxonomyDefinitionFor,
   validateRecordingDraft,
   type CanonicalTextParse,
   type RecordingDraft,
+  type RecordingSex,
   type RecordingSourceChannel,
   type TaxonomyId,
 } from "./recording-taxonomy";
+import { createRecordCommand, routeForRecordCommand, type RecordCommand } from "./record-command";
 
 /**
  * Local-only proof boundary for the future canonical recording adapter.
@@ -102,6 +103,25 @@ export interface LegacyAbnormalEventRow {
   status?: "active" | "reversed" | "corrected" | "reversal" | null;
 }
 
+export interface LegacyOperationalCommandInput {
+  id: string;
+  intent: "mortality" | "cull" | "feed" | "water" | "shipment";
+  quantity: number;
+  unit: string;
+  farmId: string;
+  houseId?: string | null;
+  flockId?: string | null;
+  occurredAt: string;
+  createdAt: string;
+  sourceChannel: RecordingSourceChannel;
+  rawText: string;
+  clientOperationId: string;
+  sourceMessageId?: string | null;
+  actorId?: string | null;
+  confirmedBy?: string | null;
+  sex?: RecordingSex | null;
+}
+
 /**
  * Read-only compatibility adapter for historical operational_events rows.
  * It does not query or mutate D1; callers provide one already-read row.
@@ -173,6 +193,42 @@ export function readLegacyAbnormalEvent(row: LegacyAbnormalEventRow): RecordingD
   return draft;
 }
 
+/**
+ * Builds the shared command for legacy operational writes that have an exact
+ * canonical equivalent. Feed/water consumption intentionally returns null:
+ * the taxonomy's O5 is a feed order, not a consumption event, so relabelling
+ * those rows would invent semantics. Existing legacy persistence remains the
+ * authority for that pair until a separately approved taxonomy decision.
+ */
+export function canonicalCommandForLegacyOperational(input: LegacyOperationalCommandInput): RecordCommand | null {
+  if (input.intent === "feed" || input.intent === "water") return null;
+  const taxonomyId: TaxonomyId = input.intent === "shipment" ? "O3" : "O9";
+  const definition = taxonomyDefinitionFor(taxonomyId);
+  const record = normalizeRecordingDraft({
+    id: input.id,
+    taxonomyId,
+    family: definition.family,
+    type: definition.canonicalType,
+    subtype: input.intent === "shipment" ? "shipment" : input.intent,
+    occurredAt: input.occurredAt,
+    createdAt: input.createdAt,
+    farmId: input.farmId,
+    ...(input.houseId ? { houseId: input.houseId } : {}),
+    ...(input.flockId ? { flockId: input.flockId } : {}),
+    ...(input.sex ? { sex: input.sex } : taxonomyId === "O3" ? { sex: "unspecified" } : {}),
+    sourceChannel: input.sourceChannel,
+    sourceMessageId: input.sourceMessageId || undefined,
+    rawText: input.rawText,
+    clientOperationId: input.clientOperationId,
+    actorId: input.actorId || undefined,
+    confirmedBy: input.confirmedBy || undefined,
+    quantity: input.quantity,
+    unit: input.unit,
+  });
+  validateRecordingDraft(record);
+  return createRecordCommand(record);
+}
+
 function fail(code: string): never {
   throw new Error(code);
 }
@@ -226,36 +282,16 @@ export function buildCanonicalRecordingDraft(
 }
 
 export function persistenceRouteForCanonicalRecord(record: RecordingDraft): CanonicalPersistenceRoute {
-  validateRecordingDraft(record);
-  const taxonomyId = String(record.taxonomyId) as TaxonomyId;
-  const destination: CanonicalPersistenceDestination =
-    taxonomyId === "O1" || taxonomyId === "O4"
-      ? "recording_events"
-      : taxonomyId === "O2" || taxonomyId === "O5" || taxonomyId === "O6" || taxonomyId === "O7" || taxonomyId === "O8"
-        ? "operational_actions"
-        : taxonomyId === "O3" || taxonomyId === "O9"
-          ? "operational_events"
-          : "abnormal_events";
-  const legacyIntent = taxonomyId === "O9"
-    ? record.subtype === "mortality" ? "mortality" : "cull"
-    : taxonomyId === "O3" ? "shipment" : undefined;
-  return {
-    taxonomyId,
-    destination,
-    authoritative: true,
-    parallelAuthoritativeDestinations: [],
-    legacyIntent,
-    stockEffect: stockEffectForRecord(record),
-    requiresHumanConfirmation: !record.confirmedBy,
-  };
+  return routeForRecordCommand(createRecordCommand(record));
 }
 
 export function canonicalRouteForText(
   rawText: string,
   scope: ResolvedRecordingScope,
   identity: RecordingIdentity,
-): { parsed: CanonicalTextParse; draft: RecordingDraft; route: CanonicalPersistenceRoute } {
+): { parsed: CanonicalTextParse; draft: RecordingDraft; route: CanonicalPersistenceRoute; command: RecordCommand } {
   const parsed = parseCanonicalRecordingText(rawText, new Date(identity.createdAt));
   const draft = buildCanonicalRecordingDraft(parsed, scope, identity);
-  return { parsed, draft, route: persistenceRouteForCanonicalRecord(draft) };
+  const command = createRecordCommand(draft);
+  return { parsed, draft, route: routeForRecordCommand(command), command };
 }

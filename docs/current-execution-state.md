@@ -2232,3 +2232,63 @@ LIVE_HEALTH = HTTP_200
 LIVE_READY = HTTP_200
 PRODUCTION_DATA_CHANGED = NO
 ```
+
+## Full taxonomy live validation + Web record portal — 2026-09-08
+
+This bounded single-agent task added and verified a Web Lab record portal with
+guided operational and abnormal recording, while preserving the existing V14R
+management entry and navigation. The Web Lab uses the Production taxonomy
+contract as its source vocabulary and keeps local overlay writes separate from
+Production. A pure `RecordCommand` representation and reconciliation adapter
+were added to the feature branches. Existing Production LINE direct,
+Quick-Record, Pending confirmation, and Ambient-confirm-compatible O3/O9 paths
+now construct and validate that command before their existing authoritative
+write; feed/water consumption remains on its legacy path because O5 means a
+feed order, not consumption.
+
+```text
+TASK = SINGLE_AGENT_FULL_TAXONOMY_LIVE_VALIDATION_AND_WEB_RECORD_PORTAL
+SUBAGENT_DISABLED = YES
+WEB_BRANCH = feat/full-recording-taxonomy-foundation
+PRODUCTION_BRANCH = feat/full-recording-taxonomy-foundation
+WEB_START_SHA = fb05acdc0bbfe80ae7a0013d079b6d4ec63b4251
+PRODUCTION_START_SHA = 2f59e7fe64380297d36a66e6a7950b2c4d4d280b
+WEB_PORTAL = PASS
+GUIDED_OPERATIONAL_O1_O9 = PASS_LOCAL_CANONICAL_VALIDATION
+GUIDED_ABNORMAL_A1_A16 = PASS_LOCAL_CANONICAL_VALIDATION
+WEB_RESPONSIVE_WIDTHS = PASS_320_360_390_430_768_834_1023_1024_1440
+WEB_CHROMIUM = PASS
+WEB_WEBKIT = PASS
+WEB_VISUAL_PIXEL_DIFF = 0
+WEB_SECURITY = PASS
+SHARED_RECORD_COMMAND = PASS_PURE_VALIDATED_SINGLE_DESTINATION
+CROSS_CHANNEL_RECONCILIATION = PASS_LOCAL_NO_AUTOMATIC_SEMANTIC_DEDUPE
+O6_WAITING_OVERDUE_COMPLETED = PASS_LOCAL
+PRODUCTION_CHECK = PASS_68_FILES_771_PASS_11_SKIPPED
+
+LIVE_AI_MODEL = @cf/meta/llama-3.2-3b-instruct
+LIVE_AI_CALLS = 5
+LIVE_AI_MAX_CONCURRENCY = 1
+LIVE_AI_RETRIES = 0
+LIVE_AI_PROVIDER_TRANSPORT = 5_OF_5_HTTP_200
+LIVE_AI_STRICT_TAXONOMY_MATCH = 2_OF_26
+LIVE_AI_ACCEPTANCE = FAIL_NOT_A_COMPLETE_O1_O9_A1_A16_CLASSIFIER
+LIVE_AI_RAW_COMPLETION_SAVED = NO
+
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED_PRODUCTION = NO
+REAL_LINE_PUSH = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+MODEL_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
+
+The live provider transport was available, but the frozen semantic prompt and
+model contract did not meet the full taxonomy evaluator (2/26 strict matches).
+This is a bounded live-validation failure, not permission to relax the
+taxonomy, validator, Ground Truth, or safety boundary. A future decision is
+needed on whether a separate Free-only full-taxonomy AI contract should be
+designed; no Production AI, D1, LINE, Queue, Cron, or deployment action was
+performed here.
