@@ -144,6 +144,50 @@ export interface AmbientExpiredDiagnostic {
   lastFailureStage: string | null;
 }
 
+export interface AmbientDigestInvocationSummary {
+  invocationIdShort: string;
+  scheduledFor: string;
+  triggerType: string;
+  attemptCount: number;
+  runStartedAt: string | null;
+  invocationStatus: string;
+  errorStage: string | null;
+  errorClass: string | null;
+  completedAt: string | null;
+  retentionExpiresAt: string | null;
+  groupsBeforeCleanup: number;
+  groupsAfterCleanup: number;
+  perGroupRunsCreated: number;
+}
+
+export interface AmbientDigestRunSummary {
+  runIdShort: string;
+  invocationIdShort: string | null;
+  scheduledFor: string;
+  triggerType: string;
+  attemptCount: number;
+  runStartedAt: string;
+  runStatus: string;
+  retryState: "not_needed" | "in_progress" | "retried" | "failed_review";
+  deadlineState: "not_recorded";
+  executionDeadline: null;
+  retentionExpiresAt: string;
+  stages: {
+    lease: string;
+    source: string;
+    prefilter: string;
+    ai: string;
+    validation: string;
+    reconcile: string;
+    candidateWrite: string;
+    bufferConsume: string;
+    delivery: string;
+  };
+  errorStage: string | null;
+  errorClass: string | null;
+  completedAt: string | null;
+}
+
 export interface AmbientPreview {
   cutoffAt: string;
   page: number;
@@ -159,6 +203,9 @@ export interface AmbientPreview {
   rows: AmbientPreviewRow[];
   truncated: boolean;
   readOnly: boolean;
+  observabilityAvailable: boolean;
+  recentDigestInvocations: AmbientDigestInvocationSummary[];
+  recentDigestRuns: AmbientDigestRunSummary[];
 }
 
 export interface PendingCandidateEntry {
