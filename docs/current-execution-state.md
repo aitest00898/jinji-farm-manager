@@ -2285,6 +2285,272 @@ MODEL_CHANGED = NO
 RECOVERY_CRON_REMAINS_DISABLED = YES
 ```
 
+## Multi-track convergence gate — 2026-09-08
+
+This section records the bounded convergence work completed on
+`feat/full-recording-taxonomy-foundation`. It does not reopen the historical
+Ambient observation, does not authorize a model switch, and does not authorize
+Production migration or deployment. Nine subagents were used in two waves;
+the observed concurrency never exceeded five and no nested subagent was used.
+
+### Model capability and structured-output track
+
+The current [Cloudflare Workers AI JSON Mode documentation](https://developers.cloudflare.com/workers-ai/features/json-mode/)
+lists `@cf/meta/llama-3.1-8b-instruct-fast` as a supported JSON Mode model. The
+current supported-model list does not list the frozen 3B production model
+`@cf/meta/llama-3.2-3b-instruct`; generic `response_format` presence must not
+be treated as official model support. The [8B model documentation](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fast/)
+confirms the same direct model path used by the bounded run.
+
+The 8B staircase used one serial direct REST request per level, retries zero,
+and stopped at the first provider schema rejection. Only safe hashes, statuses,
+and bounded provider codes were retained; raw completions were not retained.
+
+```text
+JSON_MODE_3B_OFFICIALLY_LISTED = NO_CURRENT_LISTING
+JSON_MODE_8B_OFFICIALLY_LISTED = YES
+MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+STRUCTURED_8B_CALLS = 6
+MAX_8B_STRUCTURED_CALLS = 10
+CONCURRENCY = 1
+RETRIES = 0
+
+S0_MINIMAL = PASS, HTTP 200, schema hash d7f69ea2...55498e5
+S1_SCALAR_ENUMS = PASS, HTTP 200, schema hash c25d36ef...04b4e5
+S2_NESTED_OBJECT = PASS, HTTP 200, schema hash e6928d3f...a606e0
+S3_ARRAY_OF_OBJECTS = PASS, HTTP 200, schema hash 6e61173f...8312be
+S4_NULLABLE_UNION = PASS, HTTP 200, schema hash c70d7e66...2fed9df
+S5_CONSTRAINTS = REJECTED, HTTP 400, bounded error 8007
+S6_CORE_TAXONOMY = NOT_RUN_AFTER_FIRST_REJECTION
+S7_FULL_TAXONOMY = NOT_RUN_AFTER_FIRST_REJECTION
+
+LAST_ACCEPTED_SCHEMA_LEVEL = S4_NULLABLE_UNION
+FIRST_REJECTED_SCHEMA_LEVEL = S5_CONSTRAINTS
+PROVEN_SCHEMA_LIMIT = S4_ONLY_ON_THIS_BOUNDED_RUN
+PROVIDER_OUTPUT_CONTENT_RETAINED = NO
+```
+
+This proves a bounded 8B JSON Mode capability boundary, not full
+`StructuredAnalysis` compatibility. Cloudflare also warns that complex schemas
+may not be satisfied and return a JSON Mode failure; the local strict
+validator remains required.
+
+### Fair 3B versus 8B semantic A/B
+
+The exact 12-case canary was frozen in the new diagnostic artifact
+`src/full-taxonomy-semantic-ab-v1.ts`: two cases each for operational events,
+operational actions, operational observations, missing information,
+multi-fact/correction context, and negative controls. Both models used the
+same prompt-only JSON contract, NFKC/whitespace preprocessing, `max_tokens=400`,
+`temperature=0`, serial execution, retries zero, and the same direct REST
+transport. No JSON Mode was used. The safe run hashes were:
+
+```text
+SEMANTIC_AB_VERSION = FULL_TAXONOMY_SEMANTIC_AB_V1
+SEMANTIC_CASES = 12_PER_MODEL
+CASESET_HASH = 3f8ea9cb3b96c125122976d5303754ec219d5bd49bb3dd49600df2efc3a99b71
+PROMPT_HASH = 4b72414ac4a776b33fed4edae15943891acd992d6712dee1de94756e9434d737
+EVALUATOR_HASH = 2af13e91e6b8d01ecba3d3b8229a65bd8178c6f263ac21f0e618b28509c4fea8
+PREPROCESSOR_HASH = 7d2076379baea27eab05bdc236b99c0c64d83dcbbf1824c3f5f9f8f781e76fed
+HARNESS_HASH = 3d61a8822889942fcfba302bdd8db12146a5f8f93fcd74f5dedcb3fb898800f9
+CASE_IDS = E02-shipment, E04-mortality, A01-vaccination, A04-lab-test,
+            O01-cough, O03-green-droppings, M01, M02,
+            C01-mortality-and-cough, C02-correction, N01-question, N03-negation
+3B_PROVIDER_CALLS = 12
+8B_PROVIDER_CALLS = 12
+TOTAL_TRACK_B_WORKERS_AI_CALLS = 24
+```
+
+```text
+METRIC                              3B        8B
+HTTP 200                            12/12     12/12
+JSON_PARSE_RATE                     12/12     11/12
+MINIMAL_CONTRACT_PASS_RATE         12/12     10/12
+SEMANTIC_EXACT                     2/12      1/12
+RECORD_WORTHINESS_PRECISION        7/11      5/8
+RECORD_WORTHINESS_RECALL           7/7       5/7
+FACT_SET_EXACT                     3/12      4/12
+FACT_COUNT_ACCURACY                4/12      6/12
+MISSING_INFORMATION_EXACT          0/2       0/2
+MULTI_FACT_C01_SPLIT               1/1       0/1
+NEGATIVE_CONTROL_FALSE_POSITIVE    2/2       2/2
+UNAMBIGUOUS_CASES_SEMANTIC_EXACT   2/9       1/9
+```
+
+The current safe report intentionally retains no provider completion or raw
+fact payload. Therefore exact aggregate `taxonomyPrecision/Recall` and
+`subtypeAccuracy` cannot be reconstructed from this already-finished run;
+`FACT_SET_EXACT` is the safe combined measure available here and is not being
+relabelled as those finer metrics. This is a diagnostic-report limitation, not
+evidence of a Production defect. The observed case comparison was two 3B-only
+semantic passes (`E04`, `C01`), one 8B-only pass (`A04`), and nine equal
+failures. It does not establish a global model winner and does not justify a
+Production model switch.
+
+```text
+MODEL_SEMANTIC_COMPARISON = NO_CLEAR_WINNER; 3B 2 case wins, 8B 1 case win
+MODEL_RECOMMENDATION = KEEP_CURRENT_PRODUCTION_MODEL; NO_SWITCH
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_READS = 0
+PRODUCTION_D1_WRITES = 0
+```
+
+### Full-taxonomy Prefilter audit and bounded local repair
+
+The read-only audit proved the old fixed operation/abnormality regex was a
+recall bottleneck. Before repair, the 46-subtype corpus selected 17/46
+(29 false negatives); the edge/noise corpus was TP14/FN9/TN2/FP4; and the
+30-case benchmark was TP11/FN15/TN1/FP3. Misses included O1, O2, O3, O4,
+O5, O6, O7, O8, A3, A4, A5, A6, A7, A9, A10, A11, A12, A13 and A16
+vocabulary variants. This was a prefilter problem, not a write-authority
+decision.
+
+A generic, fail-closed local repair was implemented in `src/ambient.ts` and
+covered by `src/ambient.test.ts`. It delegates relevance recognition to the
+existing canonical parser, keeps questions/future/negation/ordinary chatter
+closed, preserves the legacy fallback, and explicitly excludes context-only
+residual fragments so the existing V2.2 deterministic path does not gain AI
+calls. Recheck results were:
+
+```text
+CANONICAL_TAXONOMY_CASES = 46
+CANONICAL_TAXONOMY_SELECTED = 46
+ACTIONABLE_EDGE_CASES = 23
+ACTIONABLE_EDGE_CASES_SELECTED = 23
+EXPLICIT_NON_RECORD_EDGE_CASES = 6
+EXPLICIT_NON_RECORD_EDGE_CASES_SELECTED = 0
+FULL_113_CASE_RECOUNT_AFTER_REPAIR = NOT_RUN
+PREFILTER_FIX = LOCAL_ONLY; NOT_DEPLOYED
+```
+
+The generic repair passed the prior V2.2 tests after the context-only guard was
+added. No automatic “all messages” broadening was used, and no Production
+write path was changed.
+
+### Ambient failure visibility and Daily Review ablation
+
+The current runtime has durable `ambient_digest_invocations`,
+`ambient_digest_runs`, retained buffer failure fields, and terminal records,
+but `/ready` does not summarize Ambient invocation/run health and Daily Review
+currently exposes only a generic incomplete-message warning. Failure stage,
+retry/deadline state, and bounded invocation-to-run correlation are not
+consistently visible to operators. The material gap remains:
+
+```text
+SCHEDULED_AMBIENT_VISIBILITY_GAP = CONFIRMED
+MINIMUM_VISIBILITY_FIX = additive read-only projection of invocation_id -> run
+                          with bounded stage/error/count/retention/deadline fields
+PRODUCTION_TELEMETRY_DEPLOYED = NO
+DAILY_REVIEW = KEEP
+DAILY_REVIEW_DETAIL_ROUTE = SIMPLIFY; REMOVE_CANDIDATE ONLY AFTER REPLACEMENT
+RECOVERY_CRON_REMAINS_DISABLED = YES
+CRON_CHANGED = NO
+```
+
+Records, Candidate, Ambient state, and Preview each retain a distinct role;
+the detail route is the only current redundancy candidate. No visibility
+framework, Cron change, or telemetry migration was added in this gate.
+
+### Migration 0038 release review
+
+`migrations/0038_recording_taxonomy_foundation.sql` remains a draft release
+artifact and was not executed. Static review confirms O3 shipment and O9
+mortality/cull still use `operational_events` as the current authority and the
+unactivated draft has no measured stock double-count in the existing bridge.
+The review is nevertheless NO-GO for execution review because of these
+release blockers:
+
+```text
+MIGRATION_0038_RELEASE_REVIEW = NO
+AUTHORITATIVE_WRITE_INVARIANT = O3/O9 remain operational_events; PASS_STATIC
+STOCK_DOUBLE_COUNT_RISK = 0_WHILE_UNACTIVATED
+FORWARD_FIX_PLAN_DEFINED = YES
+READY_FOR_PRODUCTION_MIGRATION_EXECUTION_REVIEW = NO
+```
+
+The blockers are legacy O3 shipment rows without the new required `sex`
+contract, incomplete runtime adapters for canonical taxonomy/lineage/client
+operation fields, missing lineage/self-reference guards, incomplete abnormal
+adapter coverage, insufficient rehearsal evidence (including historical
+shipment/idempotency/lineage cases), and partial-rerun risk from unguarded
+`ALTER TABLE ADD COLUMN` statements. The safe release order remains:
+migration → schema/read-only verification → adapters → feature activation →
+Web integration, with a disabled-runtime state, Worker rollback to the last
+validated version, and forward-fix rather than D1 rollback/drop.
+
+### Operational test-data scope review
+
+The scope review is `PARTIAL`. Finance is isolated in the reviewed paths, but
+the default operational list and dashboard active-flock/stock/today totals do
+not consistently enforce `environment='production'` (notably
+`src/web-api.ts:875-899` and `src/web-api.ts:1043-1061`). Existing deployment
+evidence also contains active test-farm operational rows. This proves a
+contamination risk for Production-only analytics/UI, not that every current
+metric is contaminated; current live D1 was not queried in this gate.
+
+```text
+OPERATIONAL_TEST_DATA_SCOPE = PARTIAL
+PROVEN_CONTAMINATION_RISKS = default operational/dashboard queries can include test-farm rows
+FINANCE_ISOLATION = PRESERVED_IN_REVIEWED_PATHS
+ANALYTICS_BLOCKED_BY_TEST_DATA = NOT_PROVEN
+DATA_DELETION = NONE
+```
+
+Synthetic Web Lab overlays, local D1 rehearsal data, benchmark cases, Ambient
+fixtures, and historical test events remain non-Production evidence and must
+not be silently promoted into Production analytics. No data was deleted or
+modified.
+
+### Web human acceptance package
+
+The Web Lab repository received only the new documentation file
+`docs/WEB_HUMAN_ACCEPTANCE_CHECKLIST.md` on its existing feature branch. It
+covers iPhone, iPad, and Desktop entry/portal checks, O1–O9, A1–A16, Farm-only
+and House-only context, Back/Cancel/Confirm, Quick Record, Pending Review,
+Records, Todo, Calendar, Finance, and management navigation. PASS/FAIL and
+Notes remain blank; this is preparation, not a fabricated human acceptance.
+
+```text
+WEB_SOURCE_CHANGED = NO
+WEB_HUMAN_ACCEPTANCE_PACKAGE = CREATED
+WEB_STATIC_TEST = PASS
+WEB_UNIT_TEST = PASS (24/24)
+WEB_INTEGRATION_TEST = PASS (30/30)
+WEB_HUMAN_PASS = NOT_YET_PERFORMED
+READY_FOR_WEB_HUMAN_REVIEW = YES_CHECKLIST_READY
+```
+
+### Cross-track decision state
+
+```text
+MODEL_OR_HYBRID_DESIGN_REVIEW = READY_FOR_HUMAN_DECISION; NO_PRODUCTION_SWITCH
+PREFILTER_REPAIR_REVIEW = READY_LOCAL_ONLY; RELEASE_REVIEW_REQUIRED
+AMBIENT_VISIBILITY_REPAIR = READY_FOR_MINIMAL_DESIGN_REVIEW; NOT_DEPLOYED
+PRODUCTION_MIGRATION_EXECUTION_REVIEW = NOT_READY; BLOCKED_BY_0038_FINDINGS
+WEB_HUMAN_ACCEPTANCE = READY_TO_EXECUTE_CHECKLIST
+DATA_SCOPE_CLEANUP = DECISION_REQUIRED; NO_AUTOMATIC_DELETION
+```
+
+```text
+PRODUCTION_DEPLOYED = NO
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED_PRODUCTION = NO
+REAL_LINE_PUSH = 0
+QUEUE_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+PRODUCTION_MODEL_CHANGED = NO
+TOTAL_NEW_WORKERS_AI_CALLS = 30_DEVELOPER_ONLY
+SUBAGENT_MAX_CONCURRENT_OBSERVED = 5
+SUBAGENT_TOTAL_USED = 9
+```
+
+`main` was not merged or changed. The only Production-repository tracked
+changes are the generic local prefilter repair, its regression coverage, the
+fair semantic A/B diagnostic artifact/runner, and this state update. No
+credential, token, raw completion, raw LINE data, temporary probe report, or
+Production data was added to GitHub.
+
 ## Full-taxonomy A/B contract failure forensic + structured-output repair gate — 2026-09-08
 
 This gate preserved `FULL_TAXONOMY_LIVE_AB_V1` as immutable evidence and
