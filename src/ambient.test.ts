@@ -21,6 +21,7 @@ import {
   normalizeAmbientAiExtraction,
   validateAmbientCandidateBundle,
 } from "./ambient";
+import { TAXONOMY_GOLDEN_CASES, TAXONOMY_GOLDEN_EDGE_CASES } from "./recording-taxonomy-golden";
 
 describe("quiet group interaction gate", () => {
   it("keeps ordinary record-like text quiet", () => {
@@ -163,6 +164,31 @@ describe("ambient prefilter and candidate validation", () => {
       { id: "1", organizationId: "o", lineGroupId: "g", lineUserId: "u", lineMessageId: "m1", eventTimestamp: "2026-08-20T12:00:00.000Z", text: "晚點吃什麼", digestHour: "h" },
       { id: "2", organizationId: "o", lineGroupId: "g", lineUserId: "u", lineMessageId: "m2", eventTimestamp: "2026-08-20T12:01:00.000Z", text: "金雞測試場好像有咳嗽", digestHour: "h" },
     ]).map((item) => item.lineMessageId)).toEqual(["m2"]);
+  });
+
+  it("covers the canonical taxonomy while excluding explicit non-record controls", () => {
+    expect(TAXONOMY_GOLDEN_CASES.every((testCase) => ambientMessageMayBeRelevant(testCase.text))).toBe(true);
+
+    const actionable = TAXONOMY_GOLDEN_EDGE_CASES.filter((testCase) => testCase.expected.recordWorthiness !== "ignore");
+    const explicitNonRecords = TAXONOMY_GOLDEN_EDGE_CASES.filter((testCase) => testCase.expected.recordWorthiness === "ignore");
+    expect(actionable.every((testCase) => ambientMessageMayBeRelevant(testCase.text))).toBe(true);
+    expect(explicitNonRecords.every((testCase) => !ambientMessageMayBeRelevant(testCase.text))).toBe(true);
+  });
+
+  it("closes the exact authored prefilter corpus without treating candidate controls as noise", () => {
+    const corpus = [...TAXONOMY_GOLDEN_CASES, ...TAXONOMY_GOLDEN_EDGE_CASES];
+    const rows = corpus.map((testCase) => ({
+      expectedRelevant: testCase.expected.recordWorthiness !== "ignore",
+      selected: ambientMessageMayBeRelevant(testCase.text),
+    }));
+    const truePositive = rows.filter((row) => row.expectedRelevant && row.selected).length;
+    const falseNegative = rows.filter((row) => row.expectedRelevant && !row.selected).length;
+    const trueNegative = rows.filter((row) => !row.expectedRelevant && !row.selected).length;
+    const falsePositive = rows.filter((row) => !row.expectedRelevant && row.selected).length;
+    expect(corpus).toHaveLength(75);
+    expect({ truePositive, falseNegative, trueNegative, falsePositive }).toEqual({ truePositive: 69, falseNegative: 0, trueNegative: 6, falsePositive: 0 });
+    expect(truePositive / (truePositive + falseNegative)).toBe(1);
+    expect(truePositive / (truePositive + falsePositive)).toBe(1);
   });
 
   it("uses Taipei hour buckets and previous complete hour", () => {

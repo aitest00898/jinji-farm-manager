@@ -58,8 +58,175 @@ const OPERATIONAL_INTENTS = new Set(["mortality", "cull", "feed", "water", "ship
 const UNITS = new Set(["隻", "bird", "kg", "L", "件"]);
 const MAX_PAGE_SIZE = 100;
 
+export type OperationalEnvironment = "production" | "test";
+export const DEFAULT_OPERATIONAL_ENVIRONMENT: OperationalEnvironment = "production";
+
+/**
+ * Operational and analytics reads are Production-scoped unless an operator
+ * explicitly asks for the bounded Test view.  The value is deliberately
+ * reduced to two known environments; unknown query values fail closed to the
+ * Production default rather than widening the result set.
+ */
+export function operationalEnvironmentFor(url: URL): OperationalEnvironment {
+  return url.searchParams.get("environment") === "test" ? "test" : DEFAULT_OPERATIONAL_ENVIRONMENT;
+}
+
+export function addOperationalEnvironmentFilter(
+  url: URL,
+  clauses: string[],
+  bindings: unknown[],
+  farmAlias: string,
+): OperationalEnvironment {
+  const environment = operationalEnvironmentFor(url);
+  clauses.push(`${farmAlias}.environment = ?`);
+  bindings.push(environment);
+  return environment;
+}
+
 interface WebAmbientBufferedRow extends AmbientBufferedMessage {
   expiresAt: string;
+}
+
+interface AmbientDigestRunVisibilityRow {
+  runId: string;
+  invocationId: string | null;
+  scheduledFor: string;
+  triggerType: string;
+  attemptCount: number;
+  runStartedAt: string;
+  leaseStatus: string;
+  sourceStatus: string;
+  prefilterStatus: string;
+  aiStatus: string;
+  validationStatus: string;
+  reconcileStatus: string;
+  candidateWriteStatus: string;
+  bufferConsumeStatus: string;
+  deliveryStatus: string;
+  runStatus: string;
+  errorStage: string | null;
+  errorClass: string | null;
+  completedAt: string | null;
+  expiresAt: string;
+  invocationStatus: string | null;
+  invocationAttemptCount: number | null;
+  invocationRunStartedAt: string | null;
+  invocationErrorStage: string | null;
+  invocationErrorClass: string | null;
+  invocationCompletedAt: string | null;
+  invocationExpiresAt: string | null;
+  groupsBeforeCleanup: number | null;
+  groupsAfterCleanup: number | null;
+  perGroupRunsCreated: number | null;
+}
+
+function ambientRetryState(runStatus: string, attemptCount: number): "not_needed" | "in_progress" | "retried" | "failed_review" {
+  if (attemptCount > 1) return "retried";
+  if (runStatus === "completed") return "not_needed";
+  if (runStatus === "failed") return "failed_review";
+  return "in_progress";
+}
+
+function ambientRunVisibility(row: AmbientDigestRunVisibilityRow): Record<string, unknown> {
+  return {
+    runIdShort: shortIdentifier(row.runId),
+    invocationIdShort: row.invocationId ? shortIdentifier(row.invocationId) : null,
+    scheduledFor: row.scheduledFor,
+    triggerType: row.triggerType,
+    attemptCount: Number(row.attemptCount ?? 0),
+    runStartedAt: row.runStartedAt,
+    runStatus: row.runStatus,
+    retryState: ambientRetryState(row.runStatus, Number(row.attemptCount ?? 0)),
+    deadlineState: "not_recorded",
+    executionDeadline: null,
+    retentionExpiresAt: row.expiresAt,
+    stages: {
+      lease: row.leaseStatus,
+      source: row.sourceStatus,
+      prefilter: row.prefilterStatus,
+      ai: row.aiStatus,
+      validation: row.validationStatus,
+      reconcile: row.reconcileStatus,
+      candidateWrite: row.candidateWriteStatus,
+      bufferConsume: row.bufferConsumeStatus,
+      delivery: row.deliveryStatus,
+    },
+    errorStage: row.errorStage,
+    errorClass: row.errorClass,
+    completedAt: row.completedAt,
+  };
+}
+
+function ambientInvocationVisibility(row: AmbientDigestRunVisibilityRow): Record<string, unknown> | null {
+  if (!row.invocationId || !row.invocationStatus) return null;
+  return {
+    invocationIdShort: shortIdentifier(row.invocationId),
+    scheduledFor: row.scheduledFor,
+    triggerType: row.triggerType,
+    attemptCount: Number(row.invocationAttemptCount ?? 0),
+    runStartedAt: row.invocationRunStartedAt,
+    invocationStatus: row.invocationStatus,
+    errorStage: row.invocationErrorStage,
+    errorClass: row.invocationErrorClass,
+    completedAt: row.invocationCompletedAt,
+    retentionExpiresAt: row.invocationExpiresAt,
+    groupsBeforeCleanup: Number(row.groupsBeforeCleanup ?? 0),
+    groupsAfterCleanup: Number(row.groupsAfterCleanup ?? 0),
+    perGroupRunsCreated: Number(row.perGroupRunsCreated ?? 0),
+  };
+}
+
+async function loadAmbientDigestVisibility(env: WebApiEnv, organizationId: string): Promise<{
+  available: boolean;
+  recentInvocations: Array<Record<string, unknown>>;
+  recentRuns: Array<Record<string, unknown>>;
+}> {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT r.run_id AS runId, r.invocation_id AS invocationId,
+              r.scheduled_for AS scheduledFor, r.trigger_type AS triggerType,
+              r.attempt_count AS attemptCount, r.run_started_at AS runStartedAt,
+              r.lease_status AS leaseStatus, r.source_status AS sourceStatus,
+              r.prefilter_status AS prefilterStatus, r.ai_status AS aiStatus,
+              r.validation_status AS validationStatus, r.reconcile_status AS reconcileStatus,
+              r.candidate_write_status AS candidateWriteStatus,
+              r.buffer_consume_status AS bufferConsumeStatus,
+              r.delivery_status AS deliveryStatus, r.run_status AS runStatus,
+              r.error_stage AS errorStage, r.error_class AS errorClass,
+              r.completed_at AS completedAt, r.expires_at AS expiresAt,
+              i.invocation_status AS invocationStatus,
+              i.attempt_count AS invocationAttemptCount,
+              i.run_started_at AS invocationRunStartedAt,
+              i.error_stage AS invocationErrorStage,
+              i.error_class AS invocationErrorClass,
+              i.completed_at AS invocationCompletedAt,
+              i.expires_at AS invocationExpiresAt,
+              i.groups_before_cleanup AS groupsBeforeCleanup,
+              i.groups_after_cleanup AS groupsAfterCleanup,
+              i.per_group_runs_created AS perGroupRunsCreated
+         FROM ambient_digest_runs r
+         LEFT JOIN ambient_digest_invocations i ON i.invocation_id = r.invocation_id
+        WHERE r.organization_id = ?
+        ORDER BY r.scheduled_for DESC, r.run_id DESC
+        LIMIT 20`,
+    ).bind(organizationId).all<AmbientDigestRunVisibilityRow>();
+    const recentRuns = rows.results.map(ambientRunVisibility);
+    const seenInvocations = new Set<string>();
+    const recentInvocations: Array<Record<string, unknown>> = [];
+    for (const row of rows.results) {
+      if (!row.invocationId || seenInvocations.has(row.invocationId)) continue;
+      const summary = ambientInvocationVisibility(row);
+      if (summary) {
+        seenInvocations.add(row.invocationId);
+        recentInvocations.push(summary);
+      }
+    }
+    return { available: true, recentInvocations, recentRuns };
+  } catch {
+    // Older local fixtures or a partially applied optional metadata migration
+    // must not break the existing read-only preview. Do not expose SQL errors.
+    return { available: false, recentInvocations: [], recentRuns: [] };
+  }
 }
 
 interface WebPendingCandidateRow {
@@ -879,6 +1046,7 @@ async function listOperationalEvents(request: Request, env: WebApiEnv, session: 
   const cursor = cursorRaw ? safeJson(decodeCursor(cursorRaw), null) as { createdAt?: string; id?: string } | null : null;
   const clauses = ["e.organization_id = ?"];
   const bindings: unknown[] = [session.organizationId];
+  addOperationalEnvironmentFilter(url, clauses, bindings, "f");
   const farmId = url.searchParams.get("farmId");
   const houseId = url.searchParams.get("houseId");
   const intent = url.searchParams.get("intent");
@@ -1043,14 +1211,14 @@ async function financeSummary(request: Request, env: WebApiEnv, session: Session
 async function dashboard(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const org = session.organizationId;
   const [farms, productionFarms, testFarms, caretakers, activeFlocks, stockRows, todayRows, shipments, finance] = await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1").bind(org).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'production'").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'production'").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'test'").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM caretakers WHERE organization_id = ? AND active = 1").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND k.status = 'active'").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT k.initial_count AS initialCount, k.farm_id AS farmId, COALESCE(SUM(CASE WHEN e.intent IN ('mortality', 'cull', 'shipment') AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS removed FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id WHERE f.organization_id = ? AND k.status = 'active' GROUP BY k.id").bind(org).all<{ initialCount: number; farmId: string; removed: number }>(),
-    env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN intent = 'mortality' THEN quantity ELSE 0 END), 0) AS mortality, COALESCE(SUM(CASE WHEN intent = 'cull' THEN quantity ELSE 0 END), 0) AS cull, COALESCE(SUM(CASE WHEN intent = 'feed' THEN quantity ELSE 0 END), 0) AS feed, COALESCE(SUM(CASE WHEN intent = 'water' THEN quantity ELSE 0 END), 0) AS water FROM operational_events WHERE organization_id = ? AND event_date = ? AND reversed_at IS NULL").bind(org, taipeiDate()).first<Record<string, number>>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND k.status = 'active' AND k.expected_shipment_date IS NOT NULL AND k.expected_shipment_date <= date('now', '+7 day')").bind(org).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active'").bind(org).first<{ count: number }>(),
+    env.DB.prepare("SELECT k.initial_count AS initialCount, k.farm_id AS farmId, COALESCE(SUM(CASE WHEN e.intent IN ('mortality', 'cull', 'shipment') AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS removed FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' GROUP BY k.id").bind(org).all<{ initialCount: number; farmId: string; removed: number }>(),
+    env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN e.intent = 'mortality' THEN e.quantity ELSE 0 END), 0) AS mortality, COALESCE(SUM(CASE WHEN e.intent = 'cull' THEN e.quantity ELSE 0 END), 0) AS cull, COALESCE(SUM(CASE WHEN e.intent = 'feed' THEN e.quantity ELSE 0 END), 0) AS feed, COALESCE(SUM(CASE WHEN e.intent = 'water' THEN e.quantity ELSE 0 END), 0) AS water FROM operational_events e JOIN farms f ON f.id = e.farm_id WHERE e.organization_id = ? AND f.environment = 'production' AND e.event_date = ? AND e.reversed_at IS NULL").bind(org, taipeiDate()).first<Record<string, number>>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' AND k.expected_shipment_date IS NOT NULL AND k.expected_shipment_date <= date('now', '+7 day')").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COALESCE(SUM(d.net_income), 0) AS net FROM profit_distributions d JOIN farms f ON f.id = d.farm_id WHERE d.organization_id = ? AND f.environment = 'production'").bind(org).first<{ net: number }>(),
   ]);
   const warnings: string[] = [];
@@ -1126,12 +1294,11 @@ function addOperationalChartFilters(
   const farmId = url.searchParams.get("farmId");
   const houseId = url.searchParams.get("houseId");
   const flockId = url.searchParams.get("flockId");
-  const environment = url.searchParams.get("environment");
   const caretakerId = url.searchParams.get("caretakerId");
   if (farmId) { clauses.push(`${eventAlias}.farm_id = ?`); bindings.push(farmId); }
   if (houseId) { clauses.push(`${eventAlias}.house_id = ?`); bindings.push(houseId); }
   if (flockId) { clauses.push(`${eventAlias}.flock_id = ?`); bindings.push(flockId); }
-  if (environment === "production" || environment === "test") { clauses.push(`${farmAlias}.environment = ?`); bindings.push(environment); }
+  addOperationalEnvironmentFilter(url, clauses, bindings, farmAlias);
   if (caretakerId) {
     clauses.push(`EXISTS (SELECT 1 FROM farm_caretaker_assignments ca WHERE ca.farm_id = ${farmAlias}.id AND ca.caretaker_id = ? AND ca.effective_from <= ${dateColumn} AND (ca.effective_to IS NULL OR ca.effective_to >= ${dateColumn}))`);
     bindings.push(caretakerId);
@@ -1231,12 +1398,11 @@ async function charts(request: Request, env: WebApiEnv, session: SessionRow, met
       const farmId = url.searchParams.get("farmId");
       const houseId = url.searchParams.get("houseId");
       const flockId = url.searchParams.get("flockId");
-      const environment = url.searchParams.get("environment");
       const caretakerId = url.searchParams.get("caretakerId");
       if (farmId) { denominatorClauses.push("k.farm_id = ?"); denominatorBindings.push(farmId); }
       if (houseId) { denominatorClauses.push("k.house_id = ?"); denominatorBindings.push(houseId); }
       if (flockId) { denominatorClauses.push("k.id = ?"); denominatorBindings.push(flockId); }
-      if (environment === "production" || environment === "test") { denominatorClauses.push("f.environment = ?"); denominatorBindings.push(environment); }
+      addOperationalEnvironmentFilter(url, denominatorClauses, denominatorBindings, "f");
       if (caretakerId) {
         denominatorClauses.push("EXISTS (SELECT 1 FROM farm_caretaker_assignments ca WHERE ca.farm_id = f.id AND ca.caretaker_id = ? AND ca.effective_from <= k.chick_in_date AND (ca.effective_to IS NULL OR ca.effective_to >= k.chick_in_date))");
         denominatorBindings.push(caretakerId);
@@ -1256,12 +1422,11 @@ async function charts(request: Request, env: WebApiEnv, session: SessionRow, met
     const farmId = url.searchParams.get("farmId");
     const houseId = url.searchParams.get("houseId");
     const flockId = url.searchParams.get("flockId");
-    const environment = url.searchParams.get("environment");
     const caretakerId = url.searchParams.get("caretakerId");
     if (farmId) { flockClauses.push("k.farm_id = ?"); flockBindings.push(farmId); }
     if (houseId) { flockClauses.push("k.house_id = ?"); flockBindings.push(houseId); }
     if (flockId) { flockClauses.push("k.id = ?"); flockBindings.push(flockId); }
-    if (environment === "production" || environment === "test") { flockClauses.push("f.environment = ?"); flockBindings.push(environment); }
+    addOperationalEnvironmentFilter(url, flockClauses, flockBindings, "f");
     if (caretakerId) { flockClauses.push("EXISTS (SELECT 1 FROM farm_caretaker_assignments ca WHERE ca.farm_id = f.id AND ca.caretaker_id = ? AND ca.effective_from <= k.chick_in_date AND (ca.effective_to IS NULL OR ca.effective_to >= k.chick_in_date))"); flockBindings.push(caretakerId); }
     const flocks = await env.DB.prepare(`SELECT k.chick_in_date AS chickInDate, k.initial_count AS initialCount FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE ${flockClauses.join(" AND ")}`).bind(...flockBindings).all<{ chickInDate: string; initialCount: number }>();
     const eventClauses = ["e.organization_id = ?", "e.event_date <= ?", "e.reversed_at IS NULL", "e.intent IN ('mortality', 'cull', 'shipment')"];
@@ -1450,7 +1615,7 @@ async function ambientPreview(request: Request, env: WebApiEnv, session: Session
   const cutoffIso = cutoff.toISOString();
   const pageSize = Math.min(20, Math.max(1, Number(url.searchParams.get("pageSize") ?? 10) || 10));
   const requestedPage = Math.max(0, Number(url.searchParams.get("page") ?? 0) || 0);
-  const [buffered, expired, pending, processed] = await Promise.all([
+  const [buffered, expired, pending, processed, digestVisibility] = await Promise.all([
     env.DB.prepare(
       `SELECT id, organization_id AS organizationId, line_group_id AS lineGroupId,
               line_user_id AS lineUserId, line_message_id AS lineMessageId,
@@ -1483,6 +1648,7 @@ async function ambientPreview(request: Request, env: WebApiEnv, session: Session
         WHERE organization_id = ? AND digest_status = 'processed'
           AND event_timestamp >= ? AND event_timestamp <= ?`,
     ).bind(session.organizationId, new Date(cutoff.getTime() - 24 * 60 * 60 * 1000).toISOString(), cutoffIso).first<{ count: number }>(),
+    loadAmbientDigestVisibility(env, session.organizationId),
   ]);
   const candidateLikeIds = new Set(ambientPrefilter(buffered.results).map((row) => row.id));
   const classified = buffered.results.map((row) => ({
@@ -1520,6 +1686,9 @@ async function ambientPreview(request: Request, env: WebApiEnv, session: Session
     rows: classified.slice(page * pageSize, (page + 1) * pageSize),
     truncated: buffered.results.length >= 200,
     readOnly: true,
+    observabilityAvailable: digestVisibility.available,
+    recentDigestInvocations: digestVisibility.recentInvocations,
+    recentDigestRuns: digestVisibility.recentRuns,
   });
 }
 

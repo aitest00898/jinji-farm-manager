@@ -3,6 +3,7 @@ import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-resolver";
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
 import type { AmbientV2ResponseFormat } from "./ambient-extraction-v2";
+import { parseCanonicalRecordingText } from "./recording-taxonomy";
 
 export interface AmbientEnv {
   DB: D1Database;
@@ -570,6 +571,7 @@ const AMBIENT_TERMS = [
 const OPERATIONAL_OR_ABNORMAL_PATTERN = /(?:死亡|死(?:雞|鸡)?|掛了|挂了|淘汰|咳嗽|咳|喘|臭腳|臭脚|白冠|拉肚子|腹瀉|腹泻|跛腳|跛脚|精神差|採食下降|采食下降|飲水異常|饮水异常|停電|停电|風扇|风扇|水簾|水帘|飲水線|饮水线|飼料線|饲料线|發電機|发电机|照明|通風|通风|異味|异味|積水|积水|風災|风灾|淹水|屋頂|屋顶|受損|受损|氣溫|气温|高溫|高温|低溫|低温)/u;
 const FARM_OR_FLOCK_CONTEXT = /(?:雞場|鸡场|場|场|雞舍|鸡舍|舍|批次|入雛|入雏|隻|只|雞|鸡)/u;
 const HUMAN_ONLY_PREFIX = /^(?:我|我一直|我在|自己|家人|小孩|孩子)(?:一直|在)?/u;
+const CONTEXT_ONLY_MESSAGE = /^(?:[\p{Script=Han}A-Za-z0-9_-]{1,24}(?:雞場|鸡场|場|场|雞舍|鸡舍|舍)(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上|剛剛|刚刚|又|有|了|那邊|那边|這邊|这边)*)$/u;
 
 export function hasSelfMention(mentionees: AmbientMentionee[] | undefined): boolean {
   return Boolean(mentionees?.some((mentionee) => mentionee.isSelf === true));
@@ -631,12 +633,26 @@ export function previousAmbientHourBucket(value: Date | string | number): string
 export function ambientMessageMayBeRelevant(text: string): boolean {
   const normalized = text.normalize("NFKC").trim();
   if (!normalized || normalized.length > 2000) return false;
-  if (!AMBIENT_TERMS.some((term) => normalized.includes(term))) return false;
   // Do not turn a person's ordinary self-report into a chicken candidate on
   // a keyword alone. A surrounding chicken/farm cue or explicit operation is
   // required; the AI still makes the final candidate decision.
   if (HUMAN_ONLY_PREFIX.test(normalized) && !FARM_OR_FLOCK_CONTEXT.test(normalized)) return false;
   if (/^(?:今天真的很熱|今天真的很热|好熱|好热|很熱|很热)$/u.test(normalized)) return false;
+  if (CONTEXT_ONLY_MESSAGE.test(normalized.replace(/\s+/gu, ""))) return false;
+
+  // Keep this relevance boundary aligned with the canonical taxonomy parser.
+  // The old fixed operation regex only covered a subset of the vocabulary,
+  // so valid actions/observations were discarded before processing. The
+  // parser remains fail-closed for questions, future/negated statements and
+  // ordinary chat; it never authorizes an official write.
+  const canonical = parseCanonicalRecordingText(normalized);
+  if (canonical.recordWorthiness !== "ignore") return true;
+  if (canonical.reason !== "ordinary_chat") return false;
+
+  // Preserve the legacy Ambient vocabulary for messages that the canonical
+  // parser intentionally does not interpret yet. This fallback remains
+  // bounded by the existing Ambient terms/context rules.
+  if (!AMBIENT_TERMS.some((term) => normalized.includes(term))) return false;
   const contextualHeat = /(?:熱|热)/u.test(normalized) && FARM_OR_FLOCK_CONTEXT.test(normalized);
   return OPERATIONAL_OR_ABNORMAL_PATTERN.test(normalized) || contextualHeat;
 }
