@@ -2086,3 +2086,71 @@ LIVE_HEALTH = HTTP_200
 LIVE_READY = HTTP_200
 PRODUCTION_DATA_CHANGED = NO
 ```
+
+## Single-agent 8B Production model release — 2026-09-08
+
+This release is isolated from the unreleased taxonomy-foundation feature
+branch. The release branch was created from the strongest available live
+source baseline: local `main` commit `456366af07a8324d8253af22a5bc381d295a9286`,
+which matches the live Worker's recorded compatibility date, handlers,
+bindings, queue, D1 database, and configured Cron set. Wrangler reports the
+uploaded version source as `Unknown (version_upload)`, so the source mapping is
+high-confidence but not cryptographically proven.
+
+The feature branch contains substantial non-model changes, including the
+recording-taxonomy foundation and migration 0038; none of those changes are in
+this release branch. The functional release change is limited to the approved
+8B model defaults for analysis, semantic Ambient processing, and Conversation
+runtime configuration. Historical benchmark comparators remain unchanged.
+
+```text
+TASK = SINGLE_AGENT_8B_PRODUCTION_RELEASE
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+LIVE_WORKER = chicken-line-production
+LIVE_WORKER_VERSION_BEFORE = 9742faa8-dfbe-4b1e-9af1-1c81ed35b594
+LIVE_SOURCE_COMMIT = 456366af07a8324d8253af22a5bc381d295a9286
+LIVE_SOURCE_COMMIT_CONFIDENCE = HIGH_NOT_CRYPTOGRAPHICALLY_PROVEN
+FEATURE_BRANCH_HAS_UNRELEASED_NON_MODEL_CHANGES = YES
+RELEASE_BRANCH = release/production-8b-model-switch-20260908
+RELEASE_BASE_SHA = 456366af07a8324d8253af22a5bc381d295a9286
+RELEASE_CANDIDATE_SHA = 85de414
+PRE_DEPLOY_MODEL = @cf/meta/llama-3.2-3b-instruct
+TARGET_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+MODEL_ONLY_RUNTIME_DIFF = YES
+RELEASE_FUNCTIONAL_HUNKS = analysis default; semantic Ambient default; Conversation production default
+CRON_DIFF = NONE
+QUEUE_DIFF = NONE
+D1_BINDING_DIFF = NONE
+AI_BINDING_DIFF = NONE
+SECRET_DIFF = NONE
+PRE_DEPLOY_HEALTH = HTTP_200
+PRE_DEPLOY_READY = HTTP_200
+DRY_RUN = PASS
+RELEASE_TESTS = npm run check; 64 files passed; 745 passed; 11 skipped
+ROLLBACK_TARGET_CAPTURED = 9742faa8-dfbe-4b1e-9af1-1c81ed35b594
+ROLLBACK_COMMAND_READY = npx wrangler rollback 9742faa8-dfbe-4b1e-9af1-1c81ed35b594 --name chicken-line-production -y
+DEPLOY_ATTEMPTS = PENDING
+DEPLOY_RESULT = PENDING
+PRODUCTION_8B_CANARY = PENDING
+PRODUCTION_8B_CANARY_CALLS = 0
+WORKER_DEPLOYMENT = PENDING
+PAGES_DEPLOYMENT = NOT_DONE
+PRODUCTION_DATA_CHANGED = NO
+PRODUCTION_D1_WRITES = 0
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+MIGRATION = NONE
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+```
+
+The model target is on Cloudflare's official JSON Mode supported-model list;
+this release does not change the prompt or structured validator. See
+[Cloudflare Workers AI JSON Mode](https://developers.cloudflare.com/workers-ai/features/json-mode/)
+and the [Llama 3.1 8B Instruct Fast model reference](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fast/).
+
+No Production deployment is recorded in this pre-deploy entry. The final live
+version, deployment result, and post-deploy health/ready/config evidence must
+be added here after the single authorized release attempt. A documentation-only
+handoff commit after deployment must not trigger a second deployment.
