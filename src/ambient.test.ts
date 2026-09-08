@@ -175,6 +175,22 @@ describe("ambient prefilter and candidate validation", () => {
     expect(explicitNonRecords.every((testCase) => !ambientMessageMayBeRelevant(testCase.text))).toBe(true);
   });
 
+  it("closes the exact authored prefilter corpus without treating candidate controls as noise", () => {
+    const corpus = [...TAXONOMY_GOLDEN_CASES, ...TAXONOMY_GOLDEN_EDGE_CASES];
+    const rows = corpus.map((testCase) => ({
+      expectedRelevant: testCase.expected.recordWorthiness !== "ignore",
+      selected: ambientMessageMayBeRelevant(testCase.text),
+    }));
+    const truePositive = rows.filter((row) => row.expectedRelevant && row.selected).length;
+    const falseNegative = rows.filter((row) => row.expectedRelevant && !row.selected).length;
+    const trueNegative = rows.filter((row) => !row.expectedRelevant && !row.selected).length;
+    const falsePositive = rows.filter((row) => !row.expectedRelevant && row.selected).length;
+    expect(corpus).toHaveLength(75);
+    expect({ truePositive, falseNegative, trueNegative, falsePositive }).toEqual({ truePositive: 69, falseNegative: 0, trueNegative: 6, falsePositive: 0 });
+    expect(truePositive / (truePositive + falseNegative)).toBe(1);
+    expect(truePositive / (truePositive + falsePositive)).toBe(1);
+  });
+
   it("uses Taipei hour buckets and previous complete hour", () => {
     expect(ambientHourBucket("2026-08-20T13:00:00.000Z")).toBe("2026-08-20T21:00:00+08:00");
     expect(previousAmbientHourBucket("2026-08-20T13:00:00.000Z")).toBe("2026-08-20T20:00:00+08:00");

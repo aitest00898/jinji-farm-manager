@@ -296,7 +296,10 @@ export function validateRecordingDraft(input: unknown): asserts input is Recordi
     fail("RECORDING_UNSUPPORTED_FIELD", "workflowStatus");
   }
   for (const field of ["correctionOfId", "reversalOfId", "replacementOfId"] as const) {
-    if (record[field] !== undefined && record[field] !== null) nonEmptyText(record[field], field, 200);
+    if (record[field] !== undefined && record[field] !== null) {
+      const reference = nonEmptyText(record[field], field, 200);
+      if (reference === String(record.id)) fail("RECORDING_LINEAGE_SELF_REFERENCE", field);
+    }
   }
   for (const field of ["detail", "measurement", "evidence"] as const) {
     if (record[field] !== undefined && record[field] !== null) nonEmptyText(record[field], field, 240);

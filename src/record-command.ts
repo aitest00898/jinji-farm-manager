@@ -25,7 +25,7 @@ export interface RecordCommand {
   clientOperationId: string;
 }
 
-const destinationForTaxonomy = (taxonomyId: TaxonomyId): CanonicalPersistenceDestination =>
+export const canonicalDestinationForTaxonomy = (taxonomyId: TaxonomyId): CanonicalPersistenceDestination =>
   taxonomyId === "O1" || taxonomyId === "O4"
     ? "recording_events"
     : taxonomyId === "O2" || taxonomyId === "O5" || taxonomyId === "O6" || taxonomyId === "O7" || taxonomyId === "O8"
@@ -36,14 +36,14 @@ const destinationForTaxonomy = (taxonomyId: TaxonomyId): CanonicalPersistenceDes
 
 export function canonicalDestinationForRecord(record: RecordingDraft): CanonicalPersistenceDestination {
   validateRecordingDraft(record);
-  return destinationForTaxonomy(String(record.taxonomyId) as TaxonomyId);
+  return canonicalDestinationForTaxonomy(String(record.taxonomyId) as TaxonomyId);
 }
 
 export function createRecordCommand(input: RecordingDraft): RecordCommand {
   const record = { ...input };
   validateRecordingDraft(record);
   const taxonomyId = String(record.taxonomyId) as TaxonomyId;
-  const destination = destinationForTaxonomy(taxonomyId);
+  const destination = canonicalDestinationForTaxonomy(taxonomyId);
   const sourceChannel = record.sourceChannel;
   const clientOperationId = String(record.clientOperationId);
   return {

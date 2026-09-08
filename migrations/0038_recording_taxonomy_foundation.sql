@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS operational_actions (
   CHECK (subtype != 'lab_test' OR (submitted_at IS NOT NULL AND workflow_status IN ('waiting_result', 'completed'))),
   CHECK (subtype != 'lab_test' OR workflow_status != 'completed' OR (result IS NOT NULL AND completed_at IS NOT NULL)),
   CHECK (subtype != 'lab_test' OR workflow_status = 'completed' OR (result IS NULL AND completed_at IS NULL)),
-  CHECK (subtype != 'disinfection' OR workflow_status IN ('pending', 'completed')),
+  CHECK (subtype != 'disinfection' OR (workflow_status IS NOT NULL AND workflow_status IN ('pending', 'completed'))),
   CHECK (subtype IN ('lab_test', 'disinfection') OR workflow_status IS NULL),
   CHECK (subtype IN ('vaccination', 'medication', 'supplement', 'lab_test') OR content IS NULL),
   CHECK (subtype NOT IN ('vaccination', 'medication', 'supplement') OR (content IS NOT NULL AND length(content) BETWEEN 1 AND 240)),
@@ -305,8 +305,7 @@ WHEN NEW.taxonomy_id IS NOT NULL AND (
   NEW.family IS NULL OR NEW.canonical_type IS NULL OR NEW.subtype IS NULL OR
   NEW.extent IS NULL OR NEW.occurred_at IS NULL OR NEW.source_channel IS NULL OR
   (NEW.taxonomy_id = 'A1' AND NEW.linked_mortality_event_id IS NULL) OR
-  (NEW.taxonomy_id = 'A12' AND NEW.subtype = 'other' AND NEW.detail IS NULL) OR
-  (NEW.taxonomy_id = 'A16' AND NEW.evidence IS NULL)
+  (NEW.taxonomy_id = 'A12' AND NEW.subtype = 'other' AND NEW.detail IS NULL)
 )
 BEGIN
   SELECT RAISE(ABORT, 'canonical_abnormal_event_required_field');
@@ -318,8 +317,7 @@ WHEN NEW.taxonomy_id IS NOT NULL AND (
   NEW.family IS NULL OR NEW.canonical_type IS NULL OR NEW.subtype IS NULL OR
   NEW.extent IS NULL OR NEW.occurred_at IS NULL OR NEW.source_channel IS NULL OR
   (NEW.taxonomy_id = 'A1' AND NEW.linked_mortality_event_id IS NULL) OR
-  (NEW.taxonomy_id = 'A12' AND NEW.subtype = 'other' AND NEW.detail IS NULL) OR
-  (NEW.taxonomy_id = 'A16' AND NEW.evidence IS NULL)
+  (NEW.taxonomy_id = 'A12' AND NEW.subtype = 'other' AND NEW.detail IS NULL)
 )
 BEGIN
   SELECT RAISE(ABORT, 'canonical_abnormal_event_required_field');

@@ -5,8 +5,11 @@ import {
   canonicalCommandForLegacyOperational,
   canonicalRouteForText,
   persistenceRouteForCanonicalRecord,
+  recordingAdapterMatrix,
   readLegacyAbnormalEvent,
+  readLegacyOperationalAction,
   readLegacyOperationalEvent,
+  validateRecordingLineage,
   type RecordingIdentity,
   type ResolvedRecordingScope,
 } from "./recording-runtime-bridge";
@@ -183,6 +186,44 @@ describe("recording runtime bridge", () => {
     }
   });
 
+  it("publishes a complete 25-category adapter matrix without adding a second authority", () => {
+    const matrix = recordingAdapterMatrix();
+    expect(matrix).toHaveLength(25);
+    expect(new Set(matrix.map((row) => row.taxonomyId)).size).toBe(25);
+    expect(matrix.every((row) => row.requiredFields.length === row.commandFields.length && row.requiredFields.length === row.storageFields.length)).toBe(true);
+    expect(matrix.find((row) => row.taxonomyId === "O3")).toMatchObject({ destination: "operational_events", readBridge: "readLegacyOperationalEvent", requiredFields: ["quantity", "sex"], storageFields: ["quantity", "sex"] });
+    expect(matrix.find((row) => row.taxonomyId === "O1")).toMatchObject({ destination: "recording_events", readBridge: "canonical_recording_events" });
+    expect(matrix.find((row) => row.taxonomyId === "O6")).toMatchObject({ destination: "operational_actions", readBridge: "readLegacyOperationalAction" });
+    expect(matrix.find((row) => row.taxonomyId === "A16")).toMatchObject({ destination: "abnormal_events", readBridge: "readLegacyAbnormalEvent", requiredFields: ["extent"] });
+    expect(matrix.every((row) => row.correctionBridge === "validateRecordingLineage")).toBe(true);
+  });
+
+  it("reads every A1-A16 abnormal taxonomy through the same strict bridge", () => {
+    const rows = RECORDING_TAXONOMY.filter((definition) => definition.family === "operational_observation").map((definition) => ({
+      id: "abnormal-" + definition.id,
+      organization_id: "org-test",
+      farm_id: "farm-test",
+      occurred_at: createdAt,
+      created_at: createdAt,
+      occurred_date: "2026-09-08",
+      reported_at: createdAt,
+      raw_text: "synthetic " + definition.id,
+      source: "web" as const,
+      source_event_id: "source-abnormal-" + definition.id,
+      taxonomy_id: definition.id,
+      family: definition.family,
+      canonical_type: definition.canonicalType,
+      subtype: definition.canonicalSubtypes[0],
+      extent: "small",
+      linked_mortality_event_id: definition.id === "A1" ? "mortality-event-1" : null,
+      detail: definition.id === "A12" && definition.canonicalSubtypes[0] === "other" ? "synthetic equipment detail" : null,
+      evidence: null,
+    }));
+    const records = rows.map((row) => readLegacyAbnormalEvent(row));
+    expect(records.map((record) => record.taxonomyId)).toEqual(RECORDING_TAXONOMY.filter((definition) => definition.family === "operational_observation").map((definition) => definition.id));
+    expect(records.every((record) => record.family === "operational_observation")).toBe(true);
+  });
+
   it("reads historical operational mortality rows without rewriting them", () => {
     const row = readLegacyOperationalEvent({
       id: "legacy-mortality-1",
@@ -201,6 +242,53 @@ describe("recording runtime bridge", () => {
       reversed_at: "2026-09-08T02:00:00.000Z",
     });
     expect(row).toMatchObject({ taxonomyId: "O9", subtype: "mortality", occurredAt: "2026-09-07T00:00:00+08:00", lifecycleStatus: "reversed", quantity: 5 });
+  });
+
+  it("reads a legacy shipment without sex as an explicit unspecified canonical shipment", () => {
+    const row = readLegacyOperationalEvent({
+      id: "legacy-shipment-without-sex",
+      organization_id: "org-test",
+      farm_id: "farm-test",
+      line_group_id: "group-test",
+      intent: "shipment",
+      quantity: 10,
+      unit: "隻",
+      event_date: "2026-09-07",
+      house_id: "house-test",
+      flock_id: "flock-test",
+      raw_message: "出雞10",
+      source_event_id: "legacy-shipment-source-1",
+      created_at: createdAt,
+      total_weight: 18,
+      average_weight: 1.8,
+      weight_unit: "kg",
+    });
+    expect(row).toMatchObject({ taxonomyId: "O3", subtype: "shipment", sex: "unspecified", quantity: 10, totalWeight: 18, averageWeight: 1.8, weightUnit: "kg" });
+  });
+
+  it("covers every canonical operational action adapter and fails closed without canonical provenance", () => {
+    const common = {
+      organization_id: "org-test",
+      farm_id: "farm-test",
+      source_channel: "web" as const,
+      raw_text: "synthetic action",
+      client_operation_id: "client-action",
+      created_at: createdAt,
+      occurred_at: createdAt,
+    };
+    const rows = [
+      { ...common, id: "action-o2", taxonomy_id: "O2" as const, subtype: "vaccination", content: "疫苗" },
+      { ...common, id: "action-o5", taxonomy_id: "O5" as const, subtype: "feed_order", vendor: "飼料廠", weight: 100, weight_unit: "kg", client_operation_id: "client-action-o5" },
+      { ...common, id: "action-o6", taxonomy_id: "O6" as const, subtype: "lab_test", content: "檢驗", submitted_at: createdAt, workflow_status: "waiting_result", client_operation_id: "client-action-o6" },
+      { ...common, id: "action-o7", taxonomy_id: "O7" as const, subtype: "disinfection", workflow_status: "pending", client_operation_id: "client-action-o7" },
+      { ...common, id: "action-o8", taxonomy_id: "O8" as const, subtype: "maintenance", maintenance_content: "水線", client_operation_id: "client-action-o8" },
+    ];
+    const records = rows.map((row) => readLegacyOperationalAction(row));
+    expect(records.map((row) => row.taxonomyId)).toEqual(["O2", "O5", "O6", "O7", "O8"]);
+    expect(records[1]).toMatchObject({ vendor: "飼料廠", weight: 100, weightUnit: "kg" });
+    expect(records[2]).toMatchObject({ content: "檢驗", workflowStatus: "waiting_result" });
+    expect(records[4]).toMatchObject({ maintenanceContent: "水線" });
+    expect(() => readLegacyOperationalAction({ ...common, id: "action-missing-taxonomy", taxonomy_id: null, client_operation_id: "client-missing-taxonomy" })).toThrow("LEGACY_OPERATIONAL_ACTION_NOT_CANONICAL");
   });
 
   it("reads only explicitly canonical abnormal rows and fails closed otherwise", () => {
@@ -235,5 +323,15 @@ describe("recording runtime bridge", () => {
       source_event_id: "legacy-abnormal-event-unknown",
       created_at: createdAt,
     })).toThrow("LEGACY_ABNORMAL_EVENT_NOT_CANONICAL");
+  });
+
+  it("rejects self, cross-organization, cross-family, and future lineage references", () => {
+    const oldEvent = { id: "old-event", organizationId: "org-test", family: "operational_event", createdAt: "2026-09-07T01:00:00.000Z" };
+    const input = { id: "new-event", organizationId: "org-test", family: "operational_event", createdAt: createdAt };
+    expect(() => validateRecordingLineage({ ...input, correctionOfId: "new-event" }, [oldEvent])).toThrow("RECORDING_LINEAGE_SELF_REFERENCE");
+    expect(() => validateRecordingLineage({ ...input, reversalOfId: "other-org" }, [{ ...oldEvent, id: "other-org", organizationId: "org-other" }])).toThrow("RECORDING_LINEAGE_ORGANIZATION_MISMATCH");
+    expect(() => validateRecordingLineage({ ...input, replacementOfId: "abnormal" }, [{ ...oldEvent, id: "abnormal", family: "operational_observation" }])).toThrow("RECORDING_LINEAGE_FAMILY_MISMATCH");
+    expect(() => validateRecordingLineage({ ...input, correctionOfId: "future-event" }, [{ ...oldEvent, id: "future-event", createdAt: "2026-09-09T01:00:00.000Z" }])).toThrow("RECORDING_LINEAGE_ORDER_INVALID");
+    expect(() => validateRecordingLineage({ ...input, correctionOfId: "missing" }, [])).toThrow("RECORDING_LINEAGE_REFERENCE_NOT_FOUND");
   });
 });
