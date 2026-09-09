@@ -4571,3 +4571,63 @@ the pushed Web candidate, followed by the bounded Test-scope canary gate.
 
 Latest Web error-contract receipt:
 `forensics/web-canonical-api-error-contract-closure-2026-09-09.md`.
+
+## 2026-09-09 — Farm admin password Secret provenance forensic (latest)
+
+The historical human login rejection and Web error-contract receipts above
+are preserved. This forensic Gate investigated repository provenance, the
+current Cloudflare Secret binding metadata, verifier compatibility, and the
+available deployment metadata. It did not retry login or mutate any Secret.
+
+```text
+TASK_RESULT = FARM_ADMIN_PASSWORD_SECRET_PROVENANCE_FORENSIC_COMPLETE
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+CURRENT_WORKER = chicken-line-production
+CURRENT_WORKER_VERSION = b8d5eb49-f032-4180-927d-c428378631ea
+CURRENT_DEPLOYED_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+FARM_ADMIN_PASSWORD_HASH_BINDING_PRESENT = YES
+FARM_ADMIN_PASSWORD_HASH_BINDING_TYPE = secret_text
+SECRET_VALUE_READ = NO
+SECRET_VALUE_PRINTED = NO
+SECRET_MUTATION_COMMANDS_FOUND_IN_TRACKED_HISTORY = NONE_FOUND
+SECRET_DELETE_COMMANDS_FOUND_IN_TRACKED_HISTORY = NONE_FOUND
+SECRET_BULK_COMMANDS_FOUND_IN_TRACKED_HISTORY = NONE_FOUND
+CLOUDFLARE_AUDIT_LOG = NOT_AVAILABLE_CURRENT_PERMISSION_OR_WRANGLER_SURFACE
+VERIFIER_COMPATIBILITY_BREAK_PROVEN = NO
+OLD_HASH_CURRENT_VERIFIER_COMPATIBILITY = PASS_FOR_SINGLE_TRACKED_FORMAT
+WEB_PASSWORD_TRANSFORMATION_COMPATIBILITY = PASS
+SECRET_CHANGE_PROVEN = NOT_PROVEN
+SECRET_MISSING_PROVEN = NO
+WRONG_WORKER_OR_ENVIRONMENT_PROVEN = NO
+CURRENT_SECRET_VALUE_VS_ORIGINAL_PASSWORD = NOT_VERIFIABLE_WITHOUT_HUMAN_AUTHENTICATION_OR_SECRET_RESET
+ROOT_CAUSE_CLASS = INCONCLUSIVE; no repo/verifier/deploy-path change found
+ROOT_CAUSE_CONFIDENCE = HIGH_FOR_SOURCE_AND_VERIFIER; NOT_PROVEN_FOR_SECRET_VALUE_CONTINUITY
+PASSWORD_RESET_EXECUTED = NO
+LOGIN_RETRY = NO
+PRODUCTION_RUNTIME_SOURCE_CHANGED_THIS_GATE = NO
+WEB_RUNTIME_SOURCE_CHANGED_THIS_GATE = NO
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+PRODUCTION_BUSINESS_WRITES = 0
+TEST_SCOPE_BUSINESS_WRITES = 0
+REMOTE_MIGRATION = NO
+SCHEMA_CHANGED = NO
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MODEL_CHANGED = NO
+MAIN_MERGE = NO
+PAGES_DEPLOYMENT = NO
+```
+
+The tracked verifier has remained PBKDF2-SHA256 with 100,000 iterations and
+the same four-field Base64 format since its active implementation was
+introduced. Synthetic compatibility tests passed. The current Secret binding
+exists, but its value cannot be compared with the original password under the
+credential boundary. The correct bounded conclusion is not that the password
+is wrong and not that the Secret definitely changed.
+
+Latest receipt:
+`forensics/farm-admin-password-secret-provenance-2026-09-09.md`.
