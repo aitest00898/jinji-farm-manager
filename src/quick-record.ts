@@ -2,6 +2,8 @@ import { normalize } from "./core";
 import { parseAbnormalTiming, type AbnormalTiming } from "./abnormal";
 import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-resolver";
 import { normalizedHouseName, taipeiDate } from "./master-data";
+import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
+import type { RecordCommand } from "./record-command";
 
 /**
  * Small, deliberately bounded LINE quick-record layer. It is not a second
@@ -16,7 +18,7 @@ export interface QuickRecordEnv {
 export interface QuickLineEvent {
   timestamp?: number;
   source?: { userId?: string; groupId?: string; roomId?: string };
-  message?: { text?: string };
+  message?: { id?: string; text?: string };
 }
 
 export interface QuickFarm {
@@ -98,6 +100,7 @@ interface CommittedItem {
   item: QuickItemDraft;
   eventId: string;
   itemId: string;
+  recordCommand?: RecordCommand;
 }
 
 interface CommittedBundle {
@@ -554,6 +557,31 @@ async function commitBundles(
       const rawMessage = item.originalText;
       if (item.itemType === "operational") {
         const operationalId = `operational-${childEventId}`;
+        const recordCommand = item.intent && item.quantity !== null && item.unit
+          ? canonicalCommandForLegacyOperational({
+            id: operationalId,
+            intent: item.intent,
+            quantity: item.quantity,
+            unit: item.unit,
+            farmId: bundle.farm.id,
+            ...(bundle.scope.houseId ? { houseId: bundle.scope.houseId } : {}),
+            ...(bundle.scope.flockId ? { flockId: bundle.scope.flockId } : {}),
+            occurredAt: item.timing.occurredAt ?? item.timing.reportedAt,
+            createdAt: new Date().toISOString(),
+            sourceChannel: "line",
+            sourceMessageId: event.message?.id,
+            rawText: rawMessage,
+            clientOperationId: sourceEventId,
+            actorId: userId,
+            confirmedBy: "line-quick-record",
+          })
+          : null;
+        // Feed/water are legacy consumption records with no exact canonical
+        // taxonomy equivalent. All other operational intents must be proven
+        // command-compatible before the existing batch is allowed to run.
+        if (!recordCommand && item.intent !== "feed" && item.intent !== "water") {
+          throw new Error("RECORD_COMMAND_REQUIRED_FOR_OPERATIONAL_WRITE");
+        }
         statements.push(env.DB.prepare(
           `INSERT OR IGNORE INTO operational_events
             (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit,
@@ -568,7 +596,7 @@ async function commitBundles(
              occurred_at, occurred_date, operational_event_id, status, source_event_id)
            VALUES (?, ?, ?, 'operational', ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
         ).bind(itemId, bundleId, itemIndexOffset + itemIndex, item.intent, item.rawText, item.quantity, item.unit, item.timing.occurredAt ?? item.timing.reportedAt, item.timing.occurredDate, operationalId, sourceEventId));
-        committedItems.push({ item, eventId: operationalId, itemId });
+        committedItems.push({ item, eventId: operationalId, itemId, ...(recordCommand ? { recordCommand } : {}) });
       } else {
         const abnormalId = `abnormal-${childEventId}`;
         statements.push(env.DB.prepare(

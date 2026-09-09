@@ -152,6 +152,7 @@ import {
   quickRecordHasPending,
   quickRecordLooksRelevant,
 } from "./quick-record";
+import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
 import {
   AI_PRESETS,
   addAmbientCandidateCancelReply,
@@ -3323,6 +3324,30 @@ async function writeOperationalEvent(
     if (activeFlocks.results.length === 1) flockId = activeFlocks.results[0].id;
   }
   const lineUserId = event.source?.userId ?? null;
+  const canonicalCommand = draft.intent === "feed" || draft.intent === "water"
+    ? null
+    : canonicalCommandForLegacyOperational({
+      id: `operational-${eventId}`,
+      intent: draft.intent,
+      quantity: draft.quantity,
+      unit: draft.unit,
+      farmId: validFarm.id,
+      houseId,
+      flockId,
+      occurredAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      sourceChannel: "line",
+      sourceMessageId: event.message?.id,
+      rawText: event.message?.text ?? draft.rawFarmText ?? "",
+      clientOperationId: eventId,
+      actorId: lineUserId ?? undefined,
+      confirmedBy: "line-operational",
+    });
+  // Do not let a legacy write bypass the shared command for intents that have
+  // an exact canonical taxonomy equivalent. Consumption records remain on
+  // their existing path because O5 means a feed order, not feed usage.
+  if (draft.intent !== "feed" && draft.intent !== "water" && !canonicalCommand) return safeRejectionReply(accountName);
+  if (canonicalCommand && canonicalCommand.authoritativeDestination !== "operational_events") return safeRejectionReply(accountName);
   const eventIdValue = `operational-${eventId}`;
   const insert = env.DB.prepare(
     `INSERT OR IGNORE INTO operational_events
