@@ -3462,3 +3462,111 @@ not on the stale 3B Lane A branch. Its six changed files contain only the
 prefilter repair, existing bounded Ambient read visibility, and explicit
 Production/Test scope filtering plus their tests. No schema, migration,
 model, Prompt, Worker configuration, or business-write authority was changed.
+
+## 2026-09-09 — Lane A deployment, model portability, and Lane B release preparation
+
+This is the latest authoritative state for the work covered by the
+`SINGLE-AGENT LANE A PRODUCTION RELEASE + MODEL PORTABILITY & MIGRATION
+FRAMEWORK + LANE B / 0038 RELEASE PREPARATION GATE`. It supersedes earlier
+statements in this document only for the current live deployment and the
+release-preparation results below; historical evidence is retained.
+
+### Track A — corrected Lane A Production release
+
+PRODUCTION_RELEASE_RESULT = PASS
+DEPLOYMENT_AUTHORITY = EXPLICIT_L3_APPROVAL_IN_CURRENT_TASK
+DEPLOY_ATTEMPTS = 1
+PRE_DEPLOY_WORKER_VERSION = 031967a5-9429-402e-8db7-9a8559e93f51
+POST_DEPLOY_WORKER_VERSION = 27d88812-9e21-4ed4-b275-48eafaa236e6
+DEPLOYED_SOURCE_SHA = 666b2bcbd8e0a640b3ad3661581e5e17d94dc225
+CURRENT_LIVE_TRAFFIC = 100%
+CURRENT_LIVE_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+CURRENT_LIVE_HEALTH = HTTP_200
+CURRENT_LIVE_READY = HTTP_200
+POST_DEPLOY_VERSION_METADATA = PASS; fetch/queue/scheduled handlers, AI, D1, Queue, 8B model binding, and secret names verified without exposing values
+D1_BINDING = UNCHANGED
+QUEUE_BINDING = UNCHANGED
+CRONS = UNCHANGED; 0 1,4,7,10,22 * * * ; 0 13 * * *
+RECOVERY_CRON = DISABLED; */2 * * * * IS_NOT_CONFIGURED
+PAGES_DEPLOYMENT = NOT_DONE
+ROLLBACK_TARGET = 031967a5-9429-402e-8db7-9a8559e93f51
+ROLLBACK_COMMAND_PREPARED = `wrangler rollback 031967a5-9429-402e-8db7-9a8559e93f51 --name chicken-line-production -y -m "rollback corrected Lane A deployment"`
+AUTO_ROLLBACK_EXECUTED = NO
+ROLLBACK_RESULT = NOT_NEEDED
+
+### Track B — model portability and migration framework
+
+MODEL_PORTABILITY_FRAMEWORK = IMPLEMENTED_LOCAL_ONLY
+MODEL_PORTABILITY_BRANCH = feat/full-recording-taxonomy-foundation
+MODEL_PORTABILITY_BASE_SHA = 6c61b0b5834a4caac9f206a3d3e1ac92ae69a799
+MODEL_PORTABILITY_FINAL_SHA = a6c13322f1e9e1d8b0a60150b6f674f3f8255ec0
+MODEL_PORTABILITY_GITHUB_HANDOFF = PASS
+MODEL_REGISTRY = CURRENT_8B_FAST_AND_HISTORICAL_3B; active roles are ANALYSIS, CONVERSATION, AMBIENT_EXTRACTION, and ABNORMAL_CLASSIFICATION
+MODEL_EVIDENCE_STORE = 7 APPEND_ONLY_RECORDS; no provider calls
+MODEL_EVIDENCE_SUMMARY = 3B historical text-generation PASS; 3B JSON Mode official-catalog negative; current 8B text-generation PASS; 8B prompt-constrained JSON PASS; 8B JSON Mode S0-S4 PASS; S5 constraints rejected with 8007; full StructuredAnalysis JSON Mode NOT_PROVEN
+MODEL_CAPABILITY_GATE = IMPLEMENTED_FAIL_CLOSED
+MODEL_ROLE_ROUTER = IMPLEMENTED; current production roles remain bound to 8B
+MODEL_ADAPTER_AND_MIGRATION_PLANNER = IMPLEMENTED_LOCAL_ONLY
+MODEL_MIGRATION_RECEIPT = PRESENT; 3B-to-8B migration evidence is immutable and semantic superiority is NOT_PROVEN
+MODEL_PRODUCTION_ACTIVATION = NOT_CHANGED_BY_TRACK_B
+MODEL_BENCHMARK = EXCLUDED
+WORKERS_AI_CALLS_TRACK_B = 0
+
+### Track C — Lane B and migration 0038 release preparation
+
+LANE_B_BASE_SHA = 666b2bcbd8e0a640b3ad3661581e5e17d94dc225
+LANE_B_BRANCH = release/recording-taxonomy-lane-b-20260909
+LANE_B_FINAL_SHA = afbeab8b6661ad3f3e7e9dca2da75a91d2b734f9
+LANE_B_REMOTE_SHA = afbeab8b6661ad3f3e7e9dca2da75a91d2b734f9
+LANE_B_GITHUB_HANDOFF = PASS
+LANE_B_CHANGED_FILES = docs/D1_MIGRATION_RELEASE_POLICY.md; migrations/0038_recording_taxonomy_foundation.sql; scripts/recording-taxonomy-migration-rehearsal.mjs; scripts/recording-taxonomy-parity.mjs; src/quick-record.ts; src/record-command.ts; src/record-command.test.ts; src/recording-reconciliation.ts; src/recording-reconciliation.test.ts; src/recording-runtime-bridge.ts; src/recording-runtime-bridge.test.ts; src/recording-taxonomy.test.ts; src/index.ts; package.json
+LANE_B_SCOPE = RECORDING_TAXONOMY_FOUNDATION_AND_RUNTIME_BRIDGE_ONLY
+MIGRATION_0038_SHA256 = ef767aacb5277be662c0922353ed6f899ffa56b9718bca7476f35f2f02dcd356
+REMOTE_D1_TIME_TRAVEL_BOOKMARK = 000019a3-00000000-000050e1-e18d6b4293a607a5f6361bb41a25aa64
+REMOTE_D1_MIGRATION_STATUS = 0038_recording_taxonomy_foundation.sql PENDING; latest applied migration is 0037 ambient_dev_semantic_observability.sql
+REMOTE_D1_SCHEMA_SNAPSHOT = recording_events ABSENT; operational_actions ABSENT; lineage indexes ABSENT; operational_events and abnormal_events PRESENT; foreign_keys=1
+REMOTE_D1_READS_FOR_PACKET = PASS; rows_written=0; changes=0; changed_db=false
+REMOTE_MIGRATION = NOT_EXECUTED
+MIGRATION_APPLY_COMMAND_FOR_SEPARATE_APPROVAL = `npx wrangler d1 migrations apply chicken-line-production --remote`
+POST_MIGRATION_VERIFICATION = REQUIRED; read-only schema/tracker/foreign-key checks plus recording taxonomy parity checks
+MIGRATION_FAILURE_RECOVERY = PRE-MIGRATION_RECOVERY_POINT → inspect failure → Time Travel restore OR minimal forward-only fix → rerun read-only verification; no blind retry
+LOCAL_MIGRATION_REHEARSAL = PASS
+WEB_PROD_TAXONOMY_PARITY = PASS
+LANE_B_FULL_REGRESSION = PASS; npm run check = 68 files, 782 passed, 11 skipped, 793 total
+LANE_B_TYPESCRIPT = PASS
+HYBRID = EXCLUDED
+MODEL_MIGRATION = EXCLUDED
+BENCHMARK = EXCLUDED
+CRON = UNCHANGED
+FINANCE_LIVE_DATA = UNCHANGED
+OPERATIONAL_LIVE_DATA = UNCHANGED
+
+### Consolidated handoff and safety boundary
+
+FEATURE_GITHUB_HANDOFF = PASS; feat/full-recording-taxonomy-foundation -> a6c13322f1e9e1d8b0a60150b6f674f3f8255ec0
+LANE_A_GITHUB_HANDOFF = PASS; release/operational-safety-8b-base-20260909 -> 666b2bcbd8e0a640b3ad3661581e5e17d94dc225
+LANE_B_GITHUB_HANDOFF = PASS; release/recording-taxonomy-lane-b-20260909 -> afbeab8b6661ad3f3e7e9dca2da75a91d2b734f9
+MAIN_UNCHANGED = YES
+SUBAGENT_DISABLED = YES
+SUBAGENTS_ALLOWED = 0
+SUBAGENTS_USED = 0
+WORKERS_AI_CALLS = 0
+PRODUCTION_AI_CALLS = 0
+PRODUCTION_D1_WRITES = 0
+MIGRATION_EXECUTED_PRODUCTION = NO
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+PAGES_DEPLOYMENT = NOT_DONE
+SOURCE_CHANGED_BY_TRACK_A = YES; six reviewed Lane A files only
+SOURCE_CHANGED_BY_TRACK_B = YES; local model portability framework and tests
+SOURCE_CHANGED_BY_TRACK_C = YES; Lane B release-preparation files only
+PRODUCTION_DATA_CHANGED = NO
+AUDIT_AND_BUSINESS_WRITE_AUTHORITY = UNCHANGED
+
+READY_FOR_LANE_B_PRODUCTION_REVIEW = NO; separate 0038 remote migration execution and runtime release approvals remain required
+READY_FOR_MODEL_MIGRATION_REVIEW = YES; activation was not performed
+READY_FOR_PRODUCTION_MIGRATION_EXECUTION_REVIEW = YES_SEPARATE_EXPLICIT_APPROVAL_REQUIRED
+READY_FOR_LANE_B_AFTER_MIGRATION = YES_CONDITIONAL; only after approved migration, verification, and release review
+TRUE_REMAINING_BLOCKER = EXPLICIT_APPROVALS_FOR_ANY_FUTURE_LANE_B_REMOTE_MIGRATION_AND_PRODUCTION_RELEASE; no current blocker for the completed Lane A release or local Track B/C preparation
+NEXT_SAFE_ACTION = HUMAN_REVIEW_OF_COMBINED_LANE_A_RELEASE_AND_SEPARATE_LANE_B_MIGRATION_PACKET; DO_NOT_RUN_REMOTE MIGRATION OR DEPLOY WITHOUT NEW EXPLICIT APPROVAL
