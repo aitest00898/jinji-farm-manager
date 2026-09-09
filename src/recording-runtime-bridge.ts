@@ -209,6 +209,8 @@ export interface LegacyOperationalCommandInput {
   actorId?: string | null;
   confirmedBy?: string | null;
   sex?: RecordingSex | null;
+  note?: string | null;
+  pendingActionId?: string | null;
 }
 
 /**
@@ -406,6 +408,8 @@ export function canonicalCommandForLegacyOperational(input: LegacyOperationalCom
     clientOperationId: input.clientOperationId,
     actorId: input.actorId || undefined,
     confirmedBy: input.confirmedBy || undefined,
+    note: input.note || undefined,
+    pendingActionId: input.pendingActionId || undefined,
     quantity: input.quantity,
     unit: input.unit,
   });

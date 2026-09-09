@@ -25,17 +25,26 @@ export interface PhaseSession {
 
 type Responder = (body: unknown, status?: number, extra?: HeadersInit) => Response;
 type ErrorResponder = (status: number, code: string, message: string) => Response;
+type CanonicalWrite = (request: Request<any, any>, relation?: { kind: "correction" | "reversal"; id: string }) => Promise<Response>;
 
 const MAX_PAGE_SIZE = 100;
 const CATEGORIES = new Set(["health", "equipment", "environment", "weather_disaster", "feed", "water", "biosecurity", "operation", "logistics", "structure", "system", "other"]);
 
-async function bodyJson(request: Request): Promise<Record<string, unknown> | null> {
+async function bodyJson(request: Request<any, any>): Promise<Record<string, unknown> | null> {
   try {
     const value = await request.json() as unknown;
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch {
     return null;
   }
+}
+
+function hasCanonicalRecordPayload(body: Record<string, unknown> | null): boolean {
+  if (!body) return false;
+  if (typeof body.taxonomyId === "string" || typeof body.family === "string" || typeof body.subtype === "string") return true;
+  if (body.record && typeof body.record === "object" && !Array.isArray(body.record)) return true;
+  if (body.command && typeof body.command === "object" && !Array.isArray(body.command)) return true;
+  return false;
 }
 
 function text(value: unknown, max = 1000): string | null {
@@ -413,14 +422,24 @@ export async function handlePhaseApi(
   session: PhaseSession,
   respond: Responder,
   fail: ErrorResponder,
+  canonicalWrite?: CanonicalWrite,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname === "/api/abnormal-events" && request.method === "GET") return listAbnormalEvents(request, env, session, respond);
-  if (url.pathname === "/api/abnormal-events" && request.method === "POST") return createAbnormalEvent(request, env, session, respond, fail);
+  if (url.pathname === "/api/abnormal-events" && request.method === "POST") {
+    if (canonicalWrite && hasCanonicalRecordPayload(await bodyJson(request.clone()))) return canonicalWrite(request);
+    return createAbnormalEvent(request, env, session, respond, fail);
+  }
   const reverse = /^\/api\/abnormal-events\/([^/]+)\/reverse$/u.exec(url.pathname);
-  if (reverse && request.method === "POST") return reverseAbnormalEvent(request, env, session, reverse[1], respond, fail);
+  if (reverse && request.method === "POST") {
+    if (canonicalWrite && hasCanonicalRecordPayload(await bodyJson(request.clone()))) return canonicalWrite(request, { kind: "reversal", id: decodeURIComponent(reverse[1]) });
+    return reverseAbnormalEvent(request, env, session, reverse[1], respond, fail);
+  }
   const correct = /^\/api\/abnormal-events\/([^/]+)\/correct$/u.exec(url.pathname);
-  if (correct && request.method === "POST") return correctAbnormalEvent(request, env, session, correct[1], respond, fail);
+  if (correct && request.method === "POST") {
+    if (canonicalWrite && hasCanonicalRecordPayload(await bodyJson(request.clone()))) return canonicalWrite(request, { kind: "correction", id: decodeURIComponent(correct[1]) });
+    return correctAbnormalEvent(request, env, session, correct[1], respond, fail);
+  }
   if (url.pathname === "/api/timeline" && request.method === "GET") return timeline(request, env, session, respond);
   if (url.pathname === "/api/weather" && request.method === "GET") return weatherList(request, env, session, respond);
   if (url.pathname === "/api/ai/live-status" && request.method === "GET") return aiLiveStatus(request, env, session, respond, fail);
