@@ -4510,3 +4510,64 @@ correction; no source mutation or retry was performed in this Gate.
 
 Latest canary receipt:
 `forensics/authenticated-web-test-canary-2026-09-09.md`.
+
+## 2026-09-09 — Web canonical API error-contract closure (latest)
+
+The Web-only correction is now complete on the existing release branch. The
+Worker source, deployed Worker, schema, migrations, model, Cron, Finance, and
+Production data were not changed.
+
+```text
+TASK_RESULT = WEB_CANONICAL_API_ERROR_CONTRACT_CLOSED_LOCAL_RELEASE_CANDIDATE
+WEB_RELEASE_BRANCH = release/web-production-integration-20260909
+WEB_RELEASE_SHA = 99f489b9f9fb7e0f49a4465a10fe1c4c26ff0627
+WEB_RELEASE_REMOTE_SHA = 99f489b9f9fb7e0f49a4465a10fe1c4c26ff0627
+WEB_RELEASE_BASE_SHA = 880f47e5a87f030035e370006fa1472a889b187f
+WEB_ERROR_CONTRACT = PASS
+WEB_ERROR_NORMALIZER = flat_and_nested_shared_normalizer
+WEB_UI_RAW_SERVER_MESSAGE_RENDERING = 0
+WEB_AUTH_FAILED_STATE = token_null
+WEB_PROTECTED_401_STATE = memory_auth_cleared
+WEB_MALFORMED_ERROR_STATE = fail_closed
+WEB_CANONICAL_CREATE_CORRECT_REVERSE_SHARED_BOUNDARY = PASS
+WEB_LOCAL_INTEGRATION = PASS
+WEB_STATIC = PASS
+WEB_UNIT = 32/32
+WEB_INTEGRATION = 32/32
+WEB_FINANCE_CHROMIUM = PASS
+WEB_FINANCE_WEBKIT = PASS
+WEB_CHROMIUM_E2E = PASS
+WEB_WEBKIT_E2E = PASS
+WEB_VISUAL = PASS_PIXEL_DIFF_0
+WEB_SECURITY = PASS
+WEB_WORKFLOW_ACTIONLINT = PASS
+WEB_GIT_DIFF_CHECK = PASS
+WORKER_SOURCE_CHANGED_THIS_GATE = NO
+CURRENT_DEPLOYED_PRODUCTION_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+CURRENT_WORKER = b8d5eb49-f032-4180-927d-c428378631ea
+PRODUCTION_BUSINESS_WRITES = 0
+TEST_SCOPE_BUSINESS_WRITES = 0
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+PAGES_DEPLOYED_THIS_GATE = NO
+REMOTE_MIGRATION = NO
+REMOTE_SCHEMA_WRITES = 0
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MODEL_CHANGED = NO
+WORKERS_AI_CALLS = 0
+MAIN_UNCHANGED = YES
+READY_FOR_HUMAN_LOGIN_RETRY = YES
+READY_FOR_AUTHENTICATED_WEB_CANARY = YES_NEW_WEB_CANDIDATE_ONLY
+AUTHENTICATED_WEB_CANARY_EXECUTED_THIS_GATE = NO
+```
+
+The previous failed login receipt remains historical evidence and is not
+rewritten. Its `Canonical API rejected the request.` UI observation is now
+explained by the proven flat-Worker/nested-client mismatch. Human credentials
+remain human-only; the next allowed action is a separate human login retry on
+the pushed Web candidate, followed by the bounded Test-scope canary gate.
+
+Latest Web error-contract receipt:
+`forensics/web-canonical-api-error-contract-closure-2026-09-09.md`.
