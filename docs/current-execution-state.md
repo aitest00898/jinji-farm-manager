@@ -2168,6 +2168,76 @@ and required secret names. Follow-up `/health` and `/ready` checks returned
 HTTP 200; ready reported normal status with zero unfinished, stalled, recent
 reply-problem, and retained counts.
 
+## Canonical record read / correction / reversal closure — 2026-09-09 (latest)
+
+This latest section records the local closure candidate for the canonical
+record read model. It does not supersede the historical authenticated Test
+continuation: that continuation's live O3 remains active and unreversed, and
+its Test stock remains 962 until a later, separately authorized live-resume
+gate. No live row was replayed, corrected or reversed here.
+
+The clean Worker candidate is based on deployed-source SHA
+`18c80b5d5b645e6e2deee76b341089ee9217a154` in branch
+`release/canonical-record-read-model-20260909`. The Web candidate remains on
+`release/web-production-integration-20260909`. The full matrix is in
+`docs/CANONICAL_RECORD_READ_MODEL.md`; the forensic receipt is in
+`forensics/canonical-record-read-correction-reversal-closure-2026-09-09.md`.
+
+```text
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+FINAL_SOURCE_WRITE_COVERAGE = 25/25
+FINAL_LOCAL_D1_WRITE_E2E = 25/25
+READ_MODEL_UNIT_COVERAGE = 25/25
+WRONG_DESTINATION = 0
+DUPLICATE_AUTHORITY = 0
+CORRECTION_FAMILY_COVERAGE = 4/4
+REVERSAL_FAMILY_COVERAGE = 4/4
+DESTRUCTIVE_CORRECTION = 0
+IDEMPOTENCY = PASS
+LINEAGE = PASS
+STOCK_INVARIANT = PASS
+FINAL_NEGATIVE_FAIL_CLOSED = PASS
+```
+
+The local D1 rehearsal used a fresh disposable database and the final source;
+it did not execute a remote migration or a Production write. `GET
+/api/records` now returns the source-backed canonical read model with fields,
+derived values, provenance, safety status and append-only lineage. The Web
+Records page consumes this model in canonical mode and does not fall back to
+fixture data when it fails. Correction and reversal UI actions use the shared
+canonical endpoints. The exact successful command replay control is limited
+to local host + `acceptance-mode=1` + explicit Test scope and is absent from
+Pages.
+
+The existing LINE checklist remains a human-only document on the authoritative
+feature source. It was inspected, no PASS/FAIL was prefilled, and no LINE
+message was sent. Human confirmation is still required for the actual test
+group, Test scope and farm/house/flock before any future live-resume action.
+
+Current state labels are intentionally separate:
+
+```text
+LOCAL_READY = YES
+RELEASE_READY = PENDING_FINAL_CANDIDATE_TESTS_AND_REVIEW
+PRODUCTION_DEPLOYED = NO_THIS_GATE
+PRODUCTION_E2E_ACCEPTED = NO
+PAGES_DEPLOYED = NO_THIS_GATE
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+REMOTE_MIGRATION = NO
+REMOTE_SCHEMA_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MAIN_UNCHANGED = YES
+```
+
+The next decisions remain independent: canonical API deployment and a
+Production write canary require a separate authorization; Web Pages remains
+blocked by the main-only workflow; LINE requires human acceptance; Hybrid
+remains design-only and inactive.
+
 The existing developer-only `/__codex/runtime/ai` path was not used for a
 Production canary because a canary was optional and bounded deployment
 metadata plus health/readiness evidence were already sufficient. Therefore no

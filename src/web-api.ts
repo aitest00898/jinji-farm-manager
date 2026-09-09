@@ -29,6 +29,7 @@ import {
 } from "./domain";
 import { handlePhaseApi } from "./phase-api";
 import { createRecordCommand } from "./record-command";
+import { readCanonicalRecordModel } from "./canonical-record-read-model";
 import { RecordingContractError } from "./recording-taxonomy";
 import { CanonicalWriteError, persistRecordCommand } from "./recording-write-adapter";
 import {
@@ -1163,72 +1164,13 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
   const environment = operationalEnvironmentFor(url);
   const farmId = stringValue(url.searchParams.get("farmId"), 160);
   const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
-  const farmFilter = farmId ? " AND e.farm_id = ?" : "";
-  const bind = farmId ? [session.organizationId, environment, farmId] : [session.organizationId, environment];
-  const [recordingEvents, actions, operationalEvents, abnormalEvents] = await Promise.all([
-    env.DB.prepare(
-      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
-              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
-              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
-              e.source_channel AS sourceChannel, e.raw_text AS rawText,
-              e.client_operation_id AS clientOperationId,
-              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
-         FROM recording_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
-    ).bind(...bind).all<Record<string, unknown>>(),
-    env.DB.prepare(
-      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
-              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
-              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
-              e.source_channel AS sourceChannel, e.raw_text AS rawText,
-              e.client_operation_id AS clientOperationId,
-              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
-         FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
-    ).bind(...bind).all<Record<string, unknown>>(),
-    env.DB.prepare(
-      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
-              e.subtype, e.intent, e.occurred_at AS occurredAt, e.created_at AS createdAt,
-              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
-              e.source_channel AS sourceChannel, e.raw_message AS rawText,
-              e.source_event_id AS clientOperationId,
-              e.correction_of_event_id AS correctionOfId, e.reversal_of_event_id AS reversalOfId,
-              e.reversed_at AS reversedAt
-         FROM operational_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
-          AND e.intent IN ('shipment', 'mortality', 'cull')${farmFilter}`,
-    ).bind(...bind).all<Record<string, unknown>>(),
-    env.DB.prepare(
-      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
-              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
-              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
-              e.source_channel AS sourceChannel, e.raw_text AS rawText,
-              e.source_event_id AS clientOperationId,
-              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.status AS lifecycleStatus
-         FROM abnormal_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id IS NOT NULL${farmFilter}`,
-    ).bind(...bind).all<Record<string, unknown>>(),
-  ]);
-  const records: Array<Record<string, unknown>> = [
-    ...recordingEvents.results.map((row) => ({ ...row, destination: "recording_events" })),
-    ...actions.results.map((row) => ({ ...row, destination: "operational_actions" })),
-    ...operationalEvents.results.map((row) => ({
-      ...row,
-      destination: "operational_events",
-      taxonomyId: row.taxonomyId || (row.intent === "shipment" ? "O3" : "O9"),
-      family: row.family || "operational_event",
-      type: row.type || "event",
-      subtype: row.subtype || row.intent,
-      sourceChannel: row.sourceChannel || "line",
-    })),
-    ...abnormalEvents.results.map((row) => ({ ...row, destination: "abnormal_events" })),
-  ];
-  records.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
-  records.splice(limit);
-  return response(request, { records, environment });
+  const result = await readCanonicalRecordModel(env, {
+    organizationId: session.organizationId,
+    environment,
+    farmId,
+    limit,
+  });
+  return response(request, result);
 }
 
 function encodeCursor(value: string): string {

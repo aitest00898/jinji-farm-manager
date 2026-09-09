@@ -110,6 +110,7 @@ export interface LegacyOperationalEventRow {
   house_id?: string | null;
   flock_id?: string | null;
   raw_message: string;
+  note?: string | null;
   source_event_id: string;
   client_operation_id?: string | null;
   source_channel?: RecordingSourceChannel | null;
@@ -242,6 +243,10 @@ export function readLegacyOperationalEvent(row: LegacyOperationalEventRow): Reco
     ...(row.total_weight !== undefined && row.total_weight !== null ? { totalWeight: row.total_weight } : {}),
     ...(row.average_weight !== undefined && row.average_weight !== null ? { averageWeight: row.average_weight } : {}),
     ...(row.weight_unit ? { weightUnit: row.weight_unit } : {}),
+    ...(row.unit ? { unit: row.unit } : {}),
+    ...(row.line_group_id ? { lineGroupId: row.line_group_id } : {}),
+    ...(row.line_user_id ? { lineUserId: row.line_user_id } : {}),
+    ...(row.note ? { note: row.note } : {}),
     sourceChannel,
     rawText: row.raw_message,
     clientOperationId: row.client_operation_id || row.source_event_id,

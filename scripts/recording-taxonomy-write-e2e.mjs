@@ -348,7 +348,7 @@ async function main() {
       `INSERT INTO web_admin_sessions (id, organization_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
     ).bind("session-canonical-write-e2e", org, tokenHash, "2099-01-01T00:00:00.000Z").run();
 
-    const apiIds = ["O1", "O2", "O3", "O4", "O6", "O9", "A1", "A8", "A12", "A16"];
+    const apiIds = ["O1", "O2", "O3", "O4", "O5", "O6", "O9", "A1", "A8", "A12", "A16"];
     const apiResults = new Map();
     for (const id of apiIds) {
       const record = validRecord(`api-${id}`, id, 300 + apiResults.size);
@@ -372,11 +372,19 @@ async function main() {
     });
     assert.equal(correctedApi.response.status, 201);
     assert.equal(correctedApi.payload.record.lineage.kind, "correction");
-    const reversedApi = await apiCall(db, sessionToken, `/api/records/${encodeURIComponent(apiResults.get("O9").id)}/reverse?environment=test`, {
-      record: { ...validRecord("api-O9-reversal", "O9", 321), subtype: "mortality", clientOperationId: "api-client-O9-reversal" },
-    });
-    assert.equal(reversedApi.response.status, 201);
-    assert.equal(reversedApi.payload.record.lineage.kind, "reversal");
+    const apiReversalResults = new Map();
+    for (const [id, taxonomyId] of [["O1", "O1"], ["O5", "O5"], ["O9", "O9"], ["A8", "A8"]]) {
+      const reversalRecord = {
+        ...validRecord(`api-${id}-reversal`, taxonomyId, 321 + apiReversalResults.size),
+        clientOperationId: `api-client-${id}-reversal`,
+      };
+      const reversedApi = await apiCall(db, sessionToken, `/api/records/${encodeURIComponent(apiResults.get(id).id)}/reverse?environment=test`, {
+        record: reversalRecord,
+      });
+      assert.equal(reversedApi.response.status, 201, `API reversal ${id}`);
+      assert.equal(reversedApi.payload.record.lineage.kind, "reversal");
+      apiReversalResults.set(id, reversedApi.payload.record);
+    }
     const legacyCanonicalAbnormal = await apiCall(db, sessionToken, "/api/abnormal-events?environment=test", {
       record: { ...validRecord("api-compat-A8", "A8", 322), clientOperationId: "api-client-compat-A8" },
     });
@@ -385,6 +393,46 @@ async function main() {
     const listed = await apiCall(db, sessionToken, "/api/records?environment=test&limit=100");
     assert.equal(listed.response.status, 200);
     assert.equal(listed.payload.records.some((item) => item.taxonomyId === "A16" && item.destination === "abnormal_events"), true);
+    const listedById = (id) => {
+      const item = listed.payload.records.find((candidate) => candidate.id === id);
+      assert.ok(item, `canonical read row ${id}`);
+      return item;
+    };
+    const apiO4Read = listedById("api-O4");
+    assert.equal(apiO4Read.destination, "recording_events");
+    assert.equal(apiO4Read.readStatus, "valid");
+    assert.equal(apiO4Read.record.averageWeight, 1.8);
+    assert.equal(apiO4Read.derivedFields.ageDays, 7);
+    assert.equal(apiO4Read.correctionSafe, true);
+    assert.equal(apiO4Read.reversalSafe, true);
+    const apiO2Parent = listedById("api-O2");
+    const apiO2Child = listedById("api-O2-correction");
+    assert.equal(apiO2Parent.effectiveStatus, "corrected");
+    assert.equal(apiO2Parent.isEffective, false);
+    assert.equal(apiO2Parent.lineage.correctedById, "api-O2-correction");
+    assert.equal(apiO2Parent.correctionSafe, false);
+    assert.equal(apiO2Child.effectiveStatus, "replacement");
+    assert.equal(apiO2Child.isEffective, true);
+    assert.equal(apiO2Child.record.correctionOfId, "api-O2");
+    const apiO9Parent = listedById("api-O9");
+    const apiO9Child = listedById("api-O9-reversal");
+    assert.equal(apiO9Parent.effectiveStatus, "reversed");
+    assert.equal(apiO9Parent.isEffective, false);
+    assert.equal(apiO9Parent.lineage.reversedById, "api-O9-reversal");
+    assert.equal(apiO9Parent.reversalSafe, false);
+    assert.equal(apiO9Child.effectiveStatus, "reversed");
+    assert.equal(apiO9Child.isEffective, false);
+    for (const id of ["O1", "O5", "O9", "A8"]) {
+      const parent = listedById(`api-${id}`);
+      const child = listedById(`api-${id}-reversal`);
+      assert.equal(parent.effectiveStatus, "reversed", `read reversal status ${id}`);
+      assert.equal(parent.lineage.reversedById, child.id, `read reversal lineage ${id}`);
+      assert.equal(child.readStatus, "valid", `read reversal child ${id}`);
+    }
+    assert.equal(listed.payload.records.filter((item) => item.readStatus === "unsafe").length, 0);
+    const finalProjection = await canonicalStockProjection({ DB: db }, org, farm);
+    assert.equal(finalProjection.currentStockDelta, 1183);
+    assert.equal(finalProjection.duplicateAuthorityCount, 0);
 
     const unauthenticated = await handleWebApi(new Request("https://canonical-write-e2e.test/api/records?environment=test", { method: "GET" }), { DB: db });
     assert.equal(unauthenticated.status, 401);
