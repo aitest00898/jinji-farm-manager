@@ -4426,3 +4426,26 @@ Latest receipt: `forensics/web-auth-pages-runtime-closure-2026-09-09.md`.
 The existing `docs/LINE_FULL_TAXONOMY_HUMAN_ACCEPTANCE_CHECKLIST.md` remains
 present and complete; it was not rewritten. Human confirmation is still
 required before LINE acceptance.
+
+## 2026-09-09 — Authenticated canary source-provenance correction (latest)
+
+The earlier `CURRENT_DEPLOYED_PRODUCTION_SOURCE = afbeab8b...` value was a
+stale historical reference. It is preserved above for audit history. The
+reviewed deployed canonical source for the current live Worker is the exact
+Production release candidate below.
+
+```text
+CURRENT_DEPLOYED_PRODUCTION_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+CURRENT_WORKER = b8d5eb49-f032-4180-927d-c428378631ea
+CURRENT_MODEL = @cf/meta/llama-3.1-8b-instruct-fast
+SOURCE_PROVENANCE_CORRECTION = PASS
+HISTORICAL_RECEIPTS_PRESERVED = YES
+CANARY_TARGET_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+CANARY_TARGET_WORKER = b8d5eb49-f032-4180-927d-c428378631ea
+```
+
+Read-only preflight for the authenticated Test-scope canary completed before
+human interaction: the Web release branch and local build are
+`880f47e5a87f030035e370006fa1472a889b187f`, `/health` and `/ready` returned
+HTTP 200, D1 reported no pending migration, and the Test-scope baseline
+remained stock 963 with Finance unchanged. No canary request was made.
