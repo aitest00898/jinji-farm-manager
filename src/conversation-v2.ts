@@ -1,5 +1,5 @@
 import { extractJsonValue, aiResponseText } from "./ai-json";
-import { PRODUCTION_AI_MODEL } from "./analysis";
+import { resolveModelForRole } from "./model-portability";
 import { parseCandidateRepairIntent, type CandidateRepairField, type CandidateRepairIntent } from "./candidate-workflow";
 import type { AmbientCandidateConflictEvidence, AmbientCandidateEvidence } from "./ambient";
 
@@ -1267,7 +1267,7 @@ export async function classifyConversationV2WithAi(
         lastExplainedObjectId: null,
         semanticMemory: null,
       };
-    const result = await ai.run(model ?? PRODUCTION_AI_MODEL, {
+    const result = await ai.run(resolveModelForRole("CONVERSATION", model), {
       messages: [
         { role: "system", content: CONVERSATION_V2_SYSTEM_PROMPT },
         { role: "user", content: `currentContext=${JSON.stringify(modelContext)}\nsemanticWorkingMemory=${JSON.stringify(modelContext.semanticMemory ?? null)}\nuserText=${clean(input)}` },

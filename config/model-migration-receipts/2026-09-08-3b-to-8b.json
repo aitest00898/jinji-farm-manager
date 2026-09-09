@@ -1,0 +1,28 @@
+{
+  "receiptVersion": 1,
+  "receiptId": "model-migration-3b-to-8b-2026-09-08",
+  "provider": "cloudflare-workers-ai",
+  "from": {
+    "modelKey": "historical_3b",
+    "modelId": "@cf/meta/llama-3.2-3b-instruct"
+  },
+  "to": {
+    "modelKey": "current_8b_fast",
+    "modelId": "@cf/meta/llama-3.1-8b-instruct-fast"
+  },
+  "releaseIntent": "MODEL_MIGRATION",
+  "primaryReason": "REQUIRED_JSON_MODE_CAPABILITY",
+  "semanticSuperiority": "NOT_PROVEN",
+  "boundedJsonMode": "PROVEN_S0_S4",
+  "fullStructuredAnalysis": "NOT_PROVEN",
+  "evidenceRefs": [
+    "3b-production-text-generation-historical",
+    "3b-json-mode-official-catalog-negative",
+    "8b-production-text-generation-current",
+    "8b-json-mode-bounded-s0-s4",
+    "8b-full-structured-analysis-not-proven"
+  ],
+  "productionActivation": "RECORDED_BY_SEPARATE_RELEASE_RECEIPT",
+  "immutable": true,
+  "createdAt": "2026-09-09"
+}

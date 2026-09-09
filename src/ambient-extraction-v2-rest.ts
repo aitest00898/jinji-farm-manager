@@ -1,4 +1,4 @@
-import { PRODUCTION_AI_MODEL } from "./analysis";
+import { resolveModelForRole } from "./model-portability";
 import type { AmbientAiRequestInput } from "./ambient";
 import type {
   AmbientV2AiAdapter,
@@ -46,10 +46,10 @@ export class AmbientV2DirectRestAdapter implements AmbientV2AiAdapter {
 
   constructor(options: AmbientV2DirectRestAdapterOptions) {
     this.transport = options.transport;
-    this.model = options.model ?? PRODUCTION_AI_MODEL;
+    this.model = options.model ?? resolveModelForRole("AMBIENT_EXTRACTION");
     this.maxTokens = options.maxTokens ?? AMBIENT_V2_PRODUCTION_MAX_TOKENS;
     this.temperature = options.temperature ?? AMBIENT_V2_PRODUCTION_TEMPERATURE;
-    if (this.model !== PRODUCTION_AI_MODEL && options.allowNonProductionModel !== true) {
+    if (this.model !== resolveModelForRole("AMBIENT_EXTRACTION") && options.allowNonProductionModel !== true) {
       throw new Error("AMBIENT_V2_MODEL_MUST_MATCH_PRODUCTION");
     }
     if (this.maxTokens !== AMBIENT_V2_PRODUCTION_MAX_TOKENS) throw new Error("AMBIENT_V2_MAX_TOKENS_MUST_MATCH_PRODUCTION");

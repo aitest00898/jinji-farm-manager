@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "providerPolicy": {
+    "provider": "cloudflare-workers-ai",
+    "workersPlan": "FREE_ONLY",
+    "paidPlanAllowed": false,
+    "paidOnlyModelAllowed": false,
+    "overageBillingAllowed": false
+  },
+  "appendOnly": true,
+  "evidenceSchema": {
+    "reuseKeyFields": [
+      "provider",
+      "modelId",
+      "capability",
+      "requestProfile",
+      "schemaProfile",
+      "schemaHash",
+      "adapterVersion",
+      "adapterHash",
+      "evaluatorVersion",
+      "result"
+    ],
+    "evidenceLevels": [
+      "L1_DOCUMENTED",
+      "L2_STATIC_COMPATIBLE",
+      "L3_BOUNDED_RUNTIME_PROVEN",
+      "L4_PRODUCTION_OBSERVED"
+    ]
+  },
+  "roles": {
+    "ANALYSIS": {
+      "modelKey": "current_8b_fast",
+      "requiredCapabilities": ["text_generation"]
+    },
+    "CONVERSATION": {
+      "modelKey": "current_8b_fast",
+      "requiredCapabilities": ["text_generation"]
+    },
+    "AMBIENT_EXTRACTION": {
+      "modelKey": "current_8b_fast",
+      "requiredCapabilities": ["text_generation"]
+    },
+    "ABNORMAL_CLASSIFICATION": {
+      "modelKey": "current_8b_fast",
+      "requiredCapabilities": ["text_generation"]
+    }
+  },
+  "models": [
+    {
+      "key": "current_8b_fast",
+      "provider": "cloudflare-workers-ai",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "lifecycle": "current_production",
+      "freeTierEligible": true
+    },
+    {
+      "key": "historical_3b",
+      "provider": "cloudflare-workers-ai",
+      "modelId": "@cf/meta/llama-3.2-3b-instruct",
+      "lifecycle": "historical_baseline",
+      "freeTierEligible": true
+    }
+  ],
+  "evidence": [
+    {
+      "evidenceId": "3b-production-text-generation-historical",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "historical_3b",
+      "modelId": "@cf/meta/llama-3.2-3b-instruct",
+      "capability": "text_generation",
+      "requestProfile": "production-text-generation-v1",
+      "schemaProfile": null,
+      "schemaHash": null,
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L4_PRODUCTION_OBSERVED",
+      "result": "PASS",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:8B Production model migration verification gate",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.2-3b-instruct|text_generation|production-text-generation-v1|||workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|PASS"
+    },
+    {
+      "evidenceId": "3b-json-mode-official-catalog-negative",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "historical_3b",
+      "modelId": "@cf/meta/llama-3.2-3b-instruct",
+      "capability": "json_mode",
+      "requestProfile": "official-json-mode-supported-model-list",
+      "schemaProfile": null,
+      "schemaHash": null,
+      "adapterVersion": null,
+      "adapterHash": null,
+      "evaluatorVersion": null,
+      "evidenceLevel": "L1_DOCUMENTED",
+      "result": "REJECTED",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:Official model and JSON Mode evidence",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.2-3b-instruct|json_mode|official-json-mode-supported-model-list||||||REJECTED"
+    },
+    {
+      "evidenceId": "8b-production-text-generation-current",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "current_8b_fast",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "capability": "text_generation",
+      "requestProfile": "production-text-generation-v1",
+      "schemaProfile": null,
+      "schemaHash": null,
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L4_PRODUCTION_OBSERVED",
+      "result": "PASS",
+      "observedAt": "2026-09-09",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:Lane A Production deployment + Model Portability framework",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.1-8b-instruct-fast|text_generation|production-text-generation-v1|||workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|PASS"
+    },
+    {
+      "evidenceId": "8b-prompt-json-bounded",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "current_8b_fast",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "capability": "prompt_constrained_json",
+      "requestProfile": "full-taxonomy-semantic-prompt-json-v1",
+      "schemaProfile": "unified-intent-v1",
+      "schemaHash": "4b72414ac4a776b33fed4edae15943891acd992d6712dee1de94756e9434d737",
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L3_BOUNDED_RUNTIME_PROVEN",
+      "result": "PASS",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:Multi-track convergence gate",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.1-8b-instruct-fast|prompt_constrained_json|full-taxonomy-semantic-prompt-json-v1|unified-intent-v1|4b72414ac4a776b33fed4edae15943891acd992d6712dee1de94756e9434d737|workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|PASS"
+    },
+    {
+      "evidenceId": "8b-json-mode-bounded-s0-s4",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "current_8b_fast",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "capability": "json_mode",
+      "requestProfile": "json-mode-staircase-s0-s4-v1",
+      "schemaProfile": "bounded-s0-s4",
+      "schemaHash": "c70d7e66...2fed9df",
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L3_BOUNDED_RUNTIME_PROVEN",
+      "result": "PASS",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:Multi-track convergence gate",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.1-8b-instruct-fast|json_mode|json-mode-staircase-s0-s4-v1|bounded-s0-s4|c70d7e66...2fed9df|workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|PASS"
+    },
+    {
+      "evidenceId": "8b-json-mode-constraints-rejected-s5",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "current_8b_fast",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "capability": "json_mode",
+      "requestProfile": "json-mode-staircase-s5-constraints-v1",
+      "schemaProfile": "constraints-s5",
+      "schemaHash": "s5-8007",
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L3_BOUNDED_RUNTIME_PROVEN",
+      "result": "REJECTED",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:Multi-track convergence gate",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.1-8b-instruct-fast|json_mode|json-mode-staircase-s5-constraints-v1|constraints-s5|s5-8007|workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|REJECTED"
+    },
+    {
+      "evidenceId": "8b-full-structured-analysis-not-proven",
+      "provider": "cloudflare-workers-ai",
+      "modelKey": "current_8b_fast",
+      "modelId": "@cf/meta/llama-3.1-8b-instruct-fast",
+      "capability": "full_structured_analysis_json_mode",
+      "requestProfile": "full-structured-analysis-json-mode-v1",
+      "schemaProfile": "StructuredAnalysis-current",
+      "schemaHash": "not-proven",
+      "adapterVersion": "workers-ai-binding-v1",
+      "adapterHash": "workers-ai-binding-callsite-contract-v1",
+      "evaluatorVersion": "model-portability-v1",
+      "evidenceLevel": "L3_BOUNDED_RUNTIME_PROVEN",
+      "result": "NOT_PROVEN",
+      "observedAt": "2026-09-08",
+      "validUntil": null,
+      "sourceRef": "docs/current-execution-state.md:8B Production model migration verification gate",
+      "reuseKey": "cloudflare-workers-ai|@cf/meta/llama-3.1-8b-instruct-fast|full_structured_analysis_json_mode|full-structured-analysis-json-mode-v1|StructuredAnalysis-current|not-proven|workers-ai-binding-v1|workers-ai-binding-callsite-contract-v1|model-portability-v1|NOT_PROVEN"
+    }
+  ]
+}

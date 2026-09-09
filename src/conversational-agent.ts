@@ -1,4 +1,4 @@
-import { PRODUCTION_AI_MODEL } from "./analysis";
+import { resolveModelForRole } from "./model-portability";
 import { extractJsonValue, aiResponseText } from "./ai-json";
 import { parseCandidateRepairIntent, type CandidateRepairField, type CandidateRepairIntent } from "./candidate-workflow";
 
@@ -181,7 +181,7 @@ export async function classifyConversationalGoalWithAi(
 ): Promise<ConversationalAiResult> {
   if (!ai) return { attempted: false, route: null, validation: "not_invoked" };
   try {
-    const result = await ai.run(PRODUCTION_AI_MODEL, {
+    const result = await ai.run(resolveModelForRole("CONVERSATION"), {
       messages: [
         { role: "system", content: CONVERSATIONAL_SYSTEM_PROMPT },
         { role: "user", content: `currentContext=${JSON.stringify(context)}\nuserText=${clean(input)}` },

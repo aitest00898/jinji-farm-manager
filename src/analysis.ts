@@ -5,8 +5,12 @@ import {
 } from "./abnormal";
 import { taipeiDate } from "./master-data";
 import { extractJsonValue } from "./ai-json";
+import { resolveModelForRole } from "./model-portability";
 
-export const PRODUCTION_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
+/** Analysis role is the canonical default; the old export remains as a
+ * compatibility alias for existing developer/test call sites. */
+export const ANALYSIS_AI_MODEL = resolveModelForRole("ANALYSIS");
+export const PRODUCTION_AI_MODEL = ANALYSIS_AI_MODEL;
 
 export const ANALYSIS_TOOL_NAMES = [
   "get_farm_summary",
@@ -340,7 +344,7 @@ const ANALYSIS_SYSTEM_PROMPT = `你是金雞協會的唯讀雞場營運分析助
 
 async function invokeAnalysisAi(env: AnalysisEnv, question: string, context: AnalysisContext): Promise<StructuredAnalysis> {
   if (!env.AI) throw new Error("analysis_ai_unavailable");
-  const result = await env.AI.run(PRODUCTION_AI_MODEL, {
+  const result = await env.AI.run(ANALYSIS_AI_MODEL, {
     messages: [
       { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
       { role: "user", content: `問題：${question}\nvalidatedContext=${JSON.stringify(context)}` },
@@ -387,8 +391,8 @@ export async function runReadOnlyAnalysis(
      ON CONFLICT(organization_id, scope_type, scope_id, report_type, context_hash) DO UPDATE SET
        question = excluded.question, content_json = excluded.content_json,
        model = excluded.model, created_at = CURRENT_TIMESTAMP`,
-  ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL).run();
-  return { report, cached: false, contextHash, model: PRODUCTION_AI_MODEL, createdAt: now };
+  ).bind(id, organizationId, scope.type, scope.id, normalizedQuestion, JSON.stringify(report), contextHash, ANALYSIS_AI_MODEL).run();
+  return { report, cached: false, contextHash, model: ANALYSIS_AI_MODEL, createdAt: now };
 }
 
 export async function getCachedBrief(env: AnalysisEnv, organizationId: string, scope: AnalysisScope): Promise<AnalysisRunResult | null> {
@@ -424,8 +428,8 @@ export async function generateDailyBrief(
      ON CONFLICT(organization_id, scope_type, scope_id, brief_date, context_hash) DO UPDATE SET
        content_json = excluded.content_json, model = excluded.model,
        generated_through_at = excluded.generated_through_at, updated_at = CURRENT_TIMESTAMP`,
-  ).bind(`ai-brief-${crypto.randomUUID()}`, organizationId, scope.type, scope.id, taipeiDate(), JSON.stringify(report), contextHash, PRODUCTION_AI_MODEL, now).run();
-  return { report, cached: false, contextHash, model: PRODUCTION_AI_MODEL, createdAt: now };
+  ).bind(`ai-brief-${crypto.randomUUID()}`, organizationId, scope.type, scope.id, taipeiDate(), JSON.stringify(report), contextHash, ANALYSIS_AI_MODEL, now).run();
+  return { report, cached: false, contextHash, model: ANALYSIS_AI_MODEL, createdAt: now };
 }
 
 const CLASSIFICATION_SCHEMA = {
@@ -444,7 +448,7 @@ const CLASSIFICATION_SCHEMA = {
 };
 
 export async function classifyAbnormalWithAi(ai: Ai, rawText: string): Promise<AbnormalClassification | null> {
-  const result = await ai.run(PRODUCTION_AI_MODEL, {
+  const result = await ai.run(resolveModelForRole("ABNORMAL_CLASSIFICATION"), {
     messages: [
       { role: "system", content: "你是雞場異常紀錄分類器。只輸出 JSON metadata，不提供診斷、藥物、處方或任何資料庫操作。原文不可被改寫。" },
       { role: "user", content: rawText },

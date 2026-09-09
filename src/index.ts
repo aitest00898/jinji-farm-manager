@@ -49,6 +49,7 @@ import {
   PRODUCTION_AI_MODEL,
   type AnalysisScope,
 } from "./analysis";
+import { MODEL_KEYS, modelIdForKey, resolveModelForRole } from "./model-portability";
 import {
   activateDailyReviewContext,
   clearDailyReviewContext,
@@ -3884,7 +3885,7 @@ async function writeConversationV2Trace(
         eligibility ? "eligible" : "ineligible",
         trace.conversation_v2_planner_invoked ? 1 : 0,
         trace.conversation_v2_plan_source ?? (trace.conversation_v2_ai_invoked ? "ai" : "fallback"),
-        env.CONVERSATION_MODEL ?? PRODUCTION_AI_MODEL,
+        resolveModelForRole("CONVERSATION", env.CONVERSATION_MODEL),
         trace.conversation_v2_ai_validation === "schema_valid" ? 1 : trace.conversation_v2_ai_validation ? 0 : null,
         trace.conversation_v2_selected_goal ?? null,
         trace.conversation_v2_topic ?? null,
@@ -4090,8 +4091,8 @@ function naturalLanguageFallbackReply(accountName: string): string {
 // Keep all current semantic/ambient Production defaults on the canonical
 // model. The historical 3B comparator below is developer-only and is not a
 // Production routing default.
-const SEMANTIC_AI_MODEL = PRODUCTION_AI_MODEL;
-const BENCHMARK_MODEL_3B = "@cf/meta/llama-3.2-3b-instruct";
+const SEMANTIC_AI_MODEL = resolveModelForRole("AMBIENT_EXTRACTION");
+const BENCHMARK_MODEL_3B = modelIdForKey(MODEL_KEYS.HISTORICAL_3B);
 const BENCHMARK_MODEL_ALLOWLIST = new Set([
   SEMANTIC_AI_MODEL,
   BENCHMARK_MODEL_3B,
@@ -6111,7 +6112,7 @@ async function handleConversationOrchestratorV2Input(
   // evaluated after the model as a local safety/fallback policy, never as the
   // gate that decides whether the model gets to understand the request.
   const aiStartedAt = Date.now();
-  const aiResult = await classifyConversationV2WithAi(env.AI, env.CONVERSATION_MODEL, text, scoped.context);
+  const aiResult = await classifyConversationV2WithAi(env.AI, resolveModelForRole("CONVERSATION", env.CONVERSATION_MODEL), text, scoped.context);
   if (trace) {
     trace.conversation_v2_ai_first = true;
     trace.conversation_v2_ai_invoked = aiResult.attempted;
@@ -7922,7 +7923,7 @@ function lineTechnicalInfoReply(env: Env, accountName: string): LineReplyMessage
     `${botName(accountName)}\n技術資訊`,
     `服務：chicken-line-production`,
     `對話模式：${env.CONVERSATION_V2_MODE ?? "未設定"}`,
-    `對話模型：${env.CONVERSATION_MODEL ?? PRODUCTION_AI_MODEL}`,
+    `對話模型：${resolveModelForRole("CONVERSATION", env.CONVERSATION_MODEL)}`,
     `背景整理模型：${SEMANTIC_AI_MODEL}`,
     "排程：每天 06:00、09:00、12:00、15:00、18:00 整理；每天 21:00 營運總覽；每 2 分鐘自動恢復",
     "訊息處理：每批最多 10 筆，最多自動再試 3 次",

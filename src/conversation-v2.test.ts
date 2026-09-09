@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PRODUCTION_AI_MODEL } from "./analysis";
+import { MODEL_KEYS, modelIdForKey } from "./model-portability";
 import {
   chooseSafeConversationV2Plan,
   CONVERSATION_V2_TOOL_ALLOWLIST,
@@ -113,15 +114,18 @@ describe("Conversation Orchestrator V2 goal routing", () => {
     expect(routeConversationV2Deterministic(text, noCandidate).goal).toBe("HELP");
   });
 
-  it("uses the canonical model by default while preserving explicit overrides", async () => {
+  it("uses the canonical model by default and rejects an unbound override", async () => {
     const run = vi.fn(async () => ({ response: "{}" }));
     const ai = { run } as unknown as Ai;
 
     await classifyConversationV2WithAi(ai, undefined, "可以幫我做什麼", context());
-    await classifyConversationV2WithAi(ai, "@cf/developer/explicit-model", "可以幫我做什麼", context());
+    await classifyConversationV2WithAi(ai, modelIdForKey(MODEL_KEYS.CURRENT_8B_FAST), "可以幫我做什麼", context());
 
     expect(run).toHaveBeenNthCalledWith(1, PRODUCTION_AI_MODEL, expect.any(Object));
-    expect(run).toHaveBeenNthCalledWith(2, "@cf/developer/explicit-model", expect.any(Object));
+    expect(run).toHaveBeenNthCalledWith(2, PRODUCTION_AI_MODEL, expect.any(Object));
+    const rejected = await classifyConversationV2WithAi(ai, modelIdForKey(MODEL_KEYS.HISTORICAL_3B), "可以幫我做什麼", context());
+    expect(rejected).toMatchObject({ attempted: true, validation: "ai_error", errorClass: "Error" });
+    expect(run).toHaveBeenCalledTimes(2);
   });
 });
 

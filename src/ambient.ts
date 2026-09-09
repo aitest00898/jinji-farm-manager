@@ -1,4 +1,4 @@
-import { PRODUCTION_AI_MODEL } from "./analysis";
+import { resolveModelForRole } from "./model-portability";
 import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-resolver";
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
@@ -2534,7 +2534,7 @@ export function estimateAmbientAiExtractionSize(options: {
 export async function extractAmbientCandidates(
   env: AmbientEnv,
   messages: AmbientBufferedMessage[],
-  model = PRODUCTION_AI_MODEL,
+  model = resolveModelForRole("AMBIENT_EXTRACTION"),
 ): Promise<AmbientExtractionResult> {
   const focused = ambientPrefilter(messages);
   if (!focused.length || !env.AI) return { attempted: false, bundle: null, validation: "not_invoked" };

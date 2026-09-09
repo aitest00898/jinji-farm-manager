@@ -1,4 +1,4 @@
-import { PRODUCTION_AI_MODEL } from "./analysis";
+import { resolveModelForRole } from "./model-portability";
 import {
   buildAmbientV2Request,
   parseAmbientV2ResponseBoundary,
@@ -210,7 +210,7 @@ export async function queryAmbientV2ModelSchema(options: {
 }): Promise<AmbientV2ModelSchemaAudit> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = new URL(`https://api.cloudflare.com/client/v4/accounts/${options.accountId}/ai/models/schema`);
-  url.searchParams.set("model", options.model ?? PRODUCTION_AI_MODEL);
+  url.searchParams.set("model", options.model ?? resolveModelForRole("AMBIENT_EXTRACTION"));
   let response: Response;
   try {
     response = await fetchImpl(url, {

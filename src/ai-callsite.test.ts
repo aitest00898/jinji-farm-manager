@@ -7,21 +7,21 @@ const sourceRoot = resolve(import.meta.dirname);
 
 describe("Workers AI call-site compatibility", () => {
   it("has no executable response_format field in production TypeScript call sites", () => {
-    const files = ["ambient.ts", "analysis.ts", "index.ts", "semantic.ts", "conversational-agent.ts", "conversation-v2.ts"];
+    const files = ["ambient.ts", "analysis.ts", "index.ts", "semantic.ts", "conversational-agent.ts", "conversation-v2.ts", "model-registry.ts", "model-portability.ts"];
     const source = files.map((file) => readFileSync(resolve(sourceRoot, file), "utf8")).join("\n");
     expect(source).not.toMatch(/response_format\s*:/u);
     expect(source).not.toMatch(/json_schema\s*:/u);
   });
 
   it("keeps all known production AI paths on the canonical model", () => {
-    const files = ["ambient.ts", "analysis.ts", "index.ts", "semantic.ts", "conversational-agent.ts", "conversation-v2.ts"];
+    const files = ["ambient.ts", "analysis.ts", "index.ts", "semantic.ts", "conversational-agent.ts", "conversation-v2.ts", "model-registry.ts", "model-portability.ts"];
     const source = files.map((file) => readFileSync(resolve(sourceRoot, file), "utf8")).join("\n");
     expect(PRODUCTION_AI_MODEL).toBe("@cf/meta/llama-3.1-8b-instruct-fast");
-    expect(source).toContain(PRODUCTION_AI_MODEL);
-    expect(source).toContain("const SEMANTIC_AI_MODEL = PRODUCTION_AI_MODEL");
+    expect(source).toContain("resolveModelForRole(\"ANALYSIS\")");
+    expect(source).toContain("resolveModelForRole(\"AMBIENT_EXTRACTION\")");
     const historicalThreeB = source.match(/@cf\/meta\/llama-3\.2-3b-instruct/gu) ?? [];
     expect(historicalThreeB).toHaveLength(1);
-    expect(source).toContain("const BENCHMARK_MODEL_3B = \"@cf/meta/llama-3.2-3b-instruct\"");
+    expect(source).toContain("modelIdForKey(MODEL_KEYS.HISTORICAL_3B)");
     expect(source).not.toMatch(/env\.AI\.run\([^\n]+,\s*\{[^}]*write/isu);
   });
 
