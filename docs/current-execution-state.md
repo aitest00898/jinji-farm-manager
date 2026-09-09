@@ -4449,3 +4449,64 @@ human interaction: the Web release branch and local build are
 `880f47e5a87f030035e370006fa1472a889b187f`, `/health` and `/ready` returned
 HTTP 200, D1 reported no pending migration, and the Test-scope baseline
 remained stock 963 with Finance unchanged. No canary request was made.
+
+## 2026-09-09 — Authenticated Web Test-scope canary stopped at login (latest)
+
+The first human-authenticated Web canary used the exact local candidate and
+was stopped at the login boundary after the UI displayed
+`Canonical API rejected the request.` No password, token, Authorization header,
+or login request body was read by Codex. The candidate was not modified.
+
+```text
+TASK_RESULT = AUTHENTICATED_WEB_TEST_SCOPE_CANARY_FAILED_LOGIN_BLOCKED
+CANARY_WEB_SHA = 880f47e5a87f030035e370006fa1472a889b187f
+LOCAL_CANARY_ORIGIN = http://127.0.0.1:5173
+CANARY_RUNTIME_MODE = canonical_api
+CANARY_API_BASE = https://chicken-line-production.jinji-assistant.workers.dev
+CURRENT_WORKER = b8d5eb49-f032-4180-927d-c428378631ea
+CURRENT_DEPLOYED_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+HUMAN_LOGIN = FAIL
+HUMAN_TEST_SCOPE_CONFIRMATION = NOT_REACHED
+LOGIN_UI_ERROR = Canonical API rejected the request.
+ERROR_CONTRACT_FINDING = PROVEN_FLAT_WORKER_ERROR_VS_NESTED_CLIENT_PARSER
+PASSWORD_WRONG = NOT_PROVEN
+SOURCE_FIX_APPLIED_THIS_GATE = NO
+TEST_SCOPE = 金雞測試場 / 測試1舍 / TEST-BATCH-001
+PRE_CANARY_STOCK = 963
+POST_FAILURE_STOCK = 963
+POST_FAILURE_RECORDING_EVENTS = 0
+POST_FAILURE_OPERATIONAL_ACTIONS = 0
+POST_FAILURE_OPERATIONAL_EVENTS = 15
+POST_FAILURE_ABNORMAL_EVENTS = 8
+POST_FAILURE_FINANCE_CHANGED = NO
+TEST_SCOPE_BUSINESS_FACTS_CREATED = 0
+PRODUCTION_SCOPE_BUSINESS_FACTS_CREATED = 0
+CANONICAL_READBACK = NOT_EXECUTED
+IDEMPOTENCY = NOT_EXECUTED
+REVERSAL_LINEAGE = NOT_EXECUTED
+LOGOUT_REVOCATION = NOT_EXECUTED_NO_SESSION
+STOCK_DOUBLE_COUNT = 0
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+PAGES_DEPLOYED_THIS_GATE = NO
+REMOTE_MIGRATION = NO
+SCHEMA_CHANGED = NO
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+WORKERS_AI_CALLS = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MODEL_CHANGED = NO
+READY_FOR_CANONICAL_API_NORMAL_OPERATION = NO
+READY_FOR_WEB_MAIN_MERGE_REVIEW = NO
+READY_FOR_PAGES_DEPLOYMENT_AFTER_MAIN_CI = NO
+READY_FOR_HUMAN_CANARY_RETRY = NO_ON_THIS_CANDIDATE
+```
+
+The live Worker uses a flat `{ error, message }` response while the Web
+candidate parser expects a nested error object. This contract mismatch is
+proven from source. The exact HTTP status and password validity were not
+inspected. Required follow-up is a separately reviewed client error-contract
+correction; no source mutation or retry was performed in this Gate.
+
+Latest canary receipt:
+`forensics/authenticated-web-test-canary-2026-09-09.md`.
