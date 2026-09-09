@@ -131,7 +131,7 @@ WEB_VISUAL = PASS; mobile and desktop pixelDiff=0; responsive overflow=0
 WEB_SECURITY = PASS; lab runtime network=0; canonical boundary audited; production secrets=0
 
 GITHUB_HANDOFF_COMPLETE = YES; both explicitly authorized pushes completed
-DOCUMENTATION_ONLY_STATE_UPDATE = REQUIRED; this receipt/state update is pushed separately from the runtime release SHA
+DOCUMENTATION_ONLY_STATE_UPDATE = COMPLETED; this receipt/state update is pushed separately from the runtime release SHA
 
 Pages was not modified or deployed. The existing workflow deploys after a
 successful Lab CI workflow_run caused by a push to main, checks out that
