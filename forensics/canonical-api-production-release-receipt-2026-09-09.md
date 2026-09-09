@@ -217,8 +217,8 @@ missing authenticated Production business canary to PASS.
 
 ```text
 FEATURE_BRANCH = feat/full-recording-taxonomy-foundation
-FEATURE_FINAL_SHA = 23b8b00d179b92bca682ddc09983bdcc6f4d3f75
-FEATURE_REMOTE_SHA = 23b8b00d179b92bca682ddc09983bdcc6f4d3f75
+FEATURE_SOURCE_HANDOFF_SHA = 23b8b00d179b92bca682ddc09983bdcc6f4d3f75
+FEATURE_DOCUMENTATION_COMMIT = 2e77cc5318783b0c7aeb51934916d45edf5950c8
 GITHUB_HANDOFF = PASS; receipt/state update is a normal feature-branch commit
 PRODUCTION_RELEASE_BRANCH_MUTATED_AFTER_DEPLOY = NO
 ```
