@@ -32,6 +32,7 @@
     "runtime:fast-path-local": "node scripts/fast-path-runtime-local.mjs",
     "test:taxonomy-parity": "node --experimental-strip-types scripts/recording-taxonomy-parity.mjs",
     "test:taxonomy-migration": "node scripts/recording-taxonomy-migration-rehearsal.mjs",
+    "test:canonical-write-local": "node scripts/run-canonical-write-e2e.mjs",
     "model:capabilities": "node scripts/model-capabilities.mjs",
     "model:check": "node --experimental-strip-types scripts/model-check.mjs",
     "model:migration-plan": "node --experimental-strip-types scripts/model-migration-plan.mjs",

@@ -28,6 +28,9 @@ import {
   writeAuditLog,
 } from "./domain";
 import { handlePhaseApi } from "./phase-api";
+import { createRecordCommand } from "./record-command";
+import { RecordingContractError } from "./recording-taxonomy";
+import { CanonicalWriteError, persistRecordCommand } from "./recording-write-adapter";
 import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
@@ -1071,6 +1074,163 @@ async function listOperationalEvents(request: Request, env: WebApiEnv, session: 
   return response(request, { events: values, nextCursor });
 }
 
+function canonicalRecordPayload(body: Record<string, unknown> | null): Record<string, unknown> | null {
+  const command = body?.command;
+  if (command && typeof command === "object" && !Array.isArray(command)) {
+    const record = (command as Record<string, unknown>).record;
+    if (record && typeof record === "object" && !Array.isArray(record)) return record as Record<string, unknown>;
+  }
+  const record = body?.record;
+  if (record && typeof record === "object" && !Array.isArray(record)) return record as Record<string, unknown>;
+  return body;
+}
+
+function canonicalRecordFromWebBody(
+  body: Record<string, unknown> | null,
+  session: SessionRow,
+  relation?: { kind: "correction" | "reversal"; id: string },
+): Record<string, unknown> {
+  const source = canonicalRecordPayload(body);
+  if (!source) throw new CanonicalWriteError("CANONICAL_RECORD_OBJECT_INVALID");
+  const clientOperationId = stringValue(source.clientOperationId ?? body?.clientOperationId, 200);
+  if (!clientOperationId) throw new CanonicalWriteError("CANONICAL_CLIENT_OPERATION_ID_REQUIRED", "clientOperationId");
+  const id = stringValue(source.id, 160) ?? `web-record-${crypto.randomUUID()}`;
+  const occurredAt = stringValue(source.occurredAt, 80)
+    || (typeof source.eventDate === "string" && isIsoDate(source.eventDate) ? `${source.eventDate}T00:00:00+08:00` : null);
+  if (!occurredAt) throw new CanonicalWriteError("CANONICAL_OCCURRED_AT_REQUIRED", "occurredAt");
+  const record: Record<string, unknown> = {
+    ...source,
+    id,
+    occurredAt,
+    createdAt: new Date().toISOString(),
+    sourceChannel: "web",
+    actorId: session.id,
+    confirmedBy: session.id,
+    clientOperationId,
+  };
+  if (relation) {
+    const field = relation.kind === "correction" ? "correctionOfId" : "reversalOfId";
+    const existing = record[field];
+    if (existing !== undefined && existing !== null && String(existing) !== relation.id) {
+      throw new CanonicalWriteError("CANONICAL_RELATION_TARGET_MISMATCH", field);
+    }
+    record[field] = relation.id;
+  }
+  return record;
+}
+
+function canonicalWriteErrorResponse(request: Request, error: unknown): Response | null {
+  if (error instanceof CanonicalWriteError || error instanceof RecordingContractError) {
+    const code = error instanceof CanonicalWriteError ? error.code : error.code;
+    const field = error instanceof CanonicalWriteError ? error.field : error.field;
+    return errorResponse(request, 400, code, field ? `canonical record field invalid: ${field}` : "canonical record rejected; no write was made.");
+  }
+  return null;
+}
+
+async function writeCanonicalRecord(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  relation?: { kind: "correction" | "reversal"; id: string },
+): Promise<Response> {
+  try {
+    const body = await bodyJson(request);
+    const record = canonicalRecordFromWebBody(body, session, relation);
+    const command = createRecordCommand(record);
+    const result = await persistRecordCommand(
+      { DB: env.DB },
+      command,
+      {
+        organizationId: session.organizationId,
+        actorType: "web_admin",
+        actorId: session.id,
+        requestId: requestId(request),
+        environment: operationalEnvironmentFor(new URL(request.url)),
+        expectedSourceChannel: "web",
+      },
+    );
+    return response(request, { record: result }, result.created ? 201 : 200);
+  } catch (error) {
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function listCanonicalRecords(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const url = new URL(request.url);
+  const environment = operationalEnvironmentFor(url);
+  const farmId = stringValue(url.searchParams.get("farmId"), 160);
+  const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+  const farmFilter = farmId ? " AND e.farm_id = ?" : "";
+  const bind = farmId ? [session.organizationId, environment, farmId] : [session.organizationId, environment];
+  const [recordingEvents, actions, operationalEvents, abnormalEvents] = await Promise.all([
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
+              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.source_channel AS sourceChannel, e.raw_text AS rawText,
+              e.client_operation_id AS clientOperationId,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
+         FROM recording_events e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
+    ).bind(...bind).all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
+              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.source_channel AS sourceChannel, e.raw_text AS rawText,
+              e.client_operation_id AS clientOperationId,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
+         FROM operational_actions e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
+    ).bind(...bind).all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
+              e.subtype, e.intent, e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.source_channel AS sourceChannel, e.raw_message AS rawText,
+              e.source_event_id AS clientOperationId,
+              e.correction_of_event_id AS correctionOfId, e.reversal_of_event_id AS reversalOfId,
+              e.reversed_at AS reversedAt
+         FROM operational_events e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?
+          AND e.intent IN ('shipment', 'mortality', 'cull')${farmFilter}`,
+    ).bind(...bind).all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
+              e.subtype, e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.source_channel AS sourceChannel, e.raw_text AS rawText,
+              e.source_event_id AS clientOperationId,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.status AS lifecycleStatus
+         FROM abnormal_events e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id IS NOT NULL${farmFilter}`,
+    ).bind(...bind).all<Record<string, unknown>>(),
+  ]);
+  const records: Array<Record<string, unknown>> = [
+    ...recordingEvents.results.map((row) => ({ ...row, destination: "recording_events" })),
+    ...actions.results.map((row) => ({ ...row, destination: "operational_actions" })),
+    ...operationalEvents.results.map((row) => ({
+      ...row,
+      destination: "operational_events",
+      taxonomyId: row.taxonomyId || (row.intent === "shipment" ? "O3" : "O9"),
+      family: row.family || "operational_event",
+      type: row.type || "event",
+      subtype: row.subtype || row.intent,
+      sourceChannel: row.sourceChannel || "line",
+    })),
+    ...abnormalEvents.results.map((row) => ({ ...row, destination: "abnormal_events" })),
+  ];
+  records.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  records.splice(limit);
+  return response(request, { records, environment });
+}
+
 function encodeCursor(value: string): string {
   return btoa(value).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
 }
@@ -1094,6 +1254,51 @@ async function createOperationalEvent(request: Request, env: WebApiEnv, session:
   if (intent === "water" && unit !== "L") return errorResponse(request, 400, "invalid_unit", "飲水事件必須使用 L。");
   const scope = await validateEventScope(env, session.organizationId, farmId, houseId, requestedFlockId);
   if (!scope) return errorResponse(request, 400, "invalid_scope", "雞場、雞舍或批次不在同一有效範圍，沒有寫入。");
+  if (intent === "shipment" || intent === "mortality" || intent === "cull") {
+    const sex = body?.sex === "male" || body?.sex === "female" || body?.sex === "mixed" || body?.sex === "unspecified" ? body.sex : intent === "shipment" ? null : undefined;
+    if (intent === "shipment" && !sex) return errorResponse(request, 400, "invalid_sex", "出雞紀錄需要指定公雞、母雞、混合或未指定。");
+    const sourceEventId = stringValue(body?.clientOperationId, 200) ?? `web-${crypto.randomUUID()}`;
+    const record = {
+      id: `operational-web-${crypto.randomUUID()}`,
+      taxonomyId: intent === "shipment" ? "O3" : "O9",
+      family: "operational_event",
+      type: "event",
+      subtype: intent === "shipment" ? "shipment" : intent,
+      occurredAt: `${eventDate}T00:00:00+08:00`,
+      createdAt: new Date().toISOString(),
+      farmId,
+      ...(scope.house?.id ? { houseId: scope.house.id } : {}),
+      ...(requestedFlockId ? { flockId: requestedFlockId } : {}),
+      ...(sex ? { sex } : {}),
+      ...(body?.totalWeight !== undefined ? { totalWeight: body.totalWeight, weightUnit: "kg" } : {}),
+      quantity,
+      unit: "隻",
+      sourceChannel: "web",
+      rawText: `web:${intent}`,
+      clientOperationId: sourceEventId,
+      actorId: session.id,
+      confirmedBy: session.id,
+    };
+    try {
+      const result = await persistRecordCommand(
+        { DB: env.DB },
+        createRecordCommand(record),
+        {
+          organizationId: session.organizationId,
+          actorType: "web_admin",
+          actorId: session.id,
+          requestId: requestId(request),
+          environment: operationalEnvironmentFor(new URL(request.url)),
+          expectedSourceChannel: "web",
+        },
+      );
+      return response(request, { event: result }, result.created ? 201 : 200);
+    } catch (error) {
+      const rejected = canonicalWriteErrorResponse(request, error);
+      if (rejected) return rejected;
+      throw error;
+    }
+  }
   let flockId = requestedFlockId;
   if (!flockId && scope.house) {
     const active = await env.DB.prepare("SELECT id FROM flocks WHERE house_id = ? AND status = 'active' ORDER BY id").bind(scope.house.id).all<{ id: string }>();
@@ -2054,12 +2259,23 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const session = await requireSession(request, env);
     if (session instanceof Response) return session;
     if (url.pathname === "/api/web/auth/logout" && request.method === "POST") return authLogout(request, env, session);
+    if (url.pathname === "/api/records" && request.method === "GET") return listCanonicalRecords(request, env, session);
+    if (url.pathname === "/api/records" && request.method === "POST") return writeCanonicalRecord(request, env, session);
+    const canonicalRecordCorrectMatch = /^\/api\/records\/([^/]+)\/correct$/u.exec(url.pathname);
+    if (canonicalRecordCorrectMatch && request.method === "POST") {
+      return writeCanonicalRecord(request, env, session, { kind: "correction", id: decodeURIComponent(canonicalRecordCorrectMatch[1]) });
+    }
+    const canonicalRecordReverseMatch = /^\/api\/records\/([^/]+)\/reverse$/u.exec(url.pathname);
+    if (canonicalRecordReverseMatch && request.method === "POST") {
+      return writeCanonicalRecord(request, env, session, { kind: "reversal", id: decodeURIComponent(canonicalRecordReverseMatch[1]) });
+    }
     const phaseResponse = await handlePhaseApi(
       request,
       env,
       session,
       (body, status = 200, extra) => response(request, body, status, extra),
       (status, code, message) => errorResponse(request, status, code, message),
+      (phaseRequest, relation) => writeCanonicalRecord(phaseRequest as unknown as Request, env, session, relation),
     );
     if (phaseResponse) return phaseResponse;
     if (url.pathname === "/api/organizations" && request.method === "GET") return response(request, { organizations: [await activeOrganization(env)] });

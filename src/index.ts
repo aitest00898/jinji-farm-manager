@@ -154,6 +154,7 @@ import {
   quickRecordLooksRelevant,
 } from "./quick-record";
 import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
+import { persistRecordCommand } from "./recording-write-adapter";
 import {
   AI_PRESETS,
   addAmbientCandidateCancelReply,
@@ -3343,79 +3344,45 @@ async function writeOperationalEvent(
       clientOperationId: eventId,
       actorId: lineUserId ?? undefined,
       confirmedBy: "line-operational",
+      note: draft.note ?? null,
+      pendingActionId: pendingActionId ?? null,
     });
   // Do not let a legacy write bypass the shared command for intents that have
   // an exact canonical taxonomy equivalent. Consumption records remain on
   // their existing path because O5 means a feed order, not feed usage.
   if (draft.intent !== "feed" && draft.intent !== "water" && !canonicalCommand) return safeRejectionReply(accountName);
   if (canonicalCommand && canonicalCommand.authoritativeDestination !== "operational_events") return safeRejectionReply(accountName);
-  const eventIdValue = `operational-${eventId}`;
-  const insert = env.DB.prepare(
-    `INSERT OR IGNORE INTO operational_events
-      (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit,
-       event_date, house, house_id, flock_id, raw_message, raw_farm_text, note, pending_action_id, source_event_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    eventIdValue,
-    organizationId,
-    farm.id,
-    groupId,
-    lineUserId,
-    draft.intent,
-    draft.quantity,
-    draft.unit,
-    today(),
-    canonicalHouse,
-    houseId,
-    flockId,
-    event.message?.text ?? draft.rawFarmText ?? "",
-    draft.rawFarmText,
-    draft.note ?? null,
-    pendingActionId ?? null,
-    eventId,
-  );
+  if (!canonicalCommand) return safeRejectionReply(accountName);
+  let canonicalResult;
+  try {
+    canonicalResult = await persistRecordCommand(env, canonicalCommand, {
+      organizationId,
+      actorType: "line_user",
+      actorId: lineUserId,
+      requestId: eventId,
+      lineGroupId: groupId,
+      lineUserId,
+      environment: validFarm.environment ?? "production",
+      expectedSourceChannel: "line",
+    });
+  } catch {
+    return safeRejectionReply(accountName);
+  }
   if (pendingActionId) {
-    await env.DB.batch([
-      insert,
-      env.DB.prepare(
-        `UPDATE pending_actions
-            SET status = 'completed', confirmed_farm_id = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ? AND line_group_id = ? AND line_user_id = ?
-            AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?`,
-      ).bind(farm.id, pendingActionId, groupId, lineUserId, new Date().toISOString()),
-    ]);
-  } else {
-    await insert.run();
+    await env.DB.prepare(
+      `UPDATE pending_actions
+          SET status = 'completed', confirmed_farm_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND line_group_id = ? AND line_user_id = ?
+          AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?`,
+    ).bind(farm.id, pendingActionId, groupId, lineUserId, new Date().toISOString()).run();
   }
   const stored = await env.DB.prepare(
-    `SELECT farm_id AS farmId, intent, quantity, unit, note, pending_action_id AS pendingActionId
-       FROM operational_events WHERE source_event_id = ? LIMIT 1`,
+    `SELECT farm_id AS farmId, intent, quantity, unit, note
+       FROM operational_events WHERE id = ? LIMIT 1`,
   )
-    .bind(eventId)
-    .first<{ farmId: string; intent: OperationalIntent; quantity: number; unit: "隻" | "kg" | "L"; note: string | null; pendingActionId: string | null }>();
+    .bind(canonicalResult.id)
+    .first<{ farmId: string; intent: OperationalIntent; quantity: number; unit: "隻" | "kg" | "L"; note: string | null }>();
   if (!stored) return safeRejectionReply(accountName);
-  await writeAuditLog(env, {
-    organizationId,
-    source: "line",
-    actorType: "line_user",
-    actorId: lineUserId,
-    action: "create",
-    entityType: "operational_event",
-    entityId: eventIdValue,
-    after: {
-      farmId: farm.id,
-      farmName: farm.name,
-      house: canonicalHouse,
-      houseId,
-      flockId,
-      intent: stored.intent,
-      quantity: stored.quantity,
-      unit: stored.unit,
-      eventDate: today(),
-      pendingActionId: stored.pendingActionId,
-    },
-    requestId: eventId,
-  });
   if (pendingActionId) await learnCandidateAlias(env, farm.id, draft.rawFarmText);
   if (lineUserId) {
     try {

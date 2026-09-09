@@ -3646,6 +3646,168 @@ READY_FOR_LANE_B_NORMAL_OPERATION = YES_WITHOUT_BUSINESS_CANARY
 READY_FOR_WEB_PRODUCTION_INTEGRATION_REVIEW = NOT_ENTERED
 READY_FOR_BOUNDED_HYBRID_RESIDUAL_TEST = NO_EXPLICIT_FUTURE_GATE_REQUIRED
 FINAL_STOP = YES; no automatic next Gate
+
+## Authoritative latest state — Canonical write/API closure and residual forensic — 2026-09-09
+
+This section supersedes the older Post-Lane-B Track A/Track B blocker claims
+for local source state only. It does not change the deployed Worker, does not
+authorize a Production canary, and does not authorize a Pages or LINE run.
+
+```text
+TASK = SINGLE_AGENT_CANONICAL_WRITE_API_CLOSURE_HYBRID_RESIDUAL_FORENSIC_GATE
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_ALLOWED = 0
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+RELEASE_BASE_SHA = 902f6458b022e80409f92ba4e1214f5998dc8d7e
+PRODUCTION_FEATURE_BRANCH = feat/full-recording-taxonomy-foundation
+MAIN_UNCHANGED = YES
+```
+
+### Track A — local canonical write closure
+
+The shared runtime boundary is now `RecordCommand -> validate -> resolve ->
+route -> canonical adapter`, with one adapter for each authoritative family.
+The complete executable 25-row matrix is in
+`docs/CANONICAL_WRITE_COVERAGE_MATRIX.md` and
+`src/recording-write-matrix.ts`.
+
+```text
+TOTAL_TAXONOMY_CATEGORIES = 25
+RECORDCOMMAND_SUPPORTED = 25/25
+VALIDATOR_SUPPORTED = 25/25
+RESOLVER_SUPPORTED = 25/25
+WRITE_ADAPTER_SUPPORTED = 25/25
+READ_BRIDGE_SUPPORTED = 25/25
+CORRECTION_SUPPORTED = PASS; append-only lineage across four destinations
+O1_DESTINATION = recording_events
+O2_DESTINATION = operational_actions
+O3_DESTINATION = operational_events (legacy authority preserved)
+O4_DESTINATION = recording_events
+O5_DESTINATION = operational_actions
+O6_DESTINATION = operational_actions
+O7_DESTINATION = operational_actions
+O8_DESTINATION = operational_actions
+O9_DESTINATION = operational_events (legacy authority preserved)
+A1_A16_DESTINATION = abnormal_events
+PARALLEL_AUTHORITY_ERRORS = 0
+IDEMPOTENCY = PASS in recorded local E2E; cross-destination reuse fails closed
+LINEAGE = PASS in recorded local E2E
+APPEND_ONLY_CORRECTION = PASS in recorded local E2E
+STOCK_INVARIANT = PASS in recorded local E2E; A1 stock effect = 0
+PRODUCTION_WRITE_CANARY_THIS_GATE = NOT_RUN
+```
+
+The recorded disposable local D1 E2E passed after the shared adapter and
+canonical `/api/records` surface were implemented:
+
+```text
+CANONICAL_WRITE_LOCAL_D1 = PASS
+LOCAL_WRITE_E2E = 25/25
+DESTINATION_ROUTING = 25/25
+WRONG_DESTINATION = 0
+DUPLICATE_AUTHORITY = 0
+WEB_API_CONTRACT = PASS
+WEB_SECURITY_SCOPE = PASS
+NEGATIVE_FAIL_CLOSED = PASS
+```
+
+A later source-only refinement delayed LINE-group metadata creation until
+after validation and added canonical delegation for the old abnormal route;
+TypeScript and the full Vitest suite passed after those changes. The D1 E2E
+was not rerun after that refinement because its harness applies migration SQL
+inside a disposable database and this Gate explicitly forbids executing
+migrations. No Production data was touched.
+
+### Track B — canonical Web API
+
+The former gap was an absent runtime write adapter and absent shared
+`POST /api/records` route, not three isolated O4/O2/A8 mappings. The API
+closure receipt is `docs/CANONICAL_API_CLOSURE.md`.
+
+```text
+CANONICAL_API_GAP_ROOT_CAUSE = absent shared runtime write adapter + absent /api/records
+SHARED_RECORD_WRITE_API = POST /api/records
+WEB_BYPASSES_BUSINESS_LAYER = NO for canonical surface
+CORS = PASS; allowlist and fail-closed Origin
+AUTH = PASS; existing Web session/Bearer boundary
+CLIENT_OPERATION_ID = PASS; required and replay-safe
+TEST_SCOPE = default Production; explicit environment=test; unknown does not widen scope
+WEB_API_CONTRACT_TESTS = PASS in recorded disposable local D1 E2E
+READY_FOR_CANONICAL_API_PRODUCTION_RELEASE = NO; separate release review/canary required
+READY_FOR_WEB_PRODUCTION_INTEGRATION_RELEASE_REVIEW = NO; Pages/main integration not released
+```
+
+The existing raw abnormal compatibility route remains for legacy payloads that
+do not carry a canonical taxonomy record. When a canonical record payload is
+sent to that route, it delegates to the same adapter. This preserves legacy
+read/recovery behavior without treating raw-text compatibility as full
+taxonomy proof.
+
+### Track C — historical Hybrid residual forensic
+
+The full forensic report is
+`forensics/hybrid-residual-failure-forensic-2026-09-09.md`.
+
+```text
+RESIDUAL_HISTORICAL_TOTAL = 11
+SEMANTIC_PASS = 6
+SEMANTIC_FAIL = 5
+NEW_AI_CALLS = 0
+FAILURES = completed-lab-needs-result; missing-observation-extent; ambiguous-stress; ambiguous-equipment; missing-other-detail
+DETERMINISTIC_FIX_CANDIDATES = all five non-exact cases
+CONTRACT_FIX_CANDIDATES = explicit candidate/missing-field preservation + clarification-only routing
+CLARIFICATION_CANDIDATES = all five non-exact cases
+MODEL_LIMIT_CANDIDATES = none proven
+MINIMUM_FUTURE_AI_RETEST_CASES = 0 under the current clarification contract
+HYBRID_PRODUCTION_ACTIVATION = NO
+READY_FOR_HYBRID_BOUNDED_RETEST = YES_NOT_EXECUTED; future authorization still required
+```
+
+### Track D — LINE boundary
+
+`docs/LINE_FULL_TAXONOMY_HUMAN_ACCEPTANCE_CHECKLIST.md` is present and
+complete for O1-O9 and A1-A16. Its routing destinations remain consistent with
+the matrix, so it was not rewritten.
+
+```text
+LINE_ACCEPTANCE_CHECKLIST = PRESENT_COMPLETE
+HUMAN_TEST_GROUP_CONFIRMATION_REQUIRED = YES
+HUMAN_CONFIRMATION = visually confirm the management test group, Test scope label, read-back destination, O6 waiting/overdue/completed behavior, O3/O9 single stock effect, A1 zero stock effect, correction/reversal lineage, and no duplicate/Finance change
+LINE_SEND = 0
+READY_FOR_LINE_HUMAN_ACCEPTANCE = NO
+```
+
+### Regression and release boundary
+
+```text
+PROD_TARGETED_TESTS = PASS; canonical source checks and matrix tests
+PROD_CHECK = PASS; 74 test files, 823 passed, 11 skipped
+PROD_FULL_TESTS = PASS; npm run check
+WEB_TESTS = not changed in the isolated Web Lab; no Pages deployment
+TAXONOMY_PARITY = PASS
+MODEL_PORTABILITY_REGRESSION = PASS; providerCalls=0
+GIT_DIFF_CHECK = PASS
+CANONICAL_API_RELEASE_BRANCH = feat/full-recording-taxonomy-foundation
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+PAGES_DEPLOYED_THIS_GATE = NO
+PRODUCTION_BUSINESS_WRITES = 0
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MIGRATION_EXECUTED_THIS_GATE = NO
+MAIN_UNCHANGED = YES
+```
+
+```text
+READY_FOR_PRODUCTION_CANONICAL_WRITE_CANARY = NO; this Gate did not deploy
+READY_FOR_CANONICAL_API_PRODUCTION_RELEASE = NO; release review/canary pending
+READY_FOR_WEB_PRODUCTION_INTEGRATION_RELEASE = NO; Pages/main constraint remains
+READY_FOR_HYBRID_BOUNDED_RETEST = YES_NOT_EXECUTED
+READY_FOR_LINE_HUMAN_ACCEPTANCE = NO; human group confirmation required
+FINAL_STOP = YES; do not start the next Gate automatically
+```
 ```
 
 The D1 aggregate usage display after the release showed `num_tables=55` and
