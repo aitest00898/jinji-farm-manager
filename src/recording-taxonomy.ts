@@ -555,6 +555,9 @@ function questionFor(fields: Record<string, unknown>, missing: readonly string[]
     detail: "請補充其他設備異常內容。",
     linkedMortalityEventId: "請指出對應的正式死亡紀錄。",
   };
+  if (missing.includes("result") && missing.includes("completedAt")) return "請補充檢驗結果與完成時間。";
+  if (first === "result") return "請補充檢驗結果。";
+  if (first === "completedAt") return "請補充完成時間。";
   return questions[first] || "請補充「" + first + "」。";
 }
 

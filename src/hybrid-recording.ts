@@ -30,6 +30,7 @@ export interface HybridFactPlan {
   candidateSubtypes: readonly string[];
   knownFields: Readonly<Record<string, unknown>>;
   missingFields: readonly string[];
+  clarificationQuestion: string | null;
   residualText: string;
   parserReason: string;
   officialWriteAllowed: false;
@@ -46,6 +47,7 @@ export interface HybridPlan {
    */
   knownFields: Readonly<Record<string, unknown>>;
   missingFields: readonly string[];
+  clarificationQuestion: string | null;
   residualText: string;
   officialWriteAllowed: false;
 }
@@ -131,12 +133,30 @@ function deterministicFields(parsed: CanonicalTextParse): Readonly<Record<string
   return Object.freeze({ ...parsed.fields });
 }
 
+/**
+ * These residuals already have a bounded human-answerable clarification in
+ * the canonical parser. They must not be widened into an AI residual: the
+ * user is the only authority for the missing result/detail or subtype.
+ */
+function deterministicClarificationQuestion(parsed: CanonicalTextParse): string | null {
+  const missing = new Set(parsed.missingFields);
+  if (parsed.taxonomyId === "O6" && parsed.subtype === "lab_test" && missing.has("result") && missing.has("completedAt")) return parsed.clarificationQuestion;
+  if (parsed.taxonomyId === "A8" && parsed.subtype === "foot_odor" && missing.has("extent")) return parsed.clarificationQuestion;
+  if (parsed.taxonomyId === "A10" && parsed.subtype === null && missing.has("subtype")) return "請選擇緊迫類型：熱緊迫或抓雞緊迫。";
+  if (parsed.taxonomyId === "A12" && parsed.subtype === null && missing.has("subtype")) return "請選擇設備異常類型：飼料、水、電力、風扇、冷卻、加熱或其他。";
+  if (parsed.taxonomyId === "A12" && parsed.subtype === "other" && missing.has("detail")) return parsed.clarificationQuestion;
+  return null;
+}
+
 function factFromParse(sourceText: string, parsed: CanonicalTextParse): HybridFactPlan {
   const ids = candidateIds(parsed);
   const subtypes = candidateSubtypes(parsed);
   const knownFields = deterministicFields(parsed);
   const isNonOfficialGuard = NON_OFFICIAL_REASONS.has(parsed.reason);
-  const decision: HybridDecisionClass = parsed.recordWorthiness === "record" && Boolean(parsed.taxonomyId) && !isNonOfficialGuard
+  const clarificationQuestion = deterministicClarificationQuestion(parsed);
+  const decision: HybridDecisionClass = clarificationQuestion
+    ? "UNRESOLVED"
+    : parsed.recordWorthiness === "record" && Boolean(parsed.taxonomyId) && !isNonOfficialGuard
     ? "DETERMINISTIC_CONFIRMED"
     : parsed.recordWorthiness === "candidate" && Boolean(parsed.taxonomyId) && !isNonOfficialGuard
       ? "AI_RESIDUAL"
@@ -149,6 +169,7 @@ function factFromParse(sourceText: string, parsed: CanonicalTextParse): HybridFa
     candidateSubtypes: Object.freeze(subtypes),
     knownFields,
     missingFields: Object.freeze([...parsed.missingFields]),
+    clarificationQuestion,
     residualText,
     parserReason: parsed.reason,
     officialWriteAllowed: false,
@@ -195,6 +216,7 @@ function planFromFacts(facts: readonly HybridFactPlan[]): HybridPlan {
   const candidateSubtypes = unique(facts.flatMap((fact) => fact.candidateSubtypes));
   const knownFields = facts.length === 1 ? facts[0].knownFields : Object.freeze({});
   const missingFields = unique(facts.flatMap((fact) => fact.missingFields));
+  const clarificationQuestion = facts.length === 1 ? facts[0].clarificationQuestion : null;
   const residualText = facts.filter((fact) => fact.residualText).map((fact) => fact.residualText).join("；");
   return Object.freeze({
     decision,
@@ -203,6 +225,7 @@ function planFromFacts(facts: readonly HybridFactPlan[]): HybridPlan {
     candidateSubtypes: Object.freeze(candidateSubtypes),
     knownFields,
     missingFields: Object.freeze(missingFields),
+    clarificationQuestion,
     residualText,
     officialWriteAllowed: false,
   });
