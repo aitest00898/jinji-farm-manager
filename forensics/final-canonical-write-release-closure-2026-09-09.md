@@ -89,7 +89,10 @@ forensics, or Cron/Finance change.
 
 PRODUCTION_FEATURE_SOURCE_COMMIT = fd453e999f5a9ceee0a5e6c98e1c934bb7143df2
 PRODUCTION_FEATURE_REMOTE_BEFORE_HANDOFF = 5e19db5a0472f133e29ea29690cd0c4ef04798c0
-PRODUCTION_FEATURE_PUSH = BLOCKED_BY_ESCALATED_APPROVAL
+PRODUCTION_FEATURE_POST_SOURCE_HANDOFF_REMOTE_SHA = 76cb542ba7d7f2afdacfcf7595cca7ddcec9df16
+PRODUCTION_FEATURE_PUSH_FAST_FORWARD_SAFE = YES
+PRODUCTION_FEATURE_PUSH = PASS
+PRODUCTION_FEATURE_LOCAL_REMOTE_PARITY = PASS
 
 ## Track B — Web local Production-integration candidate
 
@@ -116,13 +119,19 @@ back after an API error.
 WEB_RELEASE_BRANCH = release/web-production-integration-20260909
 WEB_RELEASE_BASE_SHA = 0a6f51446052b68eb72e1477852c5386355e8cb9
 WEB_RELEASE_FINAL_SHA = 916b3b65c9827ba623de6ed0361348eb948e39b7
-WEB_RELEASE_REMOTE_SHA = NOT_PRESENT
-WEB_RELEASE_PUSH = BLOCKED_BY_ESCALATED_APPROVAL
+WEB_RELEASE_PRE_PUSH_REMOTE_SHA = NOT_PRESENT
+WEB_RELEASE_POST_PUSH_REMOTE_SHA = 916b3b65c9827ba623de6ed0361348eb948e39b7
+WEB_RELEASE_PUSH_SAFE = YES
+WEB_RELEASE_PUSH = PASS_NEW_BRANCH
+WEB_RELEASE_LOCAL_REMOTE_PARITY = PASS
 WEB_LOCAL_INTEGRATION = PASS
 WEB_FULL_TEST_ALL = PASS
 WEB_FULL_TEST_SUMMARY = static, unit, integration, finance, workflow, Chromium, WebKit, visual, security
 WEB_VISUAL = PASS; mobile and desktop pixelDiff=0; responsive overflow=0
 WEB_SECURITY = PASS; lab runtime network=0; canonical boundary audited; production secrets=0
+
+GITHUB_HANDOFF_COMPLETE = YES; both explicitly authorized pushes completed
+DOCUMENTATION_ONLY_STATE_UPDATE = REQUIRED; this receipt/state update is pushed separately from the runtime release SHA
 
 Pages was not modified or deployed. The existing workflow deploys after a
 successful Lab CI workflow_run caused by a push to main, checks out that
