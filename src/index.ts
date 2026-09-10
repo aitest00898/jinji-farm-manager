@@ -87,6 +87,7 @@ import {
   type ConversationReferenceScope,
   type ConversationReferentSource,
   type ConversationV2SemanticMemory,
+  type ConversationV2CanonicalPending,
   type ConversationV2Topic,
   type ConversationObjectType,
   type ConversationSpeechAct,
@@ -153,8 +154,19 @@ import {
   quickRecordHasPending,
   quickRecordLooksRelevant,
 } from "./quick-record";
-import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
+import {
+  canonicalCommandForLegacyOperational,
+  canonicalRouteForText,
+  type RecordingIdentity,
+  type ResolvedRecordingScope,
+} from "./recording-runtime-bridge";
 import { persistRecordCommand } from "./recording-write-adapter";
+import {
+  parseCanonicalRecordingText,
+  taxonomyDefinitionFor,
+  type CanonicalTextParse,
+  type TaxonomyId,
+} from "./recording-taxonomy";
 import {
   AI_PRESETS,
   addAmbientCandidateCancelReply,
@@ -639,7 +651,7 @@ async function groupState(env: Env, groupId: string): Promise<GroupState> {
   return row ?? { status: "unbound", farmName: null, organizationId: null, farmId: null };
 }
 
-function isExplicitWakeCommand(command: ParsedCommand, text = ""): boolean {
+function isExplicitWakeCommand(command: ParsedCommand, text = "", canonical?: CanonicalTextParse | null): boolean {
   const commandClass = classifyCommand(command);
   // Complete operational records such as「死亡5」are intentionally not
   // global wake words. Control, admin, and deterministic query commands are
@@ -647,7 +659,11 @@ function isExplicitWakeCommand(command: ParsedCommand, text = ""): boolean {
   return commandClass === "CONTROL"
     || commandClass === "ADMIN"
     || commandClass === "QUERY"
-    || Boolean(navigationActionForText(text));
+    || Boolean(navigationActionForText(text))
+    // The canonical taxonomy is a deterministic LINE ingress surface.  Only
+    // parser-recognized taxonomy text with an otherwise unknown legacy
+    // command wakes the bot; existing command-owned flows keep precedence.
+    || (command.kind === "unknown" && Boolean(canonical?.taxonomyId) && canonical?.recordWorthiness !== "ignore");
 }
 
 async function hasScopedPendingState(env: Env, groupId: string, userId: string, now: string): Promise<boolean> {
@@ -674,7 +690,16 @@ async function hasScopedPendingState(env: Env, groupId: string, userId: string, 
           AND status = 'pending' AND review_expires_at > ?
      ) LIMIT 1`,
   ).bind(groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now).first<{ present: number }>();
-  return Boolean(row?.present) || await hasActiveDailyReviewContext(env, groupId, userId, now);
+  if (row?.present) return true;
+  const canonical = await env.DB.prepare(
+    `SELECT 1 AS present
+       FROM conversation_v2_sessions
+      WHERE line_group_id = ? AND line_user_id = ?
+        AND expires_at > ?
+        AND semantic_memory_json LIKE '%"canonicalPending":{"version":1%'
+      LIMIT 1`,
+  ).bind(groupId, userId, now).first<{ present: number }>();
+  return Boolean(canonical?.present) || await hasActiveDailyReviewContext(env, groupId, userId, now);
 }
 
 function eventWithMessageText(event: LineEvent, text: string): LineEvent {
@@ -5703,7 +5728,30 @@ function parseConversationV2SemanticMemory(value: string | null | undefined): Co
     };
     const goal = typeof parsed.lastGoal === "string" ? parsed.lastGoal as ConversationV2Goal : null;
     const topic = typeof parsed.lastTopic === "string" ? parsed.lastTopic as ConversationV2Topic : null;
+    const rawCanonicalPending = parsed.canonicalPending;
+    const canonicalPending = rawCanonicalPending && typeof rawCanonicalPending === "object" && !Array.isArray(rawCanonicalPending)
+      ? (() => {
+        const pending = rawCanonicalPending as Record<string, unknown>;
+        const taxonomyId = typeof pending.taxonomyId === "string" ? pending.taxonomyId : "";
+        const eventId = typeof pending.eventId === "string" ? pending.eventId : "";
+        const rawText = typeof pending.rawText === "string" ? pending.rawText : "";
+        const createdAt = typeof pending.createdAt === "string" ? pending.createdAt : "";
+        if (pending.version !== 1 || !/^(?:O[1-9]|A(?:[1-9]|1[0-6]))$/u.test(taxonomyId)
+          || !eventId || !rawText || !createdAt
+          || (pending.status !== "clarification" && pending.status !== "confirmation")) return null;
+        return {
+          version: 1 as const,
+          eventId: eventId.slice(0, 240),
+          rawText: rawText.slice(0, 2000),
+          taxonomyId,
+          createdAt: createdAt.slice(0, 80),
+          sourceMessageId: typeof pending.sourceMessageId === "string" ? pending.sourceMessageId.slice(0, 240) : null,
+          status: pending.status,
+        } satisfies ConversationV2CanonicalPending;
+      })()
+      : null;
     return {
+      canonicalPending,
       activeObjectType: ["operational_event", "abnormal_event", "candidate", "pending_action", "farm", "house", "flock", "daily_review", "query_result", "quick_record"].includes(parsed.activeObjectType as string)
         ? parsed.activeObjectType as ConversationObjectType
         : null,
@@ -5850,6 +5898,453 @@ async function saveConversationV2Session(
     patch.semanticMemory === undefined ? (current.semanticMemory ? JSON.stringify(current.semanticMemory) : null) : (patch.semanticMemory ? JSON.stringify(patch.semanticMemory) : null),
     expiresAt,
   ).run();
+}
+
+interface CanonicalLineResolvedScope {
+  scope: ResolvedRecordingScope | null;
+  farmName: string | null;
+  environment: "production" | "test" | null;
+  houseName: string | null;
+  flockCode: string | null;
+  clarification: string | null;
+}
+
+function canonicalLineRecordIdentity(eventId: string): string {
+  const suffix = eventId.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 120);
+  return `canonical-line-${suffix || "event"}`;
+}
+
+function canonicalLinePendingFor(
+  eventId: string,
+  rawText: string,
+  taxonomyId: TaxonomyId,
+  createdAt: string,
+  sourceMessageId: string | null | undefined,
+  status: ConversationV2CanonicalPending["status"],
+): ConversationV2CanonicalPending {
+  return {
+    version: 1,
+    eventId: eventId.slice(0, 240),
+    rawText: rawText.slice(0, 2000),
+    taxonomyId,
+    createdAt: createdAt.slice(0, 80),
+    sourceMessageId: sourceMessageId?.slice(0, 240) ?? null,
+    status,
+  };
+}
+
+async function loadCanonicalLinePending(
+  env: Env,
+  organizationId: string,
+  groupId: string,
+  userId: string,
+  now: string,
+): Promise<{ session: ConversationV2SessionRow; pending: ConversationV2CanonicalPending } | null> {
+  const session = await loadConversationV2Session(env, organizationId, groupId, userId, now);
+  const pending = session?.semanticMemory?.canonicalPending;
+  if (!session || !pending || pending.version !== 1) return null;
+  return { session, pending };
+}
+
+async function saveCanonicalLinePending(
+  env: Env,
+  organizationId: string,
+  groupId: string,
+  userId: string,
+  now: Date,
+  pending: ConversationV2CanonicalPending,
+  previous?: ConversationV2SessionRow | null,
+): Promise<void> {
+  const current = previous?.semanticMemory ?? {};
+  await saveConversationV2Session(
+    env,
+    organizationId,
+    groupId,
+    userId,
+    now,
+    {
+      activeObjectId: canonicalLineRecordIdentity(pending.eventId),
+      lastAction: "canonical_line_pending",
+      lastGoal: pending.status === "confirmation" ? "RECORD" : "CLARIFY",
+      semanticMemory: {
+        ...current,
+        canonicalPending: pending,
+        updatedAt: now.toISOString(),
+      },
+    },
+    previous,
+  );
+}
+
+async function clearCanonicalLinePending(
+  env: Env,
+  organizationId: string,
+  groupId: string,
+  userId: string,
+  now: Date,
+  previous?: ConversationV2SessionRow | null,
+): Promise<void> {
+  const current = previous ?? await loadConversationV2Session(env, organizationId, groupId, userId, now.toISOString());
+  if (!current) return;
+  const semanticMemory = current.semanticMemory
+    ? { ...current.semanticMemory, canonicalPending: null, updatedAt: now.toISOString() }
+    : null;
+  await saveConversationV2Session(
+    env,
+    organizationId,
+    groupId,
+    userId,
+    now,
+    {
+      lastAction: "canonical_line_cleared",
+      semanticMemory,
+    },
+    current,
+  );
+}
+
+function canonicalLineScopeFailureText(
+  accountName: string,
+  parsed: CanonicalTextParse,
+  clarification: string | null,
+): string {
+  const question = clarification ?? parsed.clarificationQuestion ?? "請補充完整的雞場與舍別資料。";
+  return [
+    `${botName(accountName)} 已辨識為「${parsed.taxonomyId ?? "營運紀錄"}」。`,
+    question,
+    "目前沒有寫入正式資料。",
+  ].join("\n");
+}
+
+async function resolveCanonicalLineScope(
+  env: Env,
+  organizationId: string,
+  parsed: CanonicalTextParse,
+  accountName: string,
+): Promise<CanonicalLineResolvedScope> {
+  const farmText = typeof parsed.fields.farmText === "string" ? parsed.fields.farmText : null;
+  if (!farmText) {
+    return {
+      scope: null,
+      farmName: null,
+      environment: null,
+      houseName: null,
+      flockCode: null,
+      clarification: parsed.clarificationQuestion ?? "請問是哪一個雞場？",
+    };
+  }
+  const resolver = await loadFarmResolver(env, organizationId);
+  const resolution = resolver.resolve(farmText);
+  if (resolution.kind === "candidates") {
+    return {
+      scope: null,
+      farmName: null,
+      environment: null,
+      houseName: null,
+      flockCode: null,
+      clarification: `無法安全唯一辨識「${farmText}」；請回覆正式雞場名稱。\n${candidateList(resolution.candidates)}`,
+    };
+  }
+  if (resolution.kind !== "direct" || !resolution.farm) {
+    return {
+      scope: null,
+      farmName: null,
+      environment: null,
+      houseName: null,
+      flockCode: null,
+      clarification: `${farmText} 尚未在目前組織的有效雞場主檔中找到，沒有寫入。`,
+    };
+  }
+  const farm = await env.DB.prepare(
+    `SELECT id, name, environment, farm_structure_mode AS structureMode
+       FROM farms
+      WHERE id = ? AND organization_id = ? AND active = 1
+      LIMIT 1`,
+  ).bind(resolution.farm.id, organizationId).first<Pick<FarmRow, "id" | "name" | "environment" | "structureMode">>();
+  if (!farm || !farm.environment) {
+    return {
+      scope: null,
+      farmName: null,
+      environment: null,
+      houseName: null,
+      flockCode: null,
+      clarification: "目前無法驗證雞場主檔範圍，沒有寫入。",
+    };
+  }
+
+  const houseText = typeof parsed.fields.houseText === "string" ? parsed.fields.houseText : null;
+  let houseId: string | undefined;
+  let houseName: string | null = null;
+  if (houseText) {
+    const house = await env.DB.prepare(
+      `SELECT id, name
+         FROM houses
+        WHERE farm_id = ? AND active = 1
+          AND (normalized_name = ? OR name = ?)
+        LIMIT 1`,
+    ).bind(farm.id, normalizedHouseName(houseText), houseText).first<{ id: string; name: string }>();
+    if (!house) {
+      return {
+        scope: null,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseName: null,
+        flockCode: null,
+        clarification: `${farm.name} 尚未建立有效的「${houseText}」雞舍主檔，請改用正式舍別名稱。`,
+      };
+    }
+    houseId = house.id;
+    houseName = house.name;
+  } else if (farm.structureMode === "multi_house") {
+    return {
+      scope: null,
+      farmName: farm.name,
+      environment: farm.environment,
+      houseName: null,
+      flockCode: null,
+      clarification: `${farm.name} 有多個進行中雞舍，請補充舍別；系統不會自行猜測。`,
+    };
+  }
+
+  const flockText = typeof parsed.fields.flockText === "string" ? parsed.fields.flockText : null;
+  let flockId: string | undefined;
+  let flockCode: string | null = null;
+  if (flockText) {
+    if (!houseId) {
+      return {
+        scope: null,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseName: null,
+        flockCode: null,
+        clarification: "批次必須和明確舍別一起提供，沒有寫入。",
+      };
+    }
+    const flocks = await activeFlocks(env, organizationId, houseName ?? undefined, farm.id);
+    const normalizedFlock = normalize(flockText).toLocaleLowerCase();
+    const matches = flocks.filter((flock) => normalize(flock.batchCode).toLocaleLowerCase() === normalizedFlock);
+    if (matches.length !== 1) {
+      return {
+        scope: null,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseName,
+        flockCode: null,
+        clarification: matches.length
+          ? `「${flockText}」對應到多個有效批次，請提供更完整的批次代碼。`
+          : `${farm.name}｜${houseName} 找不到有效批次「${flockText}」，請提供正式批次代碼。`,
+      };
+    }
+    flockId = matches[0].id;
+    flockCode = matches[0].batchCode;
+  }
+
+  const scope: ResolvedRecordingScope = {
+    kind: "direct",
+    farmId: farm.id,
+    ...(houseId ? { houseId } : {}),
+    ...(flockId ? { flockId } : {}),
+    ...(!houseId ? { wholeFarmConfirmed: farm.structureMode === "whole_farm" } : {}),
+  };
+  return { scope, farmName: farm.name, environment: farm.environment, houseName, flockCode, clarification: null };
+}
+
+function canonicalLineIdentity(
+  pending: ConversationV2CanonicalPending,
+  userId: string,
+  confirmed = false,
+): RecordingIdentity {
+  const createdAt = Number.isFinite(Date.parse(pending.createdAt)) ? pending.createdAt : new Date().toISOString();
+  return {
+    id: canonicalLineRecordIdentity(pending.eventId),
+    sourceChannel: "line",
+    rawText: pending.rawText,
+    occurredAt: createdAt,
+    createdAt,
+    clientOperationId: canonicalLineRecordIdentity(pending.eventId),
+    sourceMessageId: pending.sourceMessageId ?? undefined,
+    actorId: userId,
+    ...(confirmed ? { confirmedBy: userId } : {}),
+  };
+}
+
+function canonicalLineDetails(parsed: CanonicalTextParse, draft: Record<string, unknown>, scope: CanonicalLineResolvedScope): string[] {
+  const fields: string[] = [];
+  if (scope.farmName) fields.push(`雞場：${scope.farmName}`);
+  if (scope.houseName) fields.push(`舍別：${scope.houseName}`);
+  if (scope.flockCode) fields.push(`批次：${scope.flockCode}`);
+  for (const [label, key] of [
+    ["內容", "content"],
+    ["數量", "quantity"],
+    ["平均體重", "averageWeight"],
+    ["供應商", "vendor"],
+    ["重量", "weight"],
+    ["狀況", "condition"],
+    ["範圍", "extent"],
+    ["細節", "detail"],
+    ["工作流狀態", "workflowStatus"],
+    ["維護內容", "maintenanceContent"],
+  ] as const) {
+    const value = draft[key];
+    if (value !== undefined && value !== null && value !== "") fields.push(`${label}：${String(value)}`);
+  }
+  if (parsed.taxonomyId === "O1") {
+    if (draft.maleCount !== undefined) fields.push(`公雞：${String(draft.maleCount)}`);
+    if (draft.femaleCount !== undefined) fields.push(`母雞：${String(draft.femaleCount)}`);
+  }
+  return fields;
+}
+
+function canonicalLineCandidateReply(
+  accountName: string,
+  parsed: CanonicalTextParse,
+  route: ReturnType<typeof canonicalRouteForText>,
+  scope: CanonicalLineResolvedScope,
+): string {
+  const definition = parsed.taxonomyId ? taxonomyDefinitionFor(parsed.taxonomyId) : null;
+  return [
+    `${botName(accountName)} 已辨識為「${definition?.label ?? parsed.taxonomyId ?? "營運紀錄"}」。`,
+    ...canonicalLineDetails(parsed, route.draft, scope),
+    `權威資料表：${route.route.destination}`,
+    "目前尚未寫入正式資料。",
+    "請回覆：確認 / 取消",
+  ].join("\n");
+}
+
+async function handleCanonicalLineInput(
+  env: Env,
+  event: LineEvent,
+  command: ParsedCommand,
+  eventId: string,
+  groupId: string,
+  organizationId: string,
+  accountName: string,
+): Promise<string | null> {
+  const lineUserId = event.source?.userId;
+  if (!lineUserId) return null;
+  const messageText = event.message?.text ?? (command.kind === "unknown" ? command.text : "");
+  const now = new Date(event.timestamp ?? Date.now());
+  const existing = await loadCanonicalLinePending(env, organizationId, groupId, lineUserId, now.toISOString());
+  const normalized = normalize(messageText);
+  const isConfirm = /^(?:是|好|確認|確定)$/iu.test(normalized);
+  const isCancel = /^(?:取消|不用|不要|先不要記|取消這筆)$/iu.test(normalized);
+
+  if (existing && isCancel) {
+    await clearCanonicalLinePending(env, organizationId, groupId, lineUserId, now, existing.session);
+    return `${botName(accountName)}\n✅ 已取消這筆待確認 canonical 資料；沒有新增正式紀錄。`;
+  }
+  if (existing && isConfirm) {
+    if (existing.pending.status !== "confirmation") {
+      return `${botName(accountName)}\n這筆資料仍缺少必要資訊，請先補充後再確認；目前沒有寫入正式資料。`;
+    }
+    const parsed = parseCanonicalRecordingText(existing.pending.rawText, new Date(existing.pending.createdAt));
+    const resolved = await resolveCanonicalLineScope(env, organizationId, parsed, accountName);
+    if (!resolved.scope || parsed.recordWorthiness !== "record" || parsed.missingFields.length > 0) {
+      return canonicalLineScopeFailureText(accountName, parsed, resolved.clarification);
+    }
+    try {
+      const route = canonicalRouteForText(existing.pending.rawText, resolved.scope, canonicalLineIdentity(existing.pending, lineUserId, false));
+      const identity = canonicalLineIdentity(existing.pending, lineUserId, true);
+      const confirmedCommand = {
+        ...canonicalRouteForText(existing.pending.rawText, resolved.scope, identity).command,
+      };
+      const result = await persistRecordCommand(env, confirmedCommand, {
+        organizationId,
+        actorType: "line_user",
+        actorId: lineUserId,
+        requestId: existing.pending.eventId,
+        lineGroupId: groupId,
+        lineUserId,
+        environment: resolved.environment ?? "production",
+        expectedSourceChannel: "line",
+        now: now.toISOString(),
+      });
+      await clearCanonicalLinePending(env, organizationId, groupId, lineUserId, now, existing.session);
+      const verb = result.created ? "✅ 紀錄成功" : "✅ 已完成，沒有重複寫入";
+      return [
+        `${botName(accountName)} ${verb}`,
+        ...canonicalLineDetails(parsed, route.draft, resolved),
+        `權威資料表：${result.destination}`,
+        `分類：${result.taxonomyId}`,
+      ].join("\n");
+    } catch (error) {
+      console.log(JSON.stringify({
+        event: "canonical_line_write_rejected",
+        taxonomy_id: parsed.taxonomyId,
+        error_class: error instanceof Error && error.name ? error.name : "canonical_write_error",
+      }));
+      return `${botName(accountName)}\n⚠️ 無法安全完成這筆 canonical 紀錄，沒有寫入正式資料。`;
+    }
+  }
+
+  // Existing legacy command owners retain precedence.  This is what keeps
+  // `紀錄：死亡`, the existing quick-record flow, and ordinary `取消`
+  // behavior unchanged while unknown canonical O2/A8 text enters this path.
+  if (command.kind !== "unknown") return null;
+
+  let parsed = parseCanonicalRecordingText(messageText, now);
+  let pending = canonicalLinePendingFor(
+    eventId,
+    messageText,
+    parsed.taxonomyId as TaxonomyId,
+    now.toISOString(),
+    event.message?.id,
+    "clarification",
+  );
+  let continuation = false;
+  if (!parsed.taxonomyId && existing?.pending.status === "clarification") {
+    const combinedText = `${existing.pending.rawText} ${messageText}`.replace(/\s+/gu, " ").trim();
+    const combined = parseCanonicalRecordingText(combinedText, new Date(existing.pending.createdAt));
+    if (combined.taxonomyId === existing.pending.taxonomyId) {
+      parsed = combined;
+      pending = canonicalLinePendingFor(
+        existing.pending.eventId,
+        combinedText,
+        existing.pending.taxonomyId as TaxonomyId,
+        existing.pending.createdAt,
+        existing.pending.sourceMessageId,
+        "clarification",
+      );
+      continuation = true;
+    }
+  }
+  if (!parsed.taxonomyId || parsed.recordWorthiness === "ignore") return null;
+
+  const resolved = await resolveCanonicalLineScope(env, organizationId, parsed, accountName);
+  let route: ReturnType<typeof canonicalRouteForText> | null = null;
+  if (parsed.recordWorthiness === "record" && parsed.missingFields.length === 0 && resolved.scope) {
+    try {
+      route = canonicalRouteForText(
+        pending.rawText,
+        resolved.scope,
+        canonicalLineIdentity(pending, lineUserId, false),
+      );
+    } catch (error) {
+      console.log(JSON.stringify({
+        event: "canonical_line_candidate_rejected",
+        taxonomy_id: parsed.taxonomyId,
+        error_class: error instanceof Error && error.name ? error.name : "canonical_candidate_error",
+      }));
+    }
+  }
+  pending = { ...pending, status: route ? "confirmation" : "clarification" };
+  await saveCanonicalLinePending(
+    env,
+    organizationId,
+    groupId,
+    lineUserId,
+    now,
+    pending,
+    continuation ? existing?.session : undefined,
+  );
+  if (!route) {
+    return canonicalLineScopeFailureText(
+      accountName,
+      parsed,
+      resolved.clarification ?? parsed.clarificationQuestion,
+    );
+  }
+  return canonicalLineCandidateReply(accountName, parsed, route, resolved);
 }
 
 async function conversationV2FarmEnvironment(
@@ -8417,6 +8912,22 @@ async function handleCommand(
   await ensureGroup(env, groupId);
   const state = await groupState(env, groupId);
 
+  // Deterministic canonical LINE ingress is intentionally narrow: it owns
+  // parser-recognized taxonomy text plus confirmation/cancel for its own
+  // transient candidate, and leaves all existing command owners below it.
+  if (state.organizationId) {
+    const canonicalLineReply = await handleCanonicalLineInput(
+      env,
+      event,
+      command,
+      eventId,
+      groupId,
+      state.organizationId,
+      accountName,
+    );
+    if (canonicalLineReply) return canonicalLineReply;
+  }
+
   // Navigation is a deterministic control-plane concern.  Resolve it after
   // the group/auth context is available, but before pending workflows or the
   // Conversation V2 planner.  An open candidate is context only and must not
@@ -8967,6 +9478,9 @@ async function processEvent(
   const businessText = mentionedSelf ? stripSelfMention(rawMessageText, mentionees) : rawMessageText.trim();
   const routedEvent = mentionedSelf ? eventWithMessageText(event, businessText) : event;
   const command = parseCommand(businessText);
+  const canonicalParse = command.kind === "unknown"
+    ? parseCanonicalRecordingText(businessText, new Date(event.timestamp ?? Date.now()))
+    : null;
   const developmentCommand = parseDevelopmentAmbientCommand(businessText);
   if (developmentCommand) {
     // Development commands are a separate exact route. A bare command is
@@ -9037,7 +9551,7 @@ async function processEvent(
   const gate = interactionGateDecision({
     eventType: event.type,
     hasMention: mentionedSelf,
-    isSystemCommand: isExplicitWakeCommand(command, businessText),
+    isSystemCommand: isExplicitWakeCommand(command, businessText, canonicalParse),
     hasActiveSession,
     hasPendingState,
   });

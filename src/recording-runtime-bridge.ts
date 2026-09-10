@@ -33,6 +33,7 @@ export interface RecordingIdentity {
   occurredAt: string;
   createdAt: string;
   clientOperationId: string;
+  sourceMessageId?: string;
   actorId?: string;
   confirmedBy?: string;
 }
@@ -462,6 +463,7 @@ export function buildCanonicalRecordingDraft(
     ...(scope.houseId ? { houseId: scope.houseId } : {}),
     ...(scope.flockId ? { flockId: scope.flockId } : {}),
     sourceChannel: identity.sourceChannel,
+    ...(identity.sourceMessageId ? { sourceMessageId: identity.sourceMessageId } : {}),
     rawText: identity.rawText,
     occurredAt,
     createdAt: identity.createdAt,

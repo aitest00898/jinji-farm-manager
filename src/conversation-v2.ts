@@ -231,6 +231,8 @@ export interface ConversationV2Context {
 
 /** Bounded semantic working memory for explicit @AI turns only. */
 export interface ConversationV2SemanticMemory {
+  /** Short-lived deterministic LINE canonical-recording candidate state. */
+  canonicalPending?: ConversationV2CanonicalPending | null;
   activeObjectType?: ConversationObjectType | null;
   activeObjectId?: string | null;
   activeObjectSummary?: string | null;
@@ -257,6 +259,22 @@ export interface ConversationV2SemanticMemory {
   lastPendingObjectId?: string | null;
   lastAssistantResponseSummary?: string | null;
   updatedAt?: string | null;
+}
+
+/**
+ * A transient, group+user-scoped handoff between deterministic LINE parsing
+ * and the shared canonical write boundary.  It is deliberately not an
+ * official business fact and carries only the original text/identity needed
+ * to re-parse and validate at confirmation time.
+ */
+export interface ConversationV2CanonicalPending {
+  version: 1;
+  eventId: string;
+  rawText: string;
+  taxonomyId: string;
+  createdAt: string;
+  sourceMessageId?: string | null;
+  status: "clarification" | "confirmation";
 }
 
 /**
