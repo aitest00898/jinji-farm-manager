@@ -1,4 +1,5 @@
 import { validateAmbientCandidateBundle, type AmbientCandidateBundle } from "./ambient";
+import { effectiveOperationalEventPredicate } from "./master-data";
 import {
   buildDailyReviewFollowupReplies,
   buildTextMessage,
@@ -198,7 +199,7 @@ export async function buildDailyReviewSnapshot(
             LIMIT 1),
           oe.created_at
         )) <= datetime(?)
-        AND oe.reversed_at IS NULL
+        AND ${effectiveOperationalEventPredicate("oe")}
       GROUP BY oe.farm_id, f.name, oe.intent
       ORDER BY f.name, oe.intent`,
   ).bind(organizationId, window.localDate, window.cutoffAt).all<{

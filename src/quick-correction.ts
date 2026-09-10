@@ -1,6 +1,6 @@
 import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmCandidate, type FarmRecord } from "./farm-resolver";
-import { normalizedHouseName } from "./master-data";
+import { effectiveOperationalEventPredicate, normalizedHouseName } from "./master-data";
 import type { QuickItemDraft, QuickLineEvent, QuickRecordEnv, QuickFarm } from "./quick-record";
 
 export type CorrectionIntent =
@@ -180,7 +180,7 @@ async function latestItems(env: QuickRecordEnv, groupId: string, userId: string 
       WHERE b.organization_id = ? AND b.line_group_id = ? ${userClause}
         AND b.status IN ('active', 'corrected', 'moved', 'split')
         AND i.status = 'active'
-        AND ((i.item_type = 'operational' AND EXISTS (SELECT 1 FROM operational_events e WHERE e.id = i.operational_event_id AND e.reversed_at IS NULL))
+        AND ((i.item_type = 'operational' AND EXISTS (SELECT 1 FROM operational_events e WHERE e.id = i.operational_event_id AND ${effectiveOperationalEventPredicate("e")}))
           OR (i.item_type = 'abnormal' AND EXISTS (SELECT 1 FROM abnormal_events a WHERE a.id = i.abnormal_event_id AND a.status = 'active')))
       ORDER BY b.confirmed_at DESC, i.item_index ASC LIMIT 30`,
   ).bind(...bindings).all<CorrectionItemRow>();
@@ -269,7 +269,7 @@ async function targetScope(env: QuickRecordEnv, organizationId: string, farm: Qu
 
 async function applyQuantity(env: QuickRecordEnv, row: CorrectionItemRow, newQuantity: number, userId: string, reason: string, requestId: string): Promise<void> {
   if (!row.operationalEventId || row.itemType !== "operational") throw new Error("correction_target_not_operational");
-  const original = await env.DB.prepare(`SELECT * FROM operational_events WHERE id = ? AND reversed_at IS NULL LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
+  const original = await env.DB.prepare(`SELECT e.* FROM operational_events e WHERE e.id = ? AND ${effectiveOperationalEventPredicate("e")} LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
   if (!original) throw new Error("correction_target_inactive");
   const newId = `operational-line-correction-${requestId}`;
   const sourceEventId = `${requestId}:correction:${row.itemId}`;
@@ -361,7 +361,7 @@ async function moveBundleItems(
     const scope = scopes[rows.indexOf(row)]!;
     const sourceEventId = `${requestId}:move:${row.itemId}`;
     if (row.itemType === "operational" && row.operationalEventId) {
-      const original = await env.DB.prepare(`SELECT * FROM operational_events WHERE id = ? AND reversed_at IS NULL LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
+      const original = await env.DB.prepare(`SELECT e.* FROM operational_events e WHERE e.id = ? AND ${effectiveOperationalEventPredicate("e")} LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
       if (!original) throw new Error("correction_target_inactive");
       const newId = `operational-line-move-${requestId}-${index}`.replace(/[^A-Za-z0-9_:.=-]/gu, "_");
       statements.push(
@@ -697,7 +697,7 @@ async function moveItem(env: QuickRecordEnv, row: CorrectionItemRow, farm: Quick
   const scope = await targetScope(env, row.farmId ? row.farmId : row.farmId, farm, row);
   if (!scope) throw new Error("move_house_ambiguous");
   if (row.itemType === "operational" && row.operationalEventId) {
-    const original = await env.DB.prepare(`SELECT * FROM operational_events WHERE id = ? AND reversed_at IS NULL LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
+    const original = await env.DB.prepare(`SELECT e.* FROM operational_events e WHERE e.id = ? AND ${effectiveOperationalEventPredicate("e")} LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
     if (!original) return;
     const newId = `operational-line-move-${requestId}-${row.itemId}`;
     const sourceEventId = `${requestId}:move:${row.itemId}`;

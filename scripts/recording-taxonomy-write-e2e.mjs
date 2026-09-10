@@ -14,7 +14,7 @@ import {
 
 const root = process.cwd();
 const persistTo = fs.mkdtempSync(path.join(os.tmpdir(), "jinji-canonical-write-e2e-"));
-const configPath = path.join(root, "wrangler.jsonc");
+const configPath = process.env.CANONICAL_WRITE_E2E_CONFIG || path.join(root, "wrangler.jsonc");
 const org = "org-canonical-write-e2e";
 const farm = "farm-canonical-write-e2e";
 const house = "house-canonical-write-e2e";

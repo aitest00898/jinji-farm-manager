@@ -690,7 +690,7 @@ export async function canonicalStockProjection(
   const bind = farmId ? [organizationId, farmId] : [organizationId];
   const [events, operations, actions, abnormalities] = await Promise.all([
     env.DB.prepare(`SELECT id, client_operation_id AS clientOperationId, farm_id AS farmId, taxonomy_id AS taxonomyId, total_count AS totalCount, lifecycle_status AS lifecycleStatus, correction_of_id AS correctionOfId, reversal_of_id AS reversalOfId, replacement_of_id AS replacementOfId FROM recording_events WHERE organization_id = ?${farmClause}`).bind(...bind).all<Record<string, unknown>>(),
-    env.DB.prepare(`SELECT id, source_event_id AS sourceEventId, farm_id AS farmId, taxonomy_id AS taxonomyId, intent, quantity, correction_of_event_id AS correctionOfId, reversal_of_event_id AS reversalOfId FROM operational_events WHERE organization_id = ?${farmClause}`).bind(...bind).all<Record<string, unknown>>(),
+    env.DB.prepare(`SELECT id, source_event_id AS sourceEventId, farm_id AS farmId, taxonomy_id AS taxonomyId, intent, quantity, reversed_at AS reversedAt, correction_of_event_id AS correctionOfId, reversal_of_event_id AS reversalOfId FROM operational_events WHERE organization_id = ?${farmClause}`).bind(...bind).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT id, client_operation_id AS clientOperationId, farm_id AS farmId, taxonomy_id AS taxonomyId, lifecycle_status AS lifecycleStatus, correction_of_id AS correctionOfId, reversal_of_id AS reversalOfId, replacement_of_id AS replacementOfId FROM operational_actions WHERE organization_id = ?${farmClause}`).bind(...bind).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT id, source_event_id AS sourceEventId, farm_id AS farmId, taxonomy_id AS taxonomyId, correction_of_id AS correctionOfId, reversal_of_id AS reversalOfId FROM abnormal_events WHERE organization_id = ?${farmClause}`).bind(...bind).all<Record<string, unknown>>(),
   ]);
@@ -700,7 +700,7 @@ export async function canonicalStockProjection(
   }
   for (const row of operations.results) {
     const taxonomyId = row.taxonomyId || (row.intent === "shipment" ? "O3" : row.intent === "mortality" || row.intent === "cull" ? "O9" : null);
-    facts.push({ id: String(row.id), authorityKey: String(row.sourceEventId || row.id), farmId: String(row.farmId), delta: taxonomyId === "O3" || taxonomyId === "O9" ? -Number(row.quantity || 0) : 0, relationId: row.reversalOfId ? String(row.reversalOfId) : row.correctionOfId ? String(row.correctionOfId) : null, relationKind: row.reversalOfId ? "reversal" : row.correctionOfId ? "correction" : null });
+    facts.push({ id: String(row.id), authorityKey: String(row.sourceEventId || row.id), farmId: String(row.farmId), delta: row.reversedAt ? 0 : taxonomyId === "O3" || taxonomyId === "O9" ? -Number(row.quantity || 0) : 0, relationId: row.reversalOfId ? String(row.reversalOfId) : row.correctionOfId ? String(row.correctionOfId) : null, relationKind: row.reversalOfId ? "reversal" : row.correctionOfId ? "correction" : null });
   }
   for (const row of actions.results) {
     facts.push({ id: String(row.id), authorityKey: String(row.clientOperationId || row.id), farmId: String(row.farmId), delta: 0, relationId: row.reversalOfId ? String(row.reversalOfId) : row.correctionOfId ? String(row.correctionOfId) : row.replacementOfId ? String(row.replacementOfId) : null, relationKind: row.reversalOfId ? "reversal" : row.correctionOfId || row.replacementOfId ? "correction" : null });

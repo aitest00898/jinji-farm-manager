@@ -4,6 +4,7 @@ import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-reso
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
 import type { AmbientV2ResponseFormat } from "./ambient-extraction-v2";
 import { parseCanonicalRecordingText } from "./recording-taxonomy";
+import { effectiveOperationalEventPredicate } from "./master-data";
 
 export interface AmbientEnv {
   DB: D1Database;
@@ -3029,7 +3030,7 @@ async function loadEffectiveAmbientOfficialRecords(
             WHERE operational_event_id IS NOT NULL
             GROUP BY operational_event_id
          ) q ON q.operational_event_id = e.id
-        WHERE e.organization_id = ? AND e.reversed_at IS NULL
+        WHERE e.organization_id = ? AND ${effectiveOperationalEventPredicate("e")}
           AND COALESCE(q.occurredAt, e.created_at) >= ?
           AND COALESCE(q.occurredAt, e.created_at) <= ?
         ORDER BY occurredAt, e.created_at, e.id`,

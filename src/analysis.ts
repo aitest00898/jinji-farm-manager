@@ -3,7 +3,7 @@ import {
   parseAbnormalClassification,
   type AbnormalClassification,
 } from "./abnormal";
-import { taipeiDate } from "./master-data";
+import { effectiveOperationalEventPredicate, taipeiDate } from "./master-data";
 import { extractJsonValue } from "./ai-json";
 import { resolveModelForRole } from "./model-portability";
 
@@ -234,19 +234,19 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
   const [live, flocks, operations, abnormalities, weather, finance, audit] = await Promise.all([
     env.DB.prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN e.intent = 'mortality' AND e.event_date = ? AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS todayMortality,
-         COALESCE(SUM(CASE WHEN e.intent = 'cull' AND e.event_date = ? AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS todayCull,
-         COALESCE(SUM(CASE WHEN e.intent = 'feed' AND e.event_date = ? AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS todayFeed,
-         COALESCE(SUM(CASE WHEN e.intent = 'water' AND e.event_date = ? AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS todayWater
-       FROM operational_events e WHERE e.organization_id = ?${operationScope.sql}`,
+         COALESCE(SUM(CASE WHEN e.intent = 'mortality' AND e.event_date = ? THEN e.quantity ELSE 0 END), 0) AS todayMortality,
+         COALESCE(SUM(CASE WHEN e.intent = 'cull' AND e.event_date = ? THEN e.quantity ELSE 0 END), 0) AS todayCull,
+         COALESCE(SUM(CASE WHEN e.intent = 'feed' AND e.event_date = ? THEN e.quantity ELSE 0 END), 0) AS todayFeed,
+         COALESCE(SUM(CASE WHEN e.intent = 'water' AND e.event_date = ? THEN e.quantity ELSE 0 END), 0) AS todayWater
+       FROM operational_events e WHERE ${effectiveOperationalEventPredicate("e")} AND e.organization_id = ?${operationScope.sql}`,
     ).bind(today, today, today, today, organizationId, ...operationScope.bindings).first<Record<string, number>>(),
     env.DB.prepare(
       `SELECT k.id, k.batch_code AS batchCode, k.farm_id AS farmId, k.house_id AS houseId,
               k.chick_in_date AS chickInDate, k.initial_count AS initialCount,
               k.expected_shipment_date AS expectedShipmentDate, k.status,
-              MAX(0, k.initial_count - COALESCE(SUM(CASE WHEN e.reversed_at IS NULL AND e.intent IN ('mortality','cull','shipment') THEN e.quantity ELSE 0 END), 0)) AS currentStock
+              MAX(0, k.initial_count - COALESCE(SUM(CASE WHEN e.intent IN ('mortality','cull','shipment') THEN e.quantity ELSE 0 END), 0)) AS currentStock
          FROM flocks k JOIN farms f ON f.id = k.farm_id
-         LEFT JOIN operational_events e ON e.flock_id = k.id
+         LEFT JOIN operational_events e ON e.flock_id = k.id AND ${effectiveOperationalEventPredicate("e")}
         WHERE f.organization_id = ?${flockScope.sql}
         GROUP BY k.id ORDER BY k.chick_in_date DESC LIMIT 20`,
     ).bind(organizationId, ...flockScope.bindings).all<Record<string, unknown>>(),
@@ -254,7 +254,7 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
       `SELECT e.event_date AS eventDate, e.intent, SUM(e.quantity) AS quantity, e.unit,
               e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId
          FROM operational_events e
-        WHERE e.organization_id = ? AND e.event_date BETWEEN ? AND ? AND e.reversed_at IS NULL${operationScope.sql}
+        WHERE ${effectiveOperationalEventPredicate("e")} AND e.organization_id = ? AND e.event_date BETWEEN ? AND ?${operationScope.sql}
         GROUP BY e.event_date, e.intent, e.unit, e.farm_id, e.house_id, e.flock_id
         ORDER BY e.event_date DESC LIMIT 120`,
     ).bind(organizationId, fromDate, today, ...operationScope.bindings).all<Record<string, unknown>>(),

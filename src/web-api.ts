@@ -11,6 +11,7 @@ import { AMBIENT_DIGEST_CRON, dailyReviewCronExpression } from "./daily-review";
 import {
   addIsoDays,
   deriveCurrentStock,
+  effectiveOperationalEventPredicate,
   flockAgeDays,
   isIsoDate,
   normalizedHouseName,
@@ -617,16 +618,39 @@ async function flockById(env: WebApiEnv, organizationId: string, id: string): Pr
   ).bind(id, organizationId).first<FlockRow>();
 }
 
+async function farmMatchesEnvironment(env: WebApiEnv, organizationId: string, farmId: string, environment: OperationalEnvironment): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT id FROM farms WHERE id = ? AND organization_id = ? AND environment = ? LIMIT 1`,
+  ).bind(farmId, organizationId, environment).first<{ id: string }>();
+  return Boolean(row);
+}
+
+async function houseMatchesEnvironment(
+  env: WebApiEnv,
+  organizationId: string,
+  houseId: string,
+  environment: OperationalEnvironment,
+  farmId: string | null,
+): Promise<boolean> {
+  const farmClause = farmId ? " AND f.id = ?" : "";
+  const bindings = farmId ? [houseId, organizationId, environment, farmId] : [houseId, organizationId, environment];
+  const row = await env.DB.prepare(
+    `SELECT h.id
+       FROM houses h JOIN farms f ON f.id = h.farm_id
+      WHERE h.id = ? AND f.organization_id = ? AND f.environment = ?${farmClause}
+      LIMIT 1`,
+  ).bind(...bindings).first<{ id: string }>();
+  return Boolean(row);
+}
+
 async function listFarms(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
-  const environment = url.searchParams.get("environment");
+  const environment = operationalEnvironmentFor(url);
   const active = url.searchParams.get("active");
   const clauses = ["organization_id = ?"];
   const bindings: unknown[] = [session.organizationId];
-  if (environment === "production" || environment === "test") {
-    clauses.push("environment = ?");
-    bindings.push(environment);
-  }
+  clauses.push("environment = ?");
+  bindings.push(environment);
   if (active === "true" || active === "false") {
     clauses.push("active = ?");
     bindings.push(active === "true" ? 1 : 0);
@@ -808,9 +832,15 @@ async function assignCaretaker(request: Request, env: WebApiEnv, session: Sessio
 
 async function listHouses(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
-  const farmId = url.searchParams.get("farmId");
-  const clauses = ["f.organization_id = ?"];
-  const bindings: unknown[] = [session.organizationId];
+  const rawFarmId = url.searchParams.get("farmId");
+  const farmId = stringValue(rawFarmId, 160);
+  if (rawFarmId !== null && !farmId) return errorResponse(request, 400, "invalid_scope", "雞場範圍無效。");
+  const environment = operationalEnvironmentFor(url);
+  if (farmId && !(await farmMatchesEnvironment(env, session.organizationId, farmId, environment))) {
+    return errorResponse(request, 400, "invalid_scope", "雞場不在目前資料範圍。");
+  }
+  const clauses = ["f.organization_id = ?", "f.environment = ?"];
+  const bindings: unknown[] = [session.organizationId, environment];
   if (farmId) { clauses.push("h.farm_id = ?"); bindings.push(farmId); }
   const rows = await env.DB.prepare(
     `SELECT h.id, h.farm_id AS farmId, h.name, h.normalized_name AS normalizedName,
@@ -867,10 +897,20 @@ async function updateHouse(request: Request, env: WebApiEnv, session: SessionRow
 
 async function listFlocks(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
-  const farmId = url.searchParams.get("farmId");
-  const houseId = url.searchParams.get("houseId");
-  const clauses = ["f.organization_id = ?"];
-  const bindings: unknown[] = [session.organizationId];
+  const rawFarmId = url.searchParams.get("farmId");
+  const rawHouseId = url.searchParams.get("houseId");
+  const farmId = stringValue(rawFarmId, 160);
+  const houseId = stringValue(rawHouseId, 160);
+  if ((rawFarmId !== null && !farmId) || (rawHouseId !== null && !houseId)) return errorResponse(request, 400, "invalid_scope", "資料範圍無效。");
+  const environment = operationalEnvironmentFor(url);
+  if (farmId && !(await farmMatchesEnvironment(env, session.organizationId, farmId, environment))) {
+    return errorResponse(request, 400, "invalid_scope", "雞場不在目前資料範圍。");
+  }
+  if (houseId && !(await houseMatchesEnvironment(env, session.organizationId, houseId, environment, farmId))) {
+    return errorResponse(request, 400, "invalid_scope", "雞舍不在目前資料範圍。");
+  }
+  const clauses = ["f.organization_id = ?", "f.environment = ?"];
+  const bindings: unknown[] = [session.organizationId, environment];
   if (farmId) { clauses.push("k.farm_id = ?"); bindings.push(farmId); }
   if (houseId) { clauses.push("k.house_id = ?"); bindings.push(houseId); }
   const rows = await env.DB.prepare(
@@ -1161,7 +1201,12 @@ async function writeCanonicalRecord(
 async function listCanonicalRecords(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
   const environment = operationalEnvironmentFor(url);
-  const farmId = stringValue(url.searchParams.get("farmId"), 160);
+  const rawFarmId = url.searchParams.get("farmId");
+  const farmId = stringValue(rawFarmId, 160);
+  if (rawFarmId !== null && !farmId) return errorResponse(request, 400, "invalid_scope", "雞場範圍無效。");
+  if (farmId && !(await farmMatchesEnvironment(env, session.organizationId, farmId, environment))) {
+    return errorResponse(request, 400, "invalid_scope", "雞場不在目前資料範圍。");
+  }
   const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
   const farmFilter = farmId ? " AND e.farm_id = ?" : "";
   const bind = farmId ? [session.organizationId, environment, farmId] : [session.organizationId, environment];
@@ -1421,8 +1466,8 @@ async function dashboard(request: Request, env: WebApiEnv, session: SessionRow):
     env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'test'").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM caretakers WHERE organization_id = ? AND active = 1").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active'").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT k.initial_count AS initialCount, k.farm_id AS farmId, COALESCE(SUM(CASE WHEN e.intent IN ('mortality', 'cull', 'shipment') AND e.reversed_at IS NULL THEN e.quantity ELSE 0 END), 0) AS removed FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' GROUP BY k.id").bind(org).all<{ initialCount: number; farmId: string; removed: number }>(),
-    env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN e.intent = 'mortality' THEN e.quantity ELSE 0 END), 0) AS mortality, COALESCE(SUM(CASE WHEN e.intent = 'cull' THEN e.quantity ELSE 0 END), 0) AS cull, COALESCE(SUM(CASE WHEN e.intent = 'feed' THEN e.quantity ELSE 0 END), 0) AS feed, COALESCE(SUM(CASE WHEN e.intent = 'water' THEN e.quantity ELSE 0 END), 0) AS water FROM operational_events e JOIN farms f ON f.id = e.farm_id WHERE e.organization_id = ? AND f.environment = 'production' AND e.event_date = ? AND e.reversed_at IS NULL").bind(org, taipeiDate()).first<Record<string, number>>(),
+    env.DB.prepare(`SELECT k.initial_count AS initialCount, k.farm_id AS farmId, COALESCE(SUM(CASE WHEN e.intent IN ('mortality', 'cull', 'shipment') THEN e.quantity ELSE 0 END), 0) AS removed FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id AND ${effectiveOperationalEventPredicate("e")} WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' GROUP BY k.id`).bind(org).all<{ initialCount: number; farmId: string; removed: number }>(),
+    env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN e.intent = 'mortality' THEN e.quantity ELSE 0 END), 0) AS mortality, COALESCE(SUM(CASE WHEN e.intent = 'cull' THEN e.quantity ELSE 0 END), 0) AS cull, COALESCE(SUM(CASE WHEN e.intent = 'feed' THEN e.quantity ELSE 0 END), 0) AS feed, COALESCE(SUM(CASE WHEN e.intent = 'water' THEN e.quantity ELSE 0 END), 0) AS water FROM operational_events e JOIN farms f ON f.id = e.farm_id WHERE e.organization_id = ? AND f.environment = 'production' AND e.event_date = ? AND ${effectiveOperationalEventPredicate("e")}`).bind(org, taipeiDate()).first<Record<string, number>>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' AND k.expected_shipment_date IS NOT NULL AND k.expected_shipment_date <= date('now', '+7 day')").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COALESCE(SUM(d.net_income), 0) AS net FROM profit_distributions d JOIN farms f ON f.id = d.farm_id WHERE d.organization_id = ? AND f.environment = 'production'").bind(org).first<{ net: number }>(),
   ]);
@@ -1581,7 +1626,7 @@ async function charts(request: Request, env: WebApiEnv, session: SessionRow, met
 
   if (eventMetrics.has(eventIntent)) {
     const bucket = chartBucketExpression("e.event_date", granularity);
-    const clauses = ["e.organization_id = ?", "e.event_date BETWEEN ? AND ?", "e.reversed_at IS NULL", "e.intent = ?"];
+    const clauses = ["e.organization_id = ?", "e.event_date BETWEEN ? AND ?", effectiveOperationalEventPredicate("e"), "e.intent = ?"];
     const bindings: unknown[] = [session.organizationId, from, to, eventIntent];
     addOperationalChartFilters(url, clauses, bindings, "e", "f", "e.event_date");
     const rows = await env.DB.prepare(
@@ -1634,7 +1679,7 @@ async function charts(request: Request, env: WebApiEnv, session: SessionRow, met
     addOperationalEnvironmentFilter(url, flockClauses, flockBindings, "f");
     if (caretakerId) { flockClauses.push("EXISTS (SELECT 1 FROM farm_caretaker_assignments ca WHERE ca.farm_id = f.id AND ca.caretaker_id = ? AND ca.effective_from <= k.chick_in_date AND (ca.effective_to IS NULL OR ca.effective_to >= k.chick_in_date))"); flockBindings.push(caretakerId); }
     const flocks = await env.DB.prepare(`SELECT k.chick_in_date AS chickInDate, k.initial_count AS initialCount FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE ${flockClauses.join(" AND ")}`).bind(...flockBindings).all<{ chickInDate: string; initialCount: number }>();
-    const eventClauses = ["e.organization_id = ?", "e.event_date <= ?", "e.reversed_at IS NULL", "e.intent IN ('mortality', 'cull', 'shipment')"];
+    const eventClauses = ["e.organization_id = ?", "e.event_date <= ?", effectiveOperationalEventPredicate("e"), "e.intent IN ('mortality', 'cull', 'shipment')"];
     const eventBindings: unknown[] = [session.organizationId, to];
     addOperationalChartFilters(url, eventClauses, eventBindings, "e", "f", "e.event_date");
     const bucket = chartBucketExpression("e.event_date", granularity);
@@ -1708,7 +1753,7 @@ async function dataHealth(request: Request, env: WebApiEnv, session: SessionRow)
     env.DB.prepare(`SELECT COUNT(*) AS count FROM farms f LEFT JOIN farm_caretaker_assignments a ON a.farm_id = f.id AND a.effective_to IS NULL AND a.is_primary = 1 WHERE f.organization_id = ? AND f.active = 1 AND a.id IS NULL`).bind(session.organizationId).first<{ count: number }>(),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM farms f LEFT JOIN houses h ON h.farm_id = f.id AND h.active = 1 WHERE f.organization_id = ? AND f.active = 1 AND f.farm_structure_mode = 'multi_house' GROUP BY f.id HAVING COUNT(h.id) = 0`).bind(session.organizationId).all<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND k.status = 'active' AND k.expected_shipment_date IS NULL").bind(session.organizationId).first<{ count: number }>(),
-    env.DB.prepare(`SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id AND e.reversed_at IS NULL AND e.intent IN ('mortality', 'cull', 'shipment') WHERE f.organization_id = ? GROUP BY k.id HAVING k.initial_count - COALESCE(SUM(e.quantity), 0) < 0`).bind(session.organizationId).all<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id AND ${effectiveOperationalEventPredicate("e")} AND e.intent IN ('mortality', 'cull', 'shipment') WHERE f.organization_id = ? GROUP BY k.id HAVING k.initial_count - COALESCE(SUM(e.quantity), 0) < 0`).bind(session.organizationId).all<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM (SELECT house_id FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND k.status = 'active' GROUP BY house_id HAVING COUNT(*) > 1)").bind(session.organizationId).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM houses h LEFT JOIN farms f ON f.id = h.farm_id WHERE f.id IS NULL OR f.organization_id <> ?").bind(session.organizationId).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM farm_aliases a LEFT JOIN farms f ON f.id = a.farm_id WHERE f.id IS NULL OR f.organization_id <> ?").bind(session.organizationId).first<{ count: number }>(),
