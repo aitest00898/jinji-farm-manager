@@ -25,6 +25,7 @@ import {
 import { ADMIN_SESSION_TTL_MS, nextAdminFailureState, verifyAdminPassword } from "./admin-auth";
 import {
   deriveCurrentStock,
+  effectiveOperationalEventPredicate,
   flockAgeDays,
   isIsoDate,
   normalizedHouseName,
@@ -1327,7 +1328,7 @@ async function todayMortalityReply(
                  AND e.line_group_id = ?
                  AND e.event_date = ?
                  AND e.intent = 'mortality'
-                 AND e.reversed_at IS NULL
+                 AND ${effectiveOperationalEventPredicate("e")}
                  AND (? IS NULL OR e.house = ?)
             ), 0)
             + COALESCE((
@@ -1396,7 +1397,7 @@ async function mortalityTopReply(
               SELECT SUM(e.quantity) FROM operational_events e
                WHERE e.organization_id = f.organization_id AND e.farm_id = f.id
                  AND e.line_group_id = ? AND e.intent = 'mortality'
-                 AND e.reversed_at IS NULL
+                 AND ${effectiveOperationalEventPredicate("e")}
                  AND e.event_date BETWEEN ? AND ?
             ), 0)
             + COALESCE((
@@ -1437,7 +1438,7 @@ async function farmTodayMortalityReply(
                FROM operational_events e
                WHERE e.organization_id = ? AND e.farm_id = ?
                  AND e.line_group_id = ? AND e.event_date = ? AND e.intent = 'mortality'
-                 AND e.reversed_at IS NULL
+                 AND ${effectiveOperationalEventPredicate("e")}
                  AND (? IS NULL OR e.house = ?)
             ), 0)
             + COALESCE((
@@ -1556,21 +1557,21 @@ async function derivedCurrentStockReply(
 
   const flockPlaceholders = flocks.map(() => "?").join(", ");
   const flockEvents = await env.DB.prepare(
-    `SELECT flock_id AS flockId, intent, quantity
-       FROM operational_events
-      WHERE flock_id IN (${flockPlaceholders})
-        AND reversed_at IS NULL
-        AND intent IN ('mortality', 'cull', 'shipment')`,
+    `SELECT e.flock_id AS flockId, e.intent, e.quantity
+       FROM operational_events e
+      WHERE e.flock_id IN (${flockPlaceholders})
+        AND ${effectiveOperationalEventPredicate("e")}
+        AND e.intent IN ('mortality', 'cull', 'shipment')`,
   )
     .bind(...flocks.map((flock) => flock.id))
     .all<{ flockId: string; intent: StockAdjustment["intent"]; quantity: number }>();
   const houseEvents = await env.DB.prepare(
-    `SELECT house_id AS houseId, intent, quantity
-       FROM operational_events
-      WHERE house_id IN (${flockPlaceholders})
-        AND flock_id IS NULL
-        AND reversed_at IS NULL
-        AND intent IN ('mortality', 'cull', 'shipment')`,
+    `SELECT e.house_id AS houseId, e.intent, e.quantity
+       FROM operational_events e
+      WHERE e.house_id IN (${flockPlaceholders})
+        AND e.flock_id IS NULL
+        AND ${effectiveOperationalEventPredicate("e")}
+        AND e.intent IN ('mortality', 'cull', 'shipment')`,
   )
     .bind(...flocks.map((flock) => flock.houseId))
     .all<{ houseId: string; intent: StockAdjustment["intent"]; quantity: number }>();
@@ -4368,11 +4369,11 @@ async function menuTodaySummaryReply(
   const [operations, abnormalities, flocks, weather] = await Promise.all([
     env.DB.prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN intent = 'mortality' THEN quantity ELSE 0 END), 0) AS mortality,
-         COALESCE(SUM(CASE WHEN intent = 'cull' THEN quantity ELSE 0 END), 0) AS cull,
-         COALESCE(SUM(CASE WHEN intent = 'shipment' THEN quantity ELSE 0 END), 0) AS shipment
-       FROM operational_events
-      WHERE organization_id = ? AND event_date = ? AND reversed_at IS NULL`,
+         COALESCE(SUM(CASE WHEN e.intent = 'mortality' THEN e.quantity ELSE 0 END), 0) AS mortality,
+         COALESCE(SUM(CASE WHEN e.intent = 'cull' THEN e.quantity ELSE 0 END), 0) AS cull,
+         COALESCE(SUM(CASE WHEN e.intent = 'shipment' THEN e.quantity ELSE 0 END), 0) AS shipment
+       FROM operational_events e
+      WHERE e.organization_id = ? AND e.event_date = ? AND ${effectiveOperationalEventPredicate("e")}`,
     ).bind(organizationId, day).first<{ mortality: number; cull: number; shipment: number }>(),
     env.DB.prepare(
       `SELECT COUNT(*) AS count
@@ -4456,10 +4457,10 @@ async function menuFlockSummaryReply(env: Env, organizationId: string, farmId: s
   }>();
   if (!flock) return `${botName(accountName)}\n⚠️ 找不到可查詢的進行中批次。`;
   const adjustments = await env.DB.prepare(
-    `SELECT intent, quantity
-       FROM operational_events
-      WHERE organization_id = ? AND flock_id = ? AND reversed_at IS NULL
-        AND intent IN ('mortality', 'cull', 'shipment')`,
+    `SELECT e.intent, e.quantity
+       FROM operational_events e
+      WHERE e.organization_id = ? AND e.flock_id = ? AND ${effectiveOperationalEventPredicate("e")}
+        AND e.intent IN ('mortality', 'cull', 'shipment')`,
   ).bind(organizationId, flock.id).all<{ intent: StockAdjustment["intent"]; quantity: number }>();
   const stock = deriveCurrentStock(flock.initialCount, adjustments.results);
   return [
@@ -5377,9 +5378,9 @@ async function conversationTodayAttentionReply(
   const recentSince = dateOffset(day, 2);
   const [mortality, abnormalRows, recent] = await Promise.all([
     env.DB.prepare(
-      `SELECT COALESCE(SUM(quantity), 0) AS total, COUNT(*) AS records
-         FROM operational_events
-        WHERE organization_id = ? AND event_date = ? AND intent = 'mortality' AND reversed_at IS NULL`,
+      `SELECT COALESCE(SUM(e.quantity), 0) AS total, COUNT(*) AS records
+         FROM operational_events e
+        WHERE e.organization_id = ? AND e.event_date = ? AND e.intent = 'mortality' AND ${effectiveOperationalEventPredicate("e")}`,
     ).bind(organizationId, day).first<{ total: number; records: number }>(),
     env.DB.prepare(
       `SELECT f.name AS farmName, f.environment AS farmEnvironment, COUNT(*) AS count
@@ -5392,8 +5393,8 @@ async function conversationTodayAttentionReply(
     ).bind(organizationId, day).all<{ farmName: string; farmEnvironment: "production" | "test"; count: number }>(),
     env.DB.prepare(
       `SELECT COUNT(*) AS count
-         FROM operational_events
-        WHERE organization_id = ? AND event_date >= ? AND event_date <= ? AND reversed_at IS NULL`,
+         FROM operational_events e
+        WHERE e.organization_id = ? AND e.event_date >= ? AND e.event_date <= ? AND ${effectiveOperationalEventPredicate("e")}`,
     ).bind(organizationId, recentSince, day).first<{ count: number }>(),
   ]);
   const mortalityTotal = Number(mortality?.total ?? 0);
@@ -5452,7 +5453,7 @@ async function conversationRecentOperationalReply(
       WHERE e.organization_id = ? AND e.line_group_id = ?
         AND (e.line_user_id = ? OR e.line_user_id IS NULL)
         AND (? IS NULL OR e.id = ?)
-        AND e.reversed_at IS NULL
+        AND ${effectiveOperationalEventPredicate("e")}
       ORDER BY e.created_at DESC, e.id DESC
       LIMIT 1`,
   ).bind(organizationId, groupId, userId, eventId, eventId).first<RecentOperationalEventRow>();
@@ -5496,7 +5497,7 @@ async function conversationEventAbnormalityReply(
          FROM operational_events e JOIN farms f ON f.id = e.farm_id
         WHERE e.organization_id = ? AND e.line_group_id = ?
           AND (e.line_user_id = ? OR e.line_user_id IS NULL)
-          AND e.reversed_at IS NULL
+          AND ${effectiveOperationalEventPredicate("e")}
         ORDER BY e.created_at DESC, e.id DESC LIMIT 1`,
     ).bind(organizationId, groupId, userId).first<{ id: string; farmId: string; house: string | null; eventDate: string; farmName: string; farmEnvironment: "production" | "test" }>();
   if (!event) {

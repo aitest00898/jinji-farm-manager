@@ -5,6 +5,27 @@ export interface StockAdjustment {
   quantity: number;
 }
 
+/**
+ * Selects effective operational facts for read-only aggregates.
+ *
+ * Operational correction/reversal is append-only: the child row carries the
+ * replacement or reversal relation while the original row remains in D1.
+ * Aggregates must therefore ignore reversal children and superseded parents,
+ * while retaining an active correction child exactly once.  The alias is a
+ * source-controlled SQL alias, never user input.
+ */
+export function effectiveOperationalEventPredicate(alias = "e"): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(alias)) throw new Error("invalid_operational_event_sql_alias");
+  const reversalChild = `${alias}_reversal_child`;
+  const correctionChild = `${alias}_correction_child`;
+  return [
+    `${alias}.reversed_at IS NULL`,
+    `${alias}.reversal_of_event_id IS NULL`,
+    `NOT EXISTS (SELECT 1 FROM operational_events ${reversalChild} WHERE ${reversalChild}.reversal_of_event_id = ${alias}.id)`,
+    `NOT EXISTS (SELECT 1 FROM operational_events ${correctionChild} WHERE ${correctionChild}.correction_of_event_id = ${alias}.id)`,
+  ].join(" AND ");
+}
+
 export type ShipmentReminder = "overdue" | "today" | "one_day" | "seven_days" | null;
 
 function isoDateParts(value: string): [number, number, number] | null {
