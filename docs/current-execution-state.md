@@ -2,11 +2,92 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-09-08 (Asia/Taipei)
+Last reviewed: 2026-09-10 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
 to continue a paused gate.
+
+## 2026-09-10 — Canonical Recording V1 live acceptance safety stop (latest)
+
+The authenticated Test-scope continuation reached the canonical O3 reversal
+path once. Read-only reconciliation then found a stock invariant failure, so
+this Gate is stopped. No live repair, retry, deployment, migration, or scope
+change was attempted after the failure.
+
+```text
+TASK_RESULT = BLOCKED_SAFETY_INVARIANT
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+WEB_RELEASE_HEAD = 89bdf149591ee8f18e1aa72571888e208103634d
+WORKER_VERSION = 06190d97-3605-471f-a839-950a6027d249
+TEST_SCOPE = 金雞測試場 / 測試1舍 / TEST-BATCH-001
+LOCAL_DEV_SESSION_PERSISTENCE = NOT_IMPLEMENTED_HIGHER_LEVEL_SECURITY_POLICY
+```
+
+The preflight read-only state was effective stock 962. O4, O2, A8, and O3
+readback each matched the expected canonical destination. The existing O2
+correction was verified and no additional O2 correction was created. The one
+approved O3 reversal attempt eventually produced one append-only reversal
+child while retaining the original row.
+
+```text
+O4_READBACK = PASS; destination=recording_events
+O2_READBACK = PASS; destination=operational_actions
+O2_CORRECTION = PASS_ALREADY_EXISTED_VERIFIED; additional=0
+A8_READBACK = PASS; destination=abnormal_events; stock_effect=0
+O3_READBACK = PASS; destination=operational_events
+O3_REVERSAL_RECORD = PASS_ONE_CHILD_CREATED; original_retained=YES
+APPEND_ONLY_REVERSAL = PASS
+WRONG_DESTINATION = 0_FOR_TARGETED_ROWS
+DUPLICATE_AUTHORITY = 0_FOR_TARGETED_ROWS
+```
+
+The post-reversal read-only reconciliation returned effective stock 961. The
+expected append-only reversal restoration was 962 + 1 = 963, but the observed
+delta was -1. The deployed stock aggregation counts the reversal child as an
+active shipment because it has the same shipment intent and no `reversed_at`
+value; the original shipment also remains active. This is a proven stock
+reconciliation defect, not a reason to mutate the live database in this Gate.
+
+```text
+PRE_REVERSAL_EFFECTIVE_STOCK = 962
+EXPECTED_POST_REVERSAL_EFFECTIVE_STOCK = 963
+POST_REVERSAL_EFFECTIVE_STOCK = 961
+O3_REVERSAL_STOCK_DELTA = FAIL_EXPECTED_PLUS_1_OBSERVED_MINUS_1
+STOCK_RESTORATION = FAIL
+STOCK_DOUBLE_COUNT = FAIL
+FINANCE_CHANGED = NO
+FINANCE = allocated=434838.6; expense=5500; net=429338.6; gross=4041698; distributions=12; allocations=36
+PRODUCTION_SCOPE_BUSINESS_WRITES_THIS_RUN = 0
+```
+
+No additional O3 reversal, O2 correction, SQL repair, or browser retry was
+performed. The canonical recording feature is therefore not frozen and is not
+ready for Production canonical-write acceptance, Web release approval, LINE
+human acceptance, or Hybrid activation. A future bounded correctness-fix Gate
+must address reversal-aware stock reconciliation before any new live canary.
+
+```text
+CANONICAL_RECORDING_V1_LIVE_ACCEPTANCE = FAIL
+CANONICAL_RECORDING_V1_FEATURE_STATE = NOT_FROZEN
+PRODUCTION_DEPLOYED_THIS_RESUME = NO
+PAGES_DEPLOYED_THIS_GATE = NO
+REMOTE_MIGRATION = NO
+REMOTE_SCHEMA_WRITES = 0
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MODEL_CHANGED = NO
+MAIN_MERGE = NO
+READY_FOR_CANONICAL_API_PRODUCTION_DEPLOYMENT = NO
+READY_FOR_PRODUCTION_CANONICAL_WRITE_CANARY = NO
+READY_FOR_WEB_PRODUCTION_INTEGRATION_RELEASE = NO
+READY_FOR_LINE_HUMAN_ACCEPTANCE = NO
+READY_FOR_HYBRID_PRODUCTION_ACTIVATION = NO
+```
 
 ## Foundation integrity and runtime-bridge gate — 2026-09-08
 
@@ -82,6 +163,88 @@ QUEUE_WRITES = 0
 WORKERS_AI_CALLS = 0
 CRON_CHANGED = NO
 MODEL_CHANGED = NO
+```
+
+## 2026-09-09 — Authenticated Test-scope canary partial completion (latest)
+
+The human login retry succeeded in the visible local Web UI. The following
+evidence is limited to the explicit Test scope and must not be described as
+Production business acceptance.
+
+```text
+TASK_RESULT = AUTHENTICATED_WEB_TEST_SCOPE_CANARY_PARTIAL_STOPPED_UI_GAP
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+WEB_LOCAL_HEAD = 5d0b2cad1c9fc4c19ae9214fb8872335b301fe99
+WEB_LOCAL_BRANCH = release/web-production-integration-20260909
+CURRENT_WORKER = b8d5eb49-f032-4180-927d-c428378631ea
+CURRENT_DEPLOYED_PRODUCTION_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+HUMAN_LOGIN = PASS
+HUMAN_TEST_SCOPE_CONFIRMATION = PASS
+TEST_SCOPE = 金雞測試場 / 測試1舍 / TEST-BATCH-001
+```
+
+The visible Web UI showed `已登入 Test scope` and `Test API` success for
+O4, O2, A8, and O3. SELECT-only D1 reconciliation then found one row in each
+expected destination with `source_channel=web`:
+
+```text
+C-01_O4 = PASS; destination=recording_events
+C-02_O2 = PASS; destination=operational_actions
+C-03_A8 = PASS; destination=abnormal_events; stock_effect=0
+C-04_O3 = PASS; destination=operational_events
+TEST_SCOPE_BUSINESS_FACTS_CREATED = 4
+PRODUCTION_SCOPE_BUSINESS_FACTS_CREATED = 0
+WRONG_DESTINATION = 0
+DUPLICATE_AUTHORITY = 0_OBSERVED
+```
+
+Field-level readback was consistent with the submitted review screens:
+O4 `weigh`, 1.8 kg, age 39, mixed; O2 `medication`; A8 `foot_odor`,
+small extent, detail present, no mortality link; O3 `shipment`, quantity 1,
+mixed, total weight 2 kg, average weight 2 kg, unreversed.
+
+```text
+PRE_CANARY_EFFECTIVE_STOCK = 963
+POST_O3_EFFECTIVE_STOCK = 962
+O3_UNREVERSED_ROWS = 1
+O3_UNREVERSED_QUANTITY = 1
+FINANCE = allocated=434838.6; expense=5500; net=429338.6; gross=4041698; distributions=12; allocations=36
+D1_RECONCILIATION = PASS_SELECT_ONLY
+D1_ROWS_WRITTEN = 0
+```
+
+The canary stopped before replay, correction, or reversal. The current Web
+Records UI does not expose the canonical Test rows or safe canonical replay,
+correction, and reversal controls. Although the API module has those methods,
+the UI is not wired to use them for the newly created canonical rows, and the
+Worker list response omits required domain fields for reconstructing a safe
+correction command. No new submission was attempted because it could create a
+second business fact.
+
+```text
+C-05_CANONICAL_READBACK = NOT_EXECUTED_CURRENT_WEB_UI_GAP
+C-06_IDEMPOTENCY_REPLAY = NOT_EXECUTED_NO_SAFE_REPLAY_ENTRY
+C-07_REVERSAL_LINEAGE = NOT_EXECUTED_NO_SAFE_REVERSAL_ENTRY
+C-08_STOCK = PASS_READ_ONLY
+C-09_FINANCE = PASS_UNCHANGED_READ_ONLY
+CANARY_STOP_REASON = CANONICAL_READ_CORRECTION_REVERSAL_UI_AND_READ_BRIDGE_GAP
+SOURCE_CHANGE_DURING_CANARY = NO
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+PAGES_DEPLOYED_THIS_GATE = NO
+REMOTE_MIGRATION = NO
+REMOTE_SCHEMA_WRITES = 0
+PRODUCTION_BUSINESS_WRITES = 0
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MODEL_CHANGED = NO
+READY_FOR_CANONICAL_API_NORMAL_OPERATION = NO
+READY_FOR_WEB_MAIN_MERGE_REVIEW = NO
+READY_FOR_PAGES_DEPLOYMENT_AFTER_MAIN_CI = NO
+READY_FOR_LINE_HUMAN_ACCEPTANCE = NO
 ```
 
 ## Earlier recording taxonomy foundation baseline — 2026-09-08
@@ -4631,3 +4794,84 @@ is wrong and not that the Secret definitely changed.
 
 Latest receipt:
 `forensics/farm-admin-password-secret-provenance-2026-09-09.md`.
+
+## 2026-09-10 — Reversal-aware stock repair and final acceptance resume (latest override)
+
+The historical 2026-09-10 live acceptance failure is preserved above. A
+bounded source repair was completed locally after a read-only reconciliation
+proved that the existing O3 shipment and its reversal child were both being
+counted by the deployed aggregate. The repair is append-only/read-only
+semantics only: it excludes reversal children and superseded parents while
+retaining one active correction child, and also handles legacy rows with
+`reversed_at` but no relation child.
+
+```text
+TASK_RESULT = BLOCKED_DEPLOYMENT_SAFETY_REVIEW
+SUBAGENT_DISABLED = YES
+SUBAGENT_TOTAL_USED = 0
+WORKERS_AI_CALLS = 0
+CURRENT_LIVE_WORKER_VERSION = 06190d97-3605-471f-a839-950a6027d249
+CURRENT_LIVE_SOURCE_SHA = NOT_VERIFIED_BY_DEPLOYMENT_METADATA
+PREVIOUS_REVIEWED_CANONICAL_SOURCE = 18c80b5d5b645e6e2deee76b341089ee9217a154
+O2_CORRECTION = EXISTS_1_NO_RETRY
+O3_REVERSAL = EXISTS_1_NO_RETRY
+LIVE_D1_RAW_STOCK = 961
+LIVE_D1_EFFECTIVE_RELATION_AWARE_STOCK = 963_READ_ONLY_PROJECTION
+FINANCE_CHANGED = NO
+D1_BUSINESS_WRITES_THIS_GATE = 0
+```
+
+The effective 963 value is not a deployed Worker readback. The current live
+Worker remains unchanged because the only Production deployment attempt was
+rejected by the safety boundary. No workaround or indirect deployment was
+attempted.
+
+```text
+FEATURE_REPAIR_COMMIT = 38ade68
+CANONICAL_API_RELEASE_BRANCH = release/canonical-record-write-api-20260909
+CANONICAL_API_RELEASE_BASE_SHA = 18c80b5d5b645e6e2deee76b341089ee9217a154
+CANONICAL_API_RELEASE_CANDIDATE_SHA = 7a8ea649eca9953486f4fea511f798006296c13a
+FINAL_SOURCE_WRITE_COVERAGE = 25/25
+FINAL_LOCAL_D1_WRITE_E2E = 25/25
+STOCK_S1_S6 = 13/13
+WRONG_DESTINATION = 0
+DUPLICATE_AUTHORITY = 0
+APPEND_ONLY_CORRECTION = PASS
+IDEMPOTENCY = PASS
+LINEAGE = PASS
+NEGATIVE_FAIL_CLOSED = PASS
+TAXONOMY_PARITY = PASS
+DEPLOY_DRY_RUN = PASS
+SCHEMA_CHANGE = NO
+MIGRATION_REQUIRED = NO
+MODEL_CHANGE = NO
+CRON_CHANGE = NO
+FINANCE_CHANGE = NO
+HYBRID_ACTIVATION = NO
+AUTH_BYPASS = NOT_IMPLEMENTED_SAFETY_REVIEW_REJECTED
+AUTH_BYPASS_RESIDUE = 0
+```
+
+The candidate's full local check passed with 70 test files, 793 passed, and 11
+skipped. The exact disposable-D1 canonical harness passed all 25 categories,
+including destination routing, append-only correction, idempotency, lineage,
+stock, Web API/security scope, and negative fail-closed checks. The direct
+stock relation suite passed 13/13. No Workers AI call was made.
+
+```text
+PRODUCTION_DEPLOYMENT_ATTEMPTED = YES
+PRODUCTION_DEPLOYMENT_RESULT = REJECTED_BY_SAFETY_REVIEW
+PRODUCTION_DEPLOYED_THIS_GATE = NO
+STOCK_REPAIR_LIVE_WORKER_READBACK = NOT_EXECUTED
+REMOTE_MIGRATION = NO
+REMOTE_SCHEMA_WRITES = 0
+PAGES_DEPLOYED_THIS_GATE = NO
+LINE_SEND = 0
+QUEUE_BUSINESS_WRITES = 0
+CRON_CHANGED = NO
+RECOVERY_CRON_REMAINS_DISABLED = YES
+MAIN_MERGE = NO
+```
+
+Latest receipt:
+`forensics/canonical-recording-v1-stock-repair-2026-09-10.md`.
