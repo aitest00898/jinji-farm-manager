@@ -39,6 +39,12 @@ import {
 } from "./canonical-lineage-service";
 import type { LegacyAbnormalEventRow, LegacyOperationalEventRow } from "./recording-runtime-bridge";
 import {
+  deriveCanonicalLifecycleSummary,
+  type CanonicalLifecycleFact,
+  type CanonicalLifecycleFlock,
+  type CanonicalLifecycleScope,
+} from "./canonical-lifecycle-read-model";
+import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
   markRetainedLineEventManuallyRecorded,
@@ -1224,6 +1230,193 @@ async function writeCanonicalRecord(
   }
 }
 
+interface CanonicalLifecycleFarmRow {
+  id: string;
+  name: string;
+  environment: "production" | "test";
+}
+
+interface CanonicalLifecycleHouseRow {
+  id: string;
+  farmId: string;
+  name: string;
+}
+
+interface CanonicalLifecycleFlockRow {
+  id: string;
+  farmId: string;
+  houseId: string;
+  batchCode: string;
+  chickInDate: string;
+  initialCount: number;
+  status: "active" | "closed" | "cancelled";
+  createdAt: string;
+}
+
+interface CanonicalLifecycleFactRow {
+  id: string;
+  taxonomyId: "O1" | "O3" | "O7" | "O9";
+  farmId: string;
+  houseId: string | null;
+  flockId: string | null;
+  occurredAt: string | null;
+  createdAt: string;
+  quantity: number | null;
+  totalCount: number | null;
+  workflowStatus: string | null;
+  completedAt: string | null;
+  lifecycleStatus: string | null;
+  reversedAt: string | null;
+  correctionOfId: string | null;
+  reversalOfId: string | null;
+  replacementOfId: string | null;
+}
+
+function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFact {
+  return {
+    id: String(row.id),
+    taxonomyId: row.taxonomyId,
+    farmId: String(row.farmId),
+    houseId: row.houseId === null || row.houseId === undefined ? null : String(row.houseId),
+    flockId: row.flockId === null || row.flockId === undefined ? null : String(row.flockId),
+    occurredAt: row.occurredAt ?? null,
+    createdAt: String(row.createdAt),
+    quantity: row.quantity === null || row.quantity === undefined ? null : Number(row.quantity),
+    totalCount: row.totalCount === null || row.totalCount === undefined ? null : Number(row.totalCount),
+    workflowStatus: row.workflowStatus ?? null,
+    completedAt: row.completedAt ?? null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    reversedAt: row.reversedAt ?? null,
+    correctionOfId: row.correctionOfId ?? null,
+    reversalOfId: row.reversalOfId ?? null,
+    replacementOfId: row.replacementOfId ?? null,
+  };
+}
+
+async function canonicalLifecycleSummaries(
+  env: WebApiEnv,
+  organizationId: string,
+  environment: OperationalEnvironment,
+  farmId?: string | null,
+  houseId?: string | null,
+): Promise<ReturnType<typeof deriveCanonicalLifecycleSummary>[]> {
+  const farmClause = farmId ? " AND f.id = ?" : "";
+  const farmBindings = farmId ? [organizationId, environment, farmId] : [organizationId, environment];
+  const houseClause = houseId ? " AND h.id = ?" : "";
+  const houseBindings = houseId ? [organizationId, environment, houseId] : [organizationId, environment];
+  const flockClause = houseId ? " AND k.house_id = ?" : farmId ? " AND k.farm_id = ?" : "";
+  const flockBindings = houseId ? [organizationId, environment, houseId] : farmId ? [organizationId, environment, farmId] : [organizationId, environment];
+  const factFarmClause = farmId ? " AND e.farm_id = ?" : "";
+  const factBindings = farmId ? [organizationId, environment, farmId] : [organizationId, environment];
+  const [farms, houses, flocks, facts] = await Promise.all([
+    env.DB.prepare(
+      `SELECT f.id, f.name, f.environment
+         FROM farms f
+        WHERE f.organization_id = ? AND f.environment = ? AND f.active = 1${farmClause}
+        ORDER BY f.name, f.id`,
+    ).bind(...farmBindings).all<CanonicalLifecycleFarmRow>(),
+    env.DB.prepare(
+      `SELECT h.id, h.farm_id AS farmId, h.name
+         FROM houses h JOIN farms f ON f.id = h.farm_id
+        WHERE f.organization_id = ? AND f.environment = ? AND h.active = 1${houseClause}
+        ORDER BY h.farm_id, h.name, h.id`,
+    ).bind(...houseBindings).all<CanonicalLifecycleHouseRow>(),
+    env.DB.prepare(
+      `SELECT k.id, k.farm_id AS farmId, k.house_id AS houseId, k.batch_code AS batchCode,
+              k.chick_in_date AS chickInDate, k.initial_count AS initialCount,
+              k.status, k.created_at AS createdAt
+         FROM flocks k JOIN farms f ON f.id = k.farm_id
+        WHERE f.organization_id = ? AND f.environment = ? AND k.status <> 'cancelled'${flockClause}
+        ORDER BY k.farm_id, k.house_id, k.chick_in_date DESC, k.created_at DESC, k.id DESC`,
+    ).bind(...flockBindings).all<CanonicalLifecycleFlockRow>(),
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.farm_id AS farmId,
+              e.house_id AS houseId, e.flock_id AS flockId, e.occurred_at AS occurredAt,
+              e.created_at AS createdAt, NULL AS quantity, e.total_count AS totalCount,
+              NULL AS workflowStatus, NULL AS completedAt, e.lifecycle_status AS lifecycleStatus,
+              NULL AS reversedAt, e.correction_of_id AS correctionOfId,
+              e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
+         FROM recording_events e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id = 'O1'${factFarmClause}
+       UNION ALL
+       SELECT e.id, COALESCE(e.taxonomy_id, CASE WHEN e.intent IN ('shipment') THEN 'O3' ELSE 'O9' END) AS taxonomyId,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.occurred_at AS occurredAt, e.created_at AS createdAt, e.quantity AS quantity,
+              NULL AS totalCount, NULL AS workflowStatus, NULL AS completedAt,
+              CASE WHEN e.reversed_at IS NOT NULL THEN 'reversed' ELSE 'active' END AS lifecycleStatus,
+              e.reversed_at AS reversedAt, e.correction_of_event_id AS correctionOfId,
+              e.reversal_of_event_id AS reversalOfId, NULL AS replacementOfId
+         FROM operational_events e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?
+          AND (e.taxonomy_id IN ('O3', 'O9') OR e.intent IN ('shipment', 'mortality', 'cull'))${factFarmClause}
+       UNION ALL
+       SELECT e.id, 'O7' AS taxonomyId, e.farm_id AS farmId, e.house_id AS houseId,
+              e.flock_id AS flockId, e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              NULL AS quantity, NULL AS totalCount, e.workflow_status AS workflowStatus,
+              e.completed_at AS completedAt, e.lifecycle_status AS lifecycleStatus,
+              NULL AS reversedAt, e.correction_of_id AS correctionOfId,
+              e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
+         FROM operational_actions e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?
+          AND e.taxonomy_id = 'O7' AND e.subtype = 'disinfection'${factFarmClause}`,
+    ).bind(...factBindings, ...factBindings, ...factBindings).all<CanonicalLifecycleFactRow>(),
+  ]);
+
+  const farmRows = farms.results;
+  const houseRows = houses.results;
+  const flockRows: CanonicalLifecycleFlock[] = flocks.results.map((row) => ({
+    id: String(row.id),
+    farmId: String(row.farmId),
+    houseId: String(row.houseId),
+    batchCode: String(row.batchCode),
+    chickInDate: String(row.chickInDate),
+    initialCount: Number(row.initialCount),
+    status: row.status,
+    createdAt: String(row.createdAt),
+  }));
+  const factRows = facts.results.map(lifecycleFactRow);
+  const summaries: ReturnType<typeof deriveCanonicalLifecycleSummary>[] = [];
+  for (const farm of farmRows) {
+    const farmHouses = houseRows.filter((house) => house.farmId === farm.id);
+    const targets = farmHouses.length ? farmHouses : [{ id: null, farmId: farm.id, name: null }];
+    for (const house of targets) {
+      const scope: CanonicalLifecycleScope = {
+        farmId: farm.id,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseId: house.id,
+        houseName: house.name,
+      };
+      summaries.push(deriveCanonicalLifecycleSummary(
+        scope,
+        flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id)),
+        factRows.filter((fact) => fact.farmId === farm.id),
+      ));
+    }
+  }
+  return summaries;
+}
+
+async function lifecycleReadModel(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const url = new URL(request.url);
+  const environment = operationalEnvironmentFor(url);
+  const rawFarmId = url.searchParams.get("farmId");
+  const rawHouseId = url.searchParams.get("houseId");
+  const farmId = stringValue(rawFarmId, 160);
+  const houseId = stringValue(rawHouseId, 160);
+  if ((rawFarmId !== null && !farmId) || (rawHouseId !== null && !houseId)) {
+    return errorResponse(request, 400, "invalid_scope", "資料範圍無效。");
+  }
+  if (farmId && !(await farmMatchesEnvironment(env, session.organizationId, farmId, environment))) {
+    return errorResponse(request, 400, "invalid_scope", "雞場不在目前資料範圍。");
+  }
+  if (houseId && !(await houseMatchesEnvironment(env, session.organizationId, houseId, environment, farmId))) {
+    return errorResponse(request, 400, "invalid_scope", "雞舍不在目前資料範圍。");
+  }
+  const summaries = await canonicalLifecycleSummaries(env, session.organizationId, environment, farmId, houseId);
+  return response(request, { lifecycleSummaries: summaries, environment });
+}
+
 async function listCanonicalRecords(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
   const environment = operationalEnvironmentFor(url);
@@ -1362,7 +1555,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
   ];
   records.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
   records.splice(limit);
-  return response(request, { records, environment });
+  const lifecycleSummaries = await canonicalLifecycleSummaries(env, session.organizationId, environment, farmId);
+  return response(request, { records, lifecycleSummaries, environment });
 }
 
 function encodeCursor(value: string): string {
@@ -2482,6 +2676,7 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const session = await requireSession(request, env);
     if (session instanceof Response) return session;
     if (url.pathname === "/api/web/auth/logout" && request.method === "POST") return authLogout(request, env, session);
+    if (url.pathname === "/api/lifecycle" && request.method === "GET") return lifecycleReadModel(request, env, session);
     if (url.pathname === "/api/records" && request.method === "GET") return listCanonicalRecords(request, env, session);
     if (url.pathname === "/api/records" && request.method === "POST") return writeCanonicalRecord(request, env, session);
     const canonicalRecordCorrectMatch = /^\/api\/records\/([^/]+)\/correct$/u.exec(url.pathname);

@@ -462,6 +462,12 @@ async function main() {
     const listed = await apiCall(db, sessionToken, "/api/records?environment=test&limit=100");
     assert.equal(listed.response.status, 200);
     assert.equal(listed.payload.records.some((item) => item.taxonomyId === "A16" && item.destination === "abnormal_events"), true);
+    assert.equal(Array.isArray(listed.payload.lifecycleSummaries), true);
+    assert.equal(listed.payload.lifecycleSummaries.length, 1);
+    const lifecycle = await apiCall(db, sessionToken, `/api/lifecycle?environment=test&farmId=${farm}&houseId=${house}`);
+    assert.equal(lifecycle.response.status, 200);
+    assert.equal(lifecycle.payload.lifecycleSummaries.length, 1);
+    assert.equal(typeof lifecycle.payload.lifecycleSummaries[0].lifecycleStatus, "string");
 
     const unauthenticated = await handleWebApi(new Request("https://canonical-write-e2e.test/api/records?environment=test", { method: "GET" }), { DB: db });
     assert.equal(unauthenticated.status, 401);
@@ -483,6 +489,7 @@ async function main() {
     console.log("STOCK_INVARIANT=PASS");
     console.log("WEB_API_CONTRACT=PASS");
     console.log("LEGACY_LINEAGE_ROUTES=PASS");
+    console.log("LIFECYCLE_READ_MODEL=PASS");
     console.log("WEB_SECURITY_SCOPE=PASS");
     console.log("NEGATIVE_FAIL_CLOSED=PASS");
   } finally {
