@@ -45,6 +45,12 @@ import {
   type CanonicalLifecycleScope,
 } from "./canonical-lifecycle-read-model";
 import {
+  deriveCanonicalLabSubmissionSummary,
+  type CanonicalLabSubmissionFact,
+  type CanonicalLabSubmissionScope,
+  type CanonicalLabSubmissionSummary,
+} from "./canonical-lab-submission-read-model";
+import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
   markRetainedLineEventManuallyRecorded,
@@ -1272,6 +1278,28 @@ interface CanonicalLifecycleFactRow {
   replacementOfId: string | null;
 }
 
+interface CanonicalLabSubmissionFactRow {
+  id: string;
+  farmId: string;
+  houseId: string | null;
+  flockId: string | null;
+  occurredAt: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+  workflowStatus: string | null;
+  result: string | null;
+  completedAt: string | null;
+  reminderDueAt: string | null;
+  lifecycleStatus: string | null;
+  correctionOfId: string | null;
+  reversalOfId: string | null;
+  replacementOfId: string | null;
+}
+
+type CanonicalReadSummary = ReturnType<typeof deriveCanonicalLifecycleSummary> & {
+  labSubmission: CanonicalLabSubmissionSummary;
+};
+
 function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFact {
   return {
     id: String(row.id),
@@ -1293,13 +1321,33 @@ function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFac
   };
 }
 
+function labSubmissionFactRow(row: CanonicalLabSubmissionFactRow): CanonicalLabSubmissionFact {
+  return {
+    id: String(row.id),
+    farmId: String(row.farmId),
+    houseId: row.houseId === null || row.houseId === undefined ? null : String(row.houseId),
+    flockId: row.flockId === null || row.flockId === undefined ? null : String(row.flockId),
+    occurredAt: row.occurredAt ?? null,
+    createdAt: String(row.createdAt),
+    submittedAt: row.submittedAt ?? null,
+    workflowStatus: row.workflowStatus ?? null,
+    result: row.result ?? null,
+    completedAt: row.completedAt ?? null,
+    reminderDueAt: row.reminderDueAt ?? null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    correctionOfId: row.correctionOfId ?? null,
+    reversalOfId: row.reversalOfId ?? null,
+    replacementOfId: row.replacementOfId ?? null,
+  };
+}
+
 async function canonicalLifecycleSummaries(
   env: WebApiEnv,
   organizationId: string,
   environment: OperationalEnvironment,
   farmId?: string | null,
   houseId?: string | null,
-): Promise<ReturnType<typeof deriveCanonicalLifecycleSummary>[]> {
+): Promise<CanonicalReadSummary[]> {
   const farmClause = farmId ? " AND f.id = ?" : "";
   const farmBindings = farmId ? [organizationId, environment, farmId] : [organizationId, environment];
   const houseClause = houseId ? " AND h.id = ?" : "";
@@ -1308,7 +1356,7 @@ async function canonicalLifecycleSummaries(
   const flockBindings = houseId ? [organizationId, environment, houseId] : farmId ? [organizationId, environment, farmId] : [organizationId, environment];
   const factFarmClause = farmId ? " AND e.farm_id = ?" : "";
   const factBindings = farmId ? [organizationId, environment, farmId] : [organizationId, environment];
-  const [farms, houses, flocks, facts] = await Promise.all([
+  const [farms, houses, flocks, facts, labSubmissions] = await Promise.all([
     env.DB.prepare(
       `SELECT f.id, f.name, f.environment
          FROM farms f
@@ -1357,9 +1405,21 @@ async function canonicalLifecycleSummaries(
               NULL AS reversedAt, e.correction_of_id AS correctionOfId,
               e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
+       WHERE e.organization_id = ? AND f.environment = ?
           AND e.taxonomy_id = 'O7' AND e.subtype = 'disinfection'${factFarmClause}`,
     ).bind(...factBindings, ...factBindings, ...factBindings).all<CanonicalLifecycleFactRow>(),
+    env.DB.prepare(
+      `SELECT e.id, e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.submitted_at AS submittedAt, e.workflow_status AS workflowStatus,
+              e.result, e.completed_at AS completedAt, e.reminder_due_at AS reminderDueAt,
+              e.lifecycle_status AS lifecycleStatus,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.replacement_of_id AS replacementOfId
+         FROM operational_actions e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?
+          AND e.taxonomy_id = 'O6' AND e.subtype = 'lab_test'${factFarmClause}`,
+    ).bind(...factBindings).all<CanonicalLabSubmissionFactRow>(),
   ]);
 
   const farmRows = farms.results;
@@ -1375,7 +1435,9 @@ async function canonicalLifecycleSummaries(
     createdAt: String(row.createdAt),
   }));
   const factRows = facts.results.map(lifecycleFactRow);
-  const summaries: ReturnType<typeof deriveCanonicalLifecycleSummary>[] = [];
+  const labFactRows = labSubmissions.results.map(labSubmissionFactRow);
+  const readAt = new Date();
+  const summaries: CanonicalReadSummary[] = [];
   for (const farm of farmRows) {
     const farmHouses = houseRows.filter((house) => house.farmId === farm.id);
     const targets = farmHouses.length ? farmHouses : [{ id: null, farmId: farm.id, name: null }];
@@ -1387,11 +1449,24 @@ async function canonicalLifecycleSummaries(
         houseId: house.id,
         houseName: house.name,
       };
-      summaries.push(deriveCanonicalLifecycleSummary(
+      const lifecycle = deriveCanonicalLifecycleSummary(
         scope,
         flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id)),
         factRows.filter((fact) => fact.farmId === farm.id),
-      ));
+      );
+      const labScope: CanonicalLabSubmissionScope = {
+        farmId: farm.id,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseId: house.id,
+        houseName: house.name,
+      };
+      const labSubmission = deriveCanonicalLabSubmissionSummary(
+        labScope,
+        labFactRows.filter((fact) => fact.farmId === farm.id && (!house.id || fact.houseId === house.id)),
+        readAt,
+      );
+      summaries.push({ ...lifecycle, labSubmission });
     }
   }
   return summaries;

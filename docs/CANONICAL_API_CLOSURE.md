@@ -28,12 +28,12 @@ A1-A16 keep the destinations in the write matrix.
 | Operation | Endpoint | Auth | Input | Validator / resolver | Persistence | Response |
 |---|---|---|---|---|---|---|
 | Guided/Quick canonical write | `POST /api/records` | active Web session, organization-scoped | `RecordCommand` or record payload; `clientOperationId` required | `createRecordCommand`, taxonomy validator, shared scope/lineage resolver | shared adapter; one of four authorities | `{ record: { id, destination, taxonomyId, created, stockDelta, lineage } }` |
-| Canonical read | `GET /api/records` | active Web session | optional `environment=test`, `farmId`, bounded `limit` | organization + farm environment filter | union read bridge over four authorities | `{ records, lifecycleSummaries, nextCursor }` |
-| One-water lifecycle/readiness read | `GET /api/lifecycle` | active Web session | optional `environment=test`, `farmId`, `houseId` | organization/environment scope plus read-time effective lineage projection | derived from O1/O3/O7/O9, flock master data, and effective stock; no write | `{ lifecycleSummaries, environment }` |
+| Canonical read | `GET /api/records` | active Web session | optional `environment=test`, `farmId`, bounded `limit` | organization + farm environment filter | union read bridge over four authorities | `{ records, lifecycleSummaries, environment }`; each summary includes derived O6 lab status |
+| One-water lifecycle/readiness read | `GET /api/lifecycle` | active Web session | optional `environment=test`, `farmId`, `houseId` | organization/environment scope plus read-time effective lineage projection | derived from O1/O3/O7/O9, flock master data, and effective stock; no write | `{ lifecycleSummaries, environment }`; each house includes O6 pending/overdue readback |
 | Correction | `POST /api/records/:id/correct` | active Web session | replacement record; route target is injected server-side | same validator plus same-destination lineage | append-only child row; original immutable | same canonical write result |
 | Reversal | `POST /api/records/:id/reverse` | active Web session | reversal record; route target is injected server-side | same validator plus same-destination lineage | append-only reversal row; original immutable | same canonical write result |
 | O3/O9 legacy compatibility write | existing `POST /api/operational-events` shipment/mortality/cull path | active Web session | existing operational body | canonical command branch for these intents | shared OEA adapter; feed/water compatibility remains outside this taxonomy equivalence | legacy-compatible event response |
-| Records/Pending/O6 state | existing read routes including `GET /api/pending-candidates` plus canonical records read | active Web session | bounded query | organization/environment scope | read-only bridge | existing read contracts; no new business write |
+| Records/Pending/O6 state | existing read routes including `GET /api/pending-candidates` plus canonical records read | active Web session | bounded query | organization/environment scope | read-only bridge | existing read contracts plus derived `{ pendingSubmissionCount, oldestPendingSubmissionAt, hasOverdueLabSubmission, incompleteReason, statusLabel }`; no new business write |
 
 The compatibility endpoints are not the canonical Guided Record surface. No
 `/api/o1` through `/api/a16` endpoint was added, and the Web route does not
@@ -76,5 +76,6 @@ WEB_BYPASSES_BUSINESS_LAYER = NO for canonical surface
 WEB_API_CONTRACT_TESTS = PASS (local disposable D1)
 LEGACY_CORRECTION_REVERSAL_CONVERGENCE = COMPLETE
 ONE_WATER_LIFECYCLE_READINESS = COMPLETE (read-time derived; no second authority)
+O6_LAB_SUBMISSION_WORKFLOW = COMPLETE (house-level read-time derived; same reminder deadline)
 CANONICAL_API_PRODUCTION_RELEASE = NOT_DEPLOYED; separate release review required
 ```

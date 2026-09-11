@@ -464,10 +464,16 @@ async function main() {
     assert.equal(listed.payload.records.some((item) => item.taxonomyId === "A16" && item.destination === "abnormal_events"), true);
     assert.equal(Array.isArray(listed.payload.lifecycleSummaries), true);
     assert.equal(listed.payload.lifecycleSummaries.length, 1);
+    assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, "number");
+    assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, "boolean");
+    assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.statusLabel, "string");
     const lifecycle = await apiCall(db, sessionToken, `/api/lifecycle?environment=test&farmId=${farm}&houseId=${house}`);
     assert.equal(lifecycle.response.status, 200);
     assert.equal(lifecycle.payload.lifecycleSummaries.length, 1);
     assert.equal(typeof lifecycle.payload.lifecycleSummaries[0].lifecycleStatus, "string");
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, 2);
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, true);
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.incompleteReason, "OVERDUE_UNRESOLVED_SUBMISSION");
 
     const unauthenticated = await handleWebApi(new Request("https://canonical-write-e2e.test/api/records?environment=test", { method: "GET" }), { DB: db });
     assert.equal(unauthenticated.status, 401);
