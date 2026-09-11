@@ -26,6 +26,7 @@ export interface PhaseSession {
 type Responder = (body: unknown, status?: number, extra?: HeadersInit) => Response;
 type ErrorResponder = (status: number, code: string, message: string) => Response;
 type CanonicalWrite = (request: Request<any, any>, relation?: { kind: "correction" | "reversal"; id: string }) => Promise<Response>;
+type LegacyRelationWrite = (request: Request<any, any>, relation: { kind: "correction" | "reversal"; id: string }) => Promise<Response>;
 
 const MAX_PAGE_SIZE = 100;
 const CATEGORIES = new Set(["health", "equipment", "environment", "weather_disaster", "feed", "water", "biosecurity", "operation", "logistics", "structure", "system", "other"]);
@@ -168,6 +169,15 @@ async function listAbnormalEvents(request: Request, env: PhaseApiEnv, session: P
             a.ai_tags_json AS tagsJson, a.ai_confidence AS confidence,
             a.classification_status AS classificationStatus, a.weather_date AS weatherDate,
             a.status, a.correction_of_id AS correctionOfId, a.reversal_of_id AS reversalOfId,
+            CASE
+              WHEN a.status IN ('reversed', 'reversal')
+                OR EXISTS (SELECT 1 FROM abnormal_events r WHERE r.reversal_of_id = a.id)
+                THEN 'reversed'
+              WHEN a.status = 'corrected'
+                OR EXISTS (SELECT 1 FROM abnormal_events c WHERE c.correction_of_id = a.id)
+                THEN 'corrected'
+              ELSE a.status
+            END AS effectiveStatus,
             a.reason, a.created_at AS createdAt
        FROM abnormal_events a JOIN farms f ON f.id = a.farm_id
        LEFT JOIN houses h ON h.id = a.house_id
@@ -210,73 +220,6 @@ async function createAbnormalEvent(request: Request, env: PhaseApiEnv, session: 
     sourceEventId,
   });
   return respond({ created: result.created, id: result.id, rawText, timing }, result.created ? 201 : 200);
-}
-
-async function abnormalById(env: PhaseApiEnv, organizationId: string, id: string): Promise<Record<string, unknown> | null> {
-  return env.DB.prepare(
-    `SELECT * FROM abnormal_events WHERE id = ? AND organization_id = ? LIMIT 1`,
-  ).bind(id, organizationId).first<Record<string, unknown>>();
-}
-
-async function reverseAbnormalEvent(request: Request, env: PhaseApiEnv, session: PhaseSession, id: string, respond: Responder, fail: ErrorResponder): Promise<Response> {
-  const body = await bodyJson(request);
-  const reason = text(body?.reason, 500)?.trim() ?? null;
-  const row = await abnormalById(env, session.organizationId, id);
-  if (!row) return fail(404, "not_found", "找不到異常紀錄。");
-  if (row.status !== "active") return fail(409, "already_inactive", "此紀錄已修正或反轉。");
-  const reversalId = `abnormal-reversal-${crypto.randomUUID()}`;
-  const sourceEventId = `web-abnormal-reversal-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE abnormal_events SET status = 'reversed', reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND organization_id = ? AND status = 'active'").bind(reason, id, session.organizationId),
-    env.DB.prepare(
-      `INSERT INTO abnormal_events
-        (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date,
-         approximate_period, reported_at, raw_text, source, actor_id, classification_status,
-         weather_date, status, reversal_of_id, reason, source_event_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, 'skipped', ?, 'reversal', ?, ?, ?)`,
-    ).bind(reversalId, session.organizationId, row.farm_id, row.house_id, row.flock_id, row.occurred_at, row.occurred_date, row.approximate_period, now, row.raw_text, session.id, row.weather_date, id, reason, sourceEventId),
-    env.DB.prepare(
-      `INSERT INTO audit_logs
-        (id, organization_id, source, actor_type, actor_id, action, entity_type, entity_id,
-         before_json, after_json, changed_fields_json, reason, request_id)
-       VALUES (?, ?, 'web', 'web_admin', ?, 'reverse', 'abnormal_event', ?, ?, ?, '["status"]', ?, ?)`,
-    ).bind(`audit-${crypto.randomUUID()}`, session.organizationId, session.id, id, JSON.stringify(row), JSON.stringify({ status: "reversed", reversalId }), reason, sourceEventId),
-  ]);
-  return respond({ reversed: true, id, reversalId });
-}
-
-async function correctAbnormalEvent(request: Request, env: PhaseApiEnv, session: PhaseSession, id: string, respond: Responder, fail: ErrorResponder): Promise<Response> {
-  const body = await bodyJson(request);
-  const reason = text(body?.reason, 500)?.trim() ?? null;
-  const rawText = body?.rawText;
-  if (!validateAbnormalRawText(rawText)) return fail(400, "invalid_abnormal_text", "請輸入修正後的內容。");
-  const row = await abnormalById(env, session.organizationId, id);
-  if (!row) return fail(404, "not_found", "找不到異常紀錄。");
-  if (row.status !== "active") return fail(409, "already_inactive", "此紀錄已修正或反轉。");
-  const correctedId = `abnormal-correction-${crypto.randomUUID()}`;
-  const sourceEventId = `web-abnormal-correction-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE abnormal_events SET status = 'corrected', reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND organization_id = ? AND status = 'active'").bind(reason, id, session.organizationId),
-    env.DB.prepare(
-      `INSERT INTO abnormal_events
-        (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date,
-         approximate_period, reported_at, raw_text, source, actor_id, weather_date,
-         status, correction_of_id, reason, source_event_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?, 'active', ?, ?, ?)`,
-    ).bind(correctedId, session.organizationId, row.farm_id, row.house_id, row.flock_id, row.occurred_at, row.occurred_date, row.approximate_period, now, rawText, session.id, row.weather_date, id, reason, sourceEventId),
-    env.DB.prepare(
-      `INSERT INTO audit_logs
-        (id, organization_id, source, actor_type, actor_id, action, entity_type, entity_id,
-         before_json, after_json, changed_fields_json, reason, request_id)
-       VALUES (?, ?, 'web', 'web_admin', ?, 'correct', 'abnormal_event', ?, ?, ?, '["rawText","status"]', ?, ?)`,
-    ).bind(`audit-${crypto.randomUUID()}`, session.organizationId, session.id, id, JSON.stringify(row), JSON.stringify({ correctedId, rawText, status: "corrected" }), reason, sourceEventId),
-  ]);
-  if (env.EVENTS) {
-    try { await env.EVENTS.send({ kind: "classify_abnormal", abnormalEventId: correctedId }); } catch { /* non-blocking */ }
-  }
-  return respond({ corrected: true, id, correctedId }, 201);
 }
 
 async function timeline(request: Request, env: PhaseApiEnv, session: PhaseSession, respond: Responder): Promise<Response> {
@@ -423,6 +366,7 @@ export async function handlePhaseApi(
   respond: Responder,
   fail: ErrorResponder,
   canonicalWrite?: CanonicalWrite,
+  legacyRelationWrite?: LegacyRelationWrite,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname === "/api/abnormal-events" && request.method === "GET") return listAbnormalEvents(request, env, session, respond);
@@ -433,12 +377,14 @@ export async function handlePhaseApi(
   const reverse = /^\/api\/abnormal-events\/([^/]+)\/reverse$/u.exec(url.pathname);
   if (reverse && request.method === "POST") {
     if (canonicalWrite && hasCanonicalRecordPayload(await bodyJson(request.clone()))) return canonicalWrite(request, { kind: "reversal", id: decodeURIComponent(reverse[1]) });
-    return reverseAbnormalEvent(request, env, session, reverse[1], respond, fail);
+    if (legacyRelationWrite) return legacyRelationWrite(request, { kind: "reversal", id: decodeURIComponent(reverse[1]) });
+    return null;
   }
   const correct = /^\/api\/abnormal-events\/([^/]+)\/correct$/u.exec(url.pathname);
   if (correct && request.method === "POST") {
     if (canonicalWrite && hasCanonicalRecordPayload(await bodyJson(request.clone()))) return canonicalWrite(request, { kind: "correction", id: decodeURIComponent(correct[1]) });
-    return correctAbnormalEvent(request, env, session, correct[1], respond, fail);
+    if (legacyRelationWrite) return legacyRelationWrite(request, { kind: "correction", id: decodeURIComponent(correct[1]) });
+    return null;
   }
   if (url.pathname === "/api/timeline" && request.method === "GET") return timeline(request, env, session, respond);
   if (url.pathname === "/api/weather" && request.method === "GET") return weatherList(request, env, session, respond);

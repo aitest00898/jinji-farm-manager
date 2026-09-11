@@ -1,6 +1,6 @@
 # Canonical Web API closure
 
-Status: local API closure, 2026-09-09. No Worker or Pages deployment was
+Status: local API closure, 2026-09-11. No Worker or Pages deployment was
 performed by this Gate.
 
 ## Root cause of the former `CANONICAL_API_GAP`
@@ -59,19 +59,20 @@ same organization's O9 mortality/cull authority.
 
 ## Local contract evidence
 
-The recorded local disposable D1 harness submitted representatives for O1,
-O2, O3, O4, O6, O9, A1, A8, A12, and A16 through the canonical Web API, then
-exercised correction, reversal, replay, read-back, authentication, CORS, and
-explicit Test scope. It passed with `WEB_API_CONTRACT=PASS` and
-`WEB_SECURITY_SCOPE=PASS`. A later source-only compatibility delegation was
-TypeScript-checked but not rerun through D1 because the harness applies
-migration SQL and this Gate forbids executing migrations. The recorded run did
-not contact Production D1, send LINE, call Workers AI, or deploy Pages.
+The final-source local disposable D1 harness submitted representatives for
+O1, O2, O3, O4, O6, O9, A1, A8, A12, and A16 through the canonical Web API,
+then exercised canonical correction/reversal, legacy operational and
+abnormal correction/reversal compatibility routes, replay, read-back,
+authentication, CORS, and explicit Test scope. It passed with
+`WEB_API_CONTRACT=PASS`, `LEGACY_LINEAGE_ROUTES=PASS`, and
+`WEB_SECURITY_SCOPE=PASS`. The run did not contact Production D1, send LINE,
+call Workers AI, or deploy Pages.
 
 ```text
 CANONICAL_API_GAP_ROOT_CAUSE = absent shared runtime write adapter + absent /api/records route
 SHARED_RECORD_WRITE_API = POST /api/records
 WEB_BYPASSES_BUSINESS_LAYER = NO for canonical surface
 WEB_API_CONTRACT_TESTS = PASS (local disposable D1)
+LEGACY_CORRECTION_REVERSAL_CONVERGENCE = COMPLETE
 CANONICAL_API_PRODUCTION_RELEASE = NOT_DEPLOYED; separate release review required
 ```

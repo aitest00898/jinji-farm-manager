@@ -111,12 +111,17 @@ export interface LegacyOperationalEventRow {
   house_id?: string | null;
   flock_id?: string | null;
   raw_message: string;
+  raw_farm_text?: string | null;
+  house?: string | null;
+  note?: string | null;
   source_event_id: string;
   client_operation_id?: string | null;
   source_channel?: RecordingSourceChannel | null;
   created_at: string;
   reversed_at?: string | null;
   taxonomy_id?: TaxonomyId | null;
+  family?: string | null;
+  canonical_type?: string | null;
   subtype?: string | null;
   sex?: string | null;
   total_weight?: number | null;
@@ -171,6 +176,7 @@ export interface LegacyAbnormalEventRow {
   occurred_at?: string | null;
   occurred_date: string;
   reported_at: string;
+  approximate_period?: string | null;
   raw_text: string;
   source: "line" | "web" | "system";
   source_event_id: string;
@@ -186,6 +192,9 @@ export interface LegacyAbnormalEventRow {
   measurement?: string | null;
   evidence?: string | null;
   actor_id?: string | null;
+  classification_status?: string | null;
+  weather_date?: string | null;
+  reason?: string | null;
   status?: "active" | "reversed" | "corrected" | "reversal" | null;
   source_candidate_id?: string | null;
   correction_of_id?: string | null;

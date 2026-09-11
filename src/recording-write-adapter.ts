@@ -286,6 +286,25 @@ async function validateRelation(
     ...(relation.kind === "reversal" ? { reversalOfId: relation.id } : {}),
     ...(relation.kind === "replacement" ? { replacementOfId: relation.id } : {}),
   }, [reference]);
+  const relationColumn = destination === "operational_events"
+    ? relation.kind === "reversal" ? "reversal_of_event_id" : "correction_of_event_id"
+    : relation.kind === "reversal" ? "reversal_of_id" : "correction_of_id";
+  const existingChild = await env.DB.prepare(
+    `SELECT id FROM ${destination} WHERE organization_id = ? AND ${relationColumn} = ? LIMIT 1`,
+  ).bind(organizationId, relation.id).first<{ id: string }>();
+  if (existingChild) fail("CANONICAL_LINEAGE_ALREADY_EXISTS", relation.id);
+  if (destination === "operational_events") {
+    const state = await env.DB.prepare(
+      "SELECT reversed_at AS reversedAt FROM operational_events WHERE id = ? AND organization_id = ? LIMIT 1",
+    ).bind(relation.id, organizationId).first<{ reversedAt?: string | null }>();
+    if (state?.reversedAt) fail("CANONICAL_LINEAGE_TARGET_INACTIVE", relation.id);
+  }
+  if (destination === "abnormal_events") {
+    const state = await env.DB.prepare(
+      "SELECT status FROM abnormal_events WHERE id = ? AND organization_id = ? LIMIT 1",
+    ).bind(relation.id, organizationId).first<{ status?: string | null }>();
+    if (state?.status && state.status !== "active") fail("CANONICAL_LINEAGE_TARGET_INACTIVE", relation.id);
+  }
 }
 
 async function validateMortalityLink(env: CanonicalWriteEnv, record: RecordingDraft, organizationId: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { verifyAdminPassword } from "./admin-auth";
-import { insertAbnormalEvent, parseAbnormalTiming } from "./abnormal";
+import { insertAbnormalEvent, parseAbnormalTiming, validateAbnormalRawText } from "./abnormal";
 import { PRODUCTION_AI_MODEL } from "./analysis";
 import {
   ambientPrefilter,
@@ -32,6 +32,12 @@ import { handlePhaseApi } from "./phase-api";
 import { createRecordCommand } from "./record-command";
 import { RecordingContractError } from "./recording-taxonomy";
 import { CanonicalWriteError, persistRecordCommand } from "./recording-write-adapter";
+import {
+  persistAbnormalEventLineage,
+  persistCanonicalLineage,
+  persistOperationalEventLineage,
+} from "./canonical-lineage-service";
+import type { LegacyAbnormalEventRow, LegacyOperationalEventRow } from "./recording-runtime-bridge";
 import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
@@ -1103,6 +1109,15 @@ async function listOperationalEvents(request: Request, env: WebApiEnv, session: 
             e.intent, e.quantity, e.unit, e.event_date AS eventDate, e.note,
             e.reversed_at AS reversedAt, e.reversal_reason AS reversalReason,
             e.reversal_of_event_id AS reversalOfEventId, e.correction_of_event_id AS correctionOfEventId,
+            CASE
+              WHEN e.reversed_at IS NOT NULL
+                OR EXISTS (SELECT 1 FROM operational_events r WHERE r.reversal_of_event_id = e.id)
+                THEN 'reversed'
+              WHEN EXISTS (SELECT 1 FROM operational_events c WHERE c.correction_of_event_id = e.id)
+                THEN 'corrected'
+              WHEN e.correction_of_event_id IS NOT NULL THEN 'replacement'
+              ELSE 'active'
+            END AS effectiveStatus,
             e.source_event_id AS sourceEventId, e.created_at AS createdAt
        FROM operational_events e JOIN farms f ON f.id = e.farm_id
       WHERE ${clauses.join(" AND ")}
@@ -1163,7 +1178,10 @@ function canonicalWriteErrorResponse(request: Request, error: unknown): Response
   if (error instanceof CanonicalWriteError || error instanceof RecordingContractError) {
     const code = error instanceof CanonicalWriteError ? error.code : error.code;
     const field = error instanceof CanonicalWriteError ? error.field : error.field;
-    return errorResponse(request, 400, code, field ? `canonical record field invalid: ${field}` : "canonical record rejected; no write was made.");
+    const status = code === "CANONICAL_LINEAGE_REFERENCE_NOT_FOUND" ? 404
+      : code === "CANONICAL_LINEAGE_ALREADY_EXISTS" || code === "CANONICAL_LINEAGE_TARGET_INACTIVE" ? 409
+      : 400;
+    return errorResponse(request, status, code, field ? `canonical record field invalid: ${field}` : "canonical record rejected; no write was made.");
   }
   return null;
 }
@@ -1177,19 +1195,27 @@ async function writeCanonicalRecord(
   try {
     const body = await bodyJson(request);
     const record = canonicalRecordFromWebBody(body, session, relation);
-    const command = createRecordCommand(record);
-    const result = await persistRecordCommand(
-      { DB: env.DB },
-      command,
-      {
-        organizationId: session.organizationId,
-        actorType: "web_admin",
-        actorId: session.id,
-        requestId: requestId(request),
-        environment: operationalEnvironmentFor(new URL(request.url)),
-        expectedSourceChannel: "web",
-      },
-    );
+    const context = {
+      organizationId: session.organizationId,
+      actorType: "web_admin" as const,
+      actorId: session.id,
+      requestId: requestId(request),
+      environment: operationalEnvironmentFor(new URL(request.url)),
+      expectedSourceChannel: "web" as const,
+    };
+    const result = relation
+      ? await persistCanonicalLineage(
+        { DB: env.DB },
+        record,
+        {
+          kind: relation.kind,
+          originalId: relation.id,
+          childId: String(record.id),
+          clientOperationId: String(record.clientOperationId),
+        },
+        context,
+      )
+      : await persistRecordCommand({ DB: env.DB }, createRecordCommand(record), context);
     return response(request, { record: result }, result.created ? 201 : 200);
   } catch (error) {
     const rejected = canonicalWriteErrorResponse(request, error);
@@ -1218,7 +1244,29 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
               e.source_channel AS sourceChannel, e.raw_text AS rawText,
               e.client_operation_id AS clientOperationId,
               e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
+              e.replacement_of_id AS replacementOfId,
+              CASE
+                WHEN e.lifecycle_status = 'reversed'
+                  OR EXISTS (SELECT 1 FROM recording_events r WHERE r.reversal_of_id = e.id)
+                  THEN 'reversed'
+                WHEN e.lifecycle_status = 'corrected'
+                  OR EXISTS (SELECT 1 FROM recording_events c WHERE c.correction_of_id = e.id OR c.replacement_of_id = e.id)
+                  THEN 'corrected'
+                WHEN e.lifecycle_status = 'replacement' OR e.correction_of_id IS NOT NULL OR e.replacement_of_id IS NOT NULL
+                  THEN 'replacement'
+                ELSE e.lifecycle_status
+              END AS lifecycleStatus,
+              CASE
+                WHEN e.lifecycle_status = 'reversed'
+                  OR EXISTS (SELECT 1 FROM recording_events r WHERE r.reversal_of_id = e.id)
+                  THEN 'reversed'
+                WHEN e.lifecycle_status = 'corrected'
+                  OR EXISTS (SELECT 1 FROM recording_events c WHERE c.correction_of_id = e.id OR c.replacement_of_id = e.id)
+                  THEN 'corrected'
+                WHEN e.lifecycle_status = 'replacement' OR e.correction_of_id IS NOT NULL OR e.replacement_of_id IS NOT NULL
+                  THEN 'replacement'
+                ELSE e.lifecycle_status
+              END AS effectiveStatus
          FROM recording_events e JOIN farms f ON f.id = e.farm_id
         WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
@@ -1229,7 +1277,29 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
               e.source_channel AS sourceChannel, e.raw_text AS rawText,
               e.client_operation_id AS clientOperationId,
               e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.replacement_of_id AS replacementOfId, e.lifecycle_status AS lifecycleStatus
+              e.replacement_of_id AS replacementOfId,
+              CASE
+                WHEN e.lifecycle_status = 'reversed'
+                  OR EXISTS (SELECT 1 FROM operational_actions r WHERE r.reversal_of_id = e.id)
+                  THEN 'reversed'
+                WHEN e.lifecycle_status = 'corrected'
+                  OR EXISTS (SELECT 1 FROM operational_actions c WHERE c.correction_of_id = e.id OR c.replacement_of_id = e.id)
+                  THEN 'corrected'
+                WHEN e.lifecycle_status = 'replacement' OR e.correction_of_id IS NOT NULL OR e.replacement_of_id IS NOT NULL
+                  THEN 'replacement'
+                ELSE e.lifecycle_status
+              END AS lifecycleStatus,
+              CASE
+                WHEN e.lifecycle_status = 'reversed'
+                  OR EXISTS (SELECT 1 FROM operational_actions r WHERE r.reversal_of_id = e.id)
+                  THEN 'reversed'
+                WHEN e.lifecycle_status = 'corrected'
+                  OR EXISTS (SELECT 1 FROM operational_actions c WHERE c.correction_of_id = e.id OR c.replacement_of_id = e.id)
+                  THEN 'corrected'
+                WHEN e.lifecycle_status = 'replacement' OR e.correction_of_id IS NOT NULL OR e.replacement_of_id IS NOT NULL
+                  THEN 'replacement'
+                ELSE e.lifecycle_status
+              END AS effectiveStatus
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
         WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
@@ -1240,7 +1310,16 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
               e.source_channel AS sourceChannel, e.raw_message AS rawText,
               e.source_event_id AS clientOperationId,
               e.correction_of_event_id AS correctionOfId, e.reversal_of_event_id AS reversalOfId,
-              e.reversed_at AS reversedAt
+              e.reversed_at AS reversedAt,
+              CASE
+                WHEN e.reversed_at IS NOT NULL
+                  OR EXISTS (SELECT 1 FROM operational_events r WHERE r.reversal_of_event_id = e.id)
+                  THEN 'reversed'
+                WHEN EXISTS (SELECT 1 FROM operational_events c WHERE c.correction_of_event_id = e.id)
+                  THEN 'corrected'
+                WHEN e.correction_of_event_id IS NOT NULL THEN 'replacement'
+                ELSE 'active'
+              END AS effectiveStatus
          FROM operational_events e JOIN farms f ON f.id = e.farm_id
         WHERE e.organization_id = ? AND f.environment = ?
           AND e.intent IN ('shipment', 'mortality', 'cull')${farmFilter}`,
@@ -1252,7 +1331,17 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
               e.source_channel AS sourceChannel, e.raw_text AS rawText,
               e.source_event_id AS clientOperationId,
               e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
-              e.status AS lifecycleStatus
+              e.status AS lifecycleStatus,
+              CASE
+                WHEN e.status IN ('reversed', 'reversal')
+                  OR EXISTS (SELECT 1 FROM abnormal_events r WHERE r.reversal_of_id = e.id)
+                  THEN 'reversed'
+                WHEN e.status = 'corrected'
+                  OR EXISTS (SELECT 1 FROM abnormal_events c WHERE c.correction_of_id = e.id)
+                  THEN 'corrected'
+                WHEN e.correction_of_id IS NOT NULL THEN 'replacement'
+                ELSE e.status
+              END AS effectiveStatus
          FROM abnormal_events e JOIN farms f ON f.id = e.farm_id
         WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id IS NOT NULL${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
@@ -1370,40 +1459,129 @@ async function reverseOperationalEvent(request: Request, env: WebApiEnv, session
   const row = await env.DB.prepare(
     `SELECT e.*, f.name AS farmName FROM operational_events e JOIN farms f ON f.id = e.farm_id
       WHERE e.id = ? AND e.organization_id = ? LIMIT 1`,
-  ).bind(id, session.organizationId).first<Record<string, unknown> & { reversed_at?: string | null; farmName?: string }>();
+  ).bind(id, session.organizationId).first<LegacyOperationalEventRow & { farmName?: string }>();
   if (!row) return errorResponse(request, 404, "not_found", "找不到營運事件。");
   if (row.reversed_at) return response(request, { reversed: false, alreadyReversed: true, eventId: id });
   const body = await bodyJson(request);
   const reason = stringValue(body?.reason, 500) ?? null;
-  await env.DB.batch([
-    env.DB.prepare("UPDATE operational_events SET reversed_at = CURRENT_TIMESTAMP, reversal_reason = ? WHERE id = ? AND organization_id = ? AND reversed_at IS NULL").bind(reason, id, session.organizationId),
-    auditLogStatement(env, { organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id, action: "reverse", entityType: "operational_event", entityId: id, before: row, after: { reversedAt: new Date().toISOString(), reason }, reason, requestId: requestId(request) }),
-  ]);
-  return response(request, { reversed: true, eventId: id });
+  const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-reversal:${id}`;
+  try {
+    const result = await persistOperationalEventLineage(
+      { DB: env.DB },
+      row,
+      {
+        kind: "reversal",
+        originalId: id,
+        childId: `operational-web-reversal-${crypto.randomUUID()}`,
+        clientOperationId,
+        reason,
+      },
+      {
+        organizationId: session.organizationId,
+        actorType: "web_admin",
+        actorId: session.id,
+        requestId: requestId(request),
+        lineGroupId: row.line_group_id ?? null,
+        environment: operationalEnvironmentFor(new URL(request.url)),
+        expectedSourceChannel: "web",
+      },
+    );
+    return response(request, { reversed: result.created, alreadyReversed: !result.created, eventId: id, reversalId: result.id, canonical: result });
+  } catch (error) {
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
 }
 
 async function correctOperationalEvent(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
-  const row = await env.DB.prepare("SELECT * FROM operational_events WHERE id = ? AND organization_id = ? LIMIT 1").bind(id, session.organizationId).first<Record<string, unknown> & { reversed_at?: string | null; farm_id: string; house_id: string | null; flock_id: string | null; intent: string; unit: string; event_date: string; quantity: number; house: string | null; raw_farm_text: string | null }>();
+  const row = await env.DB.prepare("SELECT * FROM operational_events WHERE id = ? AND organization_id = ? LIMIT 1").bind(id, session.organizationId).first<LegacyOperationalEventRow>();
   if (!row) return errorResponse(request, 404, "not_found", "找不到營運事件。");
   if (row.reversed_at) return errorResponse(request, 409, "already_reversed", "原事件已被反轉，不能重複修正。");
   const body = await bodyJson(request);
   const quantity = positiveNumber(body?.quantity);
   if (quantity === null || ((row.intent === "mortality" || row.intent === "cull" || row.intent === "shipment") && !Number.isInteger(quantity))) return errorResponse(request, 400, "invalid_quantity", "修正數量無效。");
   const reason = stringValue(body?.reason, 500) ?? null;
-  const newId = `operational-web-${crypto.randomUUID()}`;
-  const sourceEventId = `web-correction-${crypto.randomUUID()}`;
-  const groupId = await ensureWebGroup(env, session.organizationId);
-  await env.DB.batch([
-    env.DB.prepare("UPDATE operational_events SET reversed_at = CURRENT_TIMESTAMP, reversal_reason = ? WHERE id = ? AND organization_id = ? AND reversed_at IS NULL").bind(reason, id, session.organizationId),
-    env.DB.prepare(
-      `INSERT INTO operational_events
-        (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit, event_date,
-         house, house_id, flock_id, raw_message, raw_farm_text, note, source_event_id, correction_of_event_id)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(newId, session.organizationId, row.farm_id, groupId, row.intent, quantity, row.unit, row.event_date, row.house, row.house_id, row.flock_id, "web:correction", row.raw_farm_text, nullableString(body?.note, 1000) ?? null, sourceEventId, id),
-    auditLogStatement(env, { organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id, action: "correct", entityType: "operational_event", entityId: newId, before: { id, quantity: row.quantity }, after: { id: newId, quantity, correctionOfEventId: id }, reason, requestId: requestId(request) }),
-  ]);
-  return response(request, { corrected: true, originalEventId: id, eventId: newId }, 201);
+  const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-correction:${id}`;
+  try {
+    const result = await persistOperationalEventLineage(
+      { DB: env.DB },
+      row,
+      {
+        kind: "correction",
+        originalId: id,
+        childId: `operational-web-correction-${crypto.randomUUID()}`,
+        clientOperationId,
+        quantity,
+        rawText: "web:correction",
+        note: nullableString(body?.note, 1000),
+        reason,
+      },
+      {
+        organizationId: session.organizationId,
+        actorType: "web_admin",
+        actorId: session.id,
+        requestId: requestId(request),
+        lineGroupId: row.line_group_id ?? null,
+        environment: operationalEnvironmentFor(new URL(request.url)),
+        expectedSourceChannel: "web",
+      },
+    );
+    return response(request, { corrected: result.created, alreadyCorrected: !result.created, originalEventId: id, eventId: result.id, canonical: result }, result.created ? 201 : 200);
+  } catch (error) {
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function writeLegacyAbnormalRelation(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  relation: { kind: "correction" | "reversal"; id: string },
+): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT * FROM abnormal_events WHERE id = ? AND organization_id = ? LIMIT 1",
+  ).bind(relation.id, session.organizationId).first<LegacyAbnormalEventRow>();
+  if (!row) return errorResponse(request, 404, "not_found", "找不到異常紀錄。");
+  if (row.status && row.status !== "active") return errorResponse(request, 409, "already_inactive", "此紀錄已修正或反轉。");
+  const body = await bodyJson(request);
+  const reason = stringValue(body?.reason, 500) ?? null;
+  const rawText = relation.kind === "correction" ? body?.rawText : undefined;
+  if (relation.kind === "correction" && !validateAbnormalRawText(rawText)) {
+    return errorResponse(request, 400, "invalid_abnormal_text", "請輸入修正後的內容。");
+  }
+  const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-abnormal-${relation.kind}:${relation.id}`;
+  try {
+    const result = await persistAbnormalEventLineage(
+      { DB: env.DB, EVENTS: env.EVENTS },
+      row,
+      {
+        kind: relation.kind,
+        originalId: relation.id,
+        childId: `abnormal-web-${relation.kind}-${crypto.randomUUID()}`,
+        clientOperationId,
+        rawText: typeof rawText === "string" ? rawText : undefined,
+        reason,
+      },
+      {
+        organizationId: session.organizationId,
+        actorType: "web_admin",
+        actorId: session.id,
+        requestId: requestId(request),
+        environment: operationalEnvironmentFor(new URL(request.url)),
+        expectedSourceChannel: "web",
+      },
+    );
+    return relation.kind === "reversal"
+      ? response(request, { reversed: result.created, alreadyReversed: !result.created, id: relation.id, reversalId: result.id, canonical: result })
+      : response(request, { corrected: result.created, alreadyCorrected: !result.created, id: relation.id, correctedId: result.id, canonical: result }, result.created ? 201 : 200);
+  } catch (error) {
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
 }
 
 async function financeSummary(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -2321,6 +2499,7 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
       (body, status = 200, extra) => response(request, body, status, extra),
       (status, code, message) => errorResponse(request, status, code, message),
       (phaseRequest, relation) => writeCanonicalRecord(phaseRequest as unknown as Request, env, session, relation),
+      (phaseRequest, relation) => writeLegacyAbnormalRelation(phaseRequest as unknown as Request, env, session, relation),
     );
     if (phaseResponse) return phaseResponse;
     if (url.pathname === "/api/organizations" && request.method === "GET") return response(request, { organizations: [await activeOrganization(env)] });

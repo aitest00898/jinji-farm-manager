@@ -382,6 +382,83 @@ async function main() {
     });
     assert.equal(legacyCanonicalAbnormal.response.status, 201);
     assert.equal(legacyCanonicalAbnormal.payload.record.destination, "abnormal_events");
+
+    const legacyOperationalCorrection = await apiCall(db, sessionToken, "/api/operational-events?environment=test", {
+      farmId: farm,
+      houseId: house,
+      flockId: flock,
+      intent: "feed",
+      quantity: 10,
+      unit: "kg",
+      eventDate: "2026-09-11",
+    });
+    assert.equal(legacyOperationalCorrection.response.status, 201);
+    const legacyOperationalCorrectionId = legacyOperationalCorrection.payload.event.id;
+    const legacyOperationalCorrectionResult = await apiCall(db, sessionToken, `/api/operational-events/${encodeURIComponent(legacyOperationalCorrectionId)}/correct?environment=test`, {
+      quantity: 12,
+      note: "legacy correction",
+      clientOperationId: "api-legacy-operational-correction",
+    });
+    assert.equal(legacyOperationalCorrectionResult.response.status, 201);
+    assert.equal(legacyOperationalCorrectionResult.payload.corrected, true);
+    assert.equal((await rows(db, "SELECT reversed_at FROM operational_events WHERE id = ?", legacyOperationalCorrectionId))[0].reversed_at, null);
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE correction_of_event_id = ?", legacyOperationalCorrectionId))[0].count, 1);
+
+    const legacyOperationalReversal = await apiCall(db, sessionToken, "/api/operational-events?environment=test", {
+      farmId: farm,
+      houseId: house,
+      flockId: flock,
+      intent: "water",
+      quantity: 20,
+      unit: "L",
+      eventDate: "2026-09-11",
+    });
+    assert.equal(legacyOperationalReversal.response.status, 201);
+    const legacyOperationalReversalId = legacyOperationalReversal.payload.event.id;
+    const legacyOperationalReversalResult = await apiCall(db, sessionToken, `/api/operational-events/${encodeURIComponent(legacyOperationalReversalId)}/reverse?environment=test`, {
+      reason: "legacy reversal",
+      clientOperationId: "api-legacy-operational-reversal",
+    });
+    assert.equal(legacyOperationalReversalResult.response.status, 200);
+    assert.equal(legacyOperationalReversalResult.payload.reversed, true);
+    assert.equal((await rows(db, "SELECT reversed_at FROM operational_events WHERE id = ?", legacyOperationalReversalId))[0].reversed_at, null);
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE reversal_of_event_id = ?", legacyOperationalReversalId))[0].count, 1);
+
+    const legacyAbnormalCorrection = await apiCall(db, sessionToken, "/api/abnormal-events?environment=test", {
+      farmId: farm,
+      houseId: house,
+      flockId: flock,
+      rawText: "咳嗽",
+    });
+    assert.equal(legacyAbnormalCorrection.response.status, 201);
+    const legacyAbnormalCorrectionId = legacyAbnormalCorrection.payload.id;
+    const legacyAbnormalCorrectionResult = await apiCall(db, sessionToken, `/api/abnormal-events/${encodeURIComponent(legacyAbnormalCorrectionId)}/correct?environment=test`, {
+      rawText: "喘",
+      reason: "legacy abnormal correction",
+      clientOperationId: "api-legacy-abnormal-correction",
+    });
+    assert.equal(legacyAbnormalCorrectionResult.response.status, 201);
+    assert.equal(legacyAbnormalCorrectionResult.payload.corrected, true);
+    assert.equal((await rows(db, "SELECT status FROM abnormal_events WHERE id = ?", legacyAbnormalCorrectionId))[0].status, "active");
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM abnormal_events WHERE correction_of_id = ?", legacyAbnormalCorrectionId))[0].count, 1);
+
+    const legacyAbnormalReversal = await apiCall(db, sessionToken, "/api/abnormal-events?environment=test", {
+      farmId: farm,
+      houseId: house,
+      flockId: flock,
+      rawText: "臭腳",
+    });
+    assert.equal(legacyAbnormalReversal.response.status, 201);
+    const legacyAbnormalReversalId = legacyAbnormalReversal.payload.id;
+    const legacyAbnormalReversalResult = await apiCall(db, sessionToken, `/api/abnormal-events/${encodeURIComponent(legacyAbnormalReversalId)}/reverse?environment=test`, {
+      reason: "legacy abnormal reversal",
+      clientOperationId: "api-legacy-abnormal-reversal",
+    });
+    assert.equal(legacyAbnormalReversalResult.response.status, 200);
+    assert.equal(legacyAbnormalReversalResult.payload.reversed, true);
+    assert.equal((await rows(db, "SELECT status FROM abnormal_events WHERE id = ?", legacyAbnormalReversalId))[0].status, "active");
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM abnormal_events WHERE reversal_of_id = ?", legacyAbnormalReversalId))[0].count, 1);
+
     const listed = await apiCall(db, sessionToken, "/api/records?environment=test&limit=100");
     assert.equal(listed.response.status, 200);
     assert.equal(listed.payload.records.some((item) => item.taxonomyId === "A16" && item.destination === "abnormal_events"), true);
@@ -405,6 +482,7 @@ async function main() {
     console.log("LINEAGE=PASS");
     console.log("STOCK_INVARIANT=PASS");
     console.log("WEB_API_CONTRACT=PASS");
+    console.log("LEGACY_LINEAGE_ROUTES=PASS");
     console.log("WEB_SECURITY_SCOPE=PASS");
     console.log("NEGATIVE_FAIL_CLOSED=PASS");
   } finally {

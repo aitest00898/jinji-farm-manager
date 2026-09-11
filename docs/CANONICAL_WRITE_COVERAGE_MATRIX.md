@@ -1,6 +1,6 @@
 # Canonical write coverage matrix
 
-Status: local canonical write/API closure, 2026-09-09. This is an evidence
+Status: local canonical write/API closure, 2026-09-11. This is an evidence
 receipt for the shared `RecordCommand -> validate -> resolve -> adapter`
 boundary. It is not a Production deployment approval and it does not assert
 that a LINE human acceptance run has occurred.
@@ -77,11 +77,27 @@ the A1 abnormality row has stock effect `0`.
 
 ## Local proof boundary
 
-The recorded disposable local D1 run proves `25/25` accepted commands,
+The final-source disposable local D1 run proves `25/25` accepted commands,
 `25/25` authoritative destinations, zero wrong destinations, zero duplicate
 authority, append-only correction, idempotency, lineage, stock arithmetic,
-negative fail-closed behavior, and the Web API contract. A later source-only
-refinement was compile-tested but not rerun through D1 because its harness
-applies migration SQL and this Gate forbids executing migrations. The recorded
-run does not prove a deployed Production canary, a Pages release, or LINE
-human acceptance.
+negative fail-closed behavior, and the Web API contract. It also exercises the
+legacy operational and abnormal correction/reversal URLs and verifies that
+each appends a child while leaving its original row unchanged. The run does
+not prove a deployed Production canary, a Pages release, or LINE human
+acceptance.
+
+## Correction/reversal convergence
+
+As of 2026-09-11, active correction and reversal ingress uses
+`src/canonical-lineage-service.ts`. The canonical RecordCommand path, Web
+legacy compatibility routes, Phase abnormal routes, and LINE Quick Correction
+route through the same service; quick session/item rows remain workflow
+metadata and are not a second business authority.
+
+```text
+CORRECTION = COMPLETE
+REVERSAL = COMPLETE
+ORIGINAL_FACT_IMMUTABILITY = PASS
+EFFECTIVE_PROJECTION = PASS
+LEGACY_LINEAGE_ROUTES = PASS (local disposable D1)
+```

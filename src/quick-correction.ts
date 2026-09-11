@@ -1,6 +1,11 @@
 import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmCandidate, type FarmRecord } from "./farm-resolver";
 import { effectiveOperationalEventPredicate, normalizedHouseName } from "./master-data";
+import {
+  persistAbnormalEventLineage,
+  persistOperationalEventLineage,
+} from "./canonical-lineage-service";
+import type { LegacyAbnormalEventRow, LegacyOperationalEventRow } from "./recording-runtime-bridge";
 import type { QuickItemDraft, QuickLineEvent, QuickRecordEnv, QuickFarm } from "./quick-record";
 
 export type CorrectionIntent =
@@ -181,7 +186,13 @@ async function latestItems(env: QuickRecordEnv, groupId: string, userId: string 
         AND b.status IN ('active', 'corrected', 'moved', 'split')
         AND i.status = 'active'
         AND ((i.item_type = 'operational' AND EXISTS (SELECT 1 FROM operational_events e WHERE e.id = i.operational_event_id AND ${effectiveOperationalEventPredicate("e")}))
-          OR (i.item_type = 'abnormal' AND EXISTS (SELECT 1 FROM abnormal_events a WHERE a.id = i.abnormal_event_id AND a.status = 'active')))
+          OR (i.item_type = 'abnormal' AND EXISTS (
+            SELECT 1 FROM abnormal_events a
+             WHERE a.id = i.abnormal_event_id
+               AND a.status = 'active'
+               AND NOT EXISTS (SELECT 1 FROM abnormal_events r WHERE r.reversal_of_id = a.id)
+               AND NOT EXISTS (SELECT 1 FROM abnormal_events c WHERE c.correction_of_id = a.id AND c.status <> 'reversal')
+          )))
       ORDER BY b.confirmed_at DESC, i.item_index ASC LIMIT 30`,
   ).bind(...bindings).all<CorrectionItemRow>();
   return rows.results;
@@ -273,14 +284,32 @@ async function applyQuantity(env: QuickRecordEnv, row: CorrectionItemRow, newQua
   if (!original) throw new Error("correction_target_inactive");
   const newId = `operational-line-correction-${requestId}`;
   const sourceEventId = `${requestId}:correction:${row.itemId}`;
+  const lineage = await persistOperationalEventLineage(
+    { DB: env.DB, EVENTS: env.EVENTS },
+    original as unknown as LegacyOperationalEventRow,
+    {
+      kind: "correction",
+      originalId: row.operationalEventId,
+      childId: newId,
+      clientOperationId: sourceEventId,
+      quantity: newQuantity,
+      rawText: reason,
+      note: reason,
+      reason,
+      quickBundleId: row.bundleId,
+    },
+    {
+      organizationId: String(original.organization_id),
+      actorType: "line_user",
+      actorId: userId,
+      requestId,
+      lineGroupId: String(original.line_group_id),
+      lineUserId: userId,
+      environment: row.environment,
+      expectedSourceChannel: "line",
+    },
+  );
   await env.DB.batch([
-    env.DB.prepare(`UPDATE operational_events SET reversed_at = CURRENT_TIMESTAMP, reversal_reason = ? WHERE id = ? AND reversed_at IS NULL`).bind(reason, row.operationalEventId),
-    env.DB.prepare(
-      `INSERT OR IGNORE INTO operational_events
-        (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit, event_date,
-         house, house_id, flock_id, raw_message, raw_farm_text, note, source_event_id, correction_of_event_id, quick_bundle_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(newId, original.organization_id, original.farm_id, original.line_group_id, userId, original.intent, newQuantity, original.unit, original.event_date, original.house, original.house_id, original.flock_id, reason, original.raw_farm_text, original.note, sourceEventId, row.operationalEventId, row.bundleId),
     env.DB.prepare(`UPDATE quick_record_items SET status = 'corrected', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(row.itemId),
     env.DB.prepare(
       `INSERT OR IGNORE INTO quick_record_items
@@ -288,8 +317,7 @@ async function applyQuantity(env: QuickRecordEnv, row: CorrectionItemRow, newQua
          operational_event_id, status, correction_of_item_id, source_event_id)
        SELECT ?, bundle_id, item_index, item_type, intent, ?, ?, unit, occurred_at, occurred_date,
               ?, 'active', id, ? FROM quick_record_items WHERE id = ?`,
-    ).bind(`quick-item-${sourceEventId}`, `死亡 ${newQuantity}`, newQuantity, newId, sourceEventId, row.itemId),
-    auditStatement(env, original.organization_id as string, userId, "correct", "operational_event", row.operationalEventId, { quantity: original.quantity, farmId: original.farm_id }, { quantity: newQuantity, correctionEventId: newId }, reason, requestId),
+    ).bind(`quick-item-${sourceEventId}`, `死亡 ${newQuantity}`, newQuantity, lineage.id, sourceEventId, row.itemId),
   ]);
 }
 
@@ -299,16 +327,28 @@ async function applyAbnormalChange(env: QuickRecordEnv, row: CorrectionItemRow, 
   if (!original) throw new Error("correction_target_inactive");
   const newId = `abnormal-line-correction-${requestId}`;
   const sourceEventId = `${requestId}:${mode}:${row.itemId}`;
-  const status = mode === "cancel" ? "reversal" : "active";
+  const lineage = await persistAbnormalEventLineage(
+    { DB: env.DB, EVENTS: env.EVENTS },
+    original as unknown as LegacyAbnormalEventRow,
+    {
+      kind: mode === "cancel" ? "reversal" : "correction",
+      originalId: row.abnormalEventId,
+      childId: newId,
+      clientOperationId: sourceEventId,
+      rawText: replacement ?? String(original.raw_text),
+      reason,
+      quickBundleId: row.bundleId,
+    },
+    {
+      organizationId: String(original.organization_id),
+      actorType: "line_user",
+      actorId: userId,
+      requestId,
+      environment: row.environment,
+      expectedSourceChannel: "line",
+    },
+  );
   await env.DB.batch([
-    env.DB.prepare(`UPDATE abnormal_events SET status = ?, reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(mode === "cancel" ? "reversed" : "corrected", reason, row.abnormalEventId),
-    env.DB.prepare(
-      `INSERT OR IGNORE INTO abnormal_events
-        (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date, approximate_period,
-         reported_at, raw_text, source, actor_id, classification_status, weather_date, status,
-         correction_of_id, reversal_of_id, reason, source_event_id, quick_bundle_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(newId, original.organization_id, original.farm_id, original.house_id, original.flock_id, original.occurred_at, original.occurred_date, original.approximate_period, new Date().toISOString(), replacement ?? original.raw_text, userId, original.weather_date, status, mode === "replace" ? row.abnormalEventId : null, mode === "cancel" ? row.abnormalEventId : null, reason, sourceEventId, row.bundleId),
     env.DB.prepare(`UPDATE quick_record_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(mode === "cancel" ? "reversed" : "corrected", row.itemId),
     env.DB.prepare(
       `INSERT OR IGNORE INTO quick_record_items
@@ -316,12 +356,8 @@ async function applyAbnormalChange(env: QuickRecordEnv, row: CorrectionItemRow, 
          status, correction_of_item_id, source_event_id)
        SELECT ?, bundle_id, item_index, item_type, ?, occurred_at, occurred_date, ?, ?, id, ?
          FROM quick_record_items WHERE id = ?`,
-    ).bind(`quick-item-${sourceEventId}`, replacement ?? original.raw_text, newId, mode === "cancel" ? "reversed" : "active", sourceEventId, row.itemId),
-    auditStatement(env, original.organization_id as string, userId, mode === "cancel" ? "reverse" : "correct", "abnormal_event", row.abnormalEventId, { rawText: original.raw_text, status: "active" }, { rawText: replacement ?? original.raw_text, status, correctionEventId: newId }, reason, requestId),
+    ).bind(`quick-item-${sourceEventId}`, replacement ?? original.raw_text, lineage.id, mode === "cancel" ? "reversed" : "active", sourceEventId, row.itemId),
   ]);
-  if (mode === "replace" && env.EVENTS) {
-    try { await env.EVENTS.send({ kind: "classify_abnormal", abnormalEventId: newId }); } catch { /* classification is non-blocking */ }
-  }
 }
 
 async function moveBundleItems(
@@ -356,7 +392,6 @@ async function moveBundleItems(
      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
   ).bind(bundleId, sourceBundle.lineGroupId, userId, sourceBundle.organizationId, farm.id, firstScope.houseId, firstScope.flockId, openedAt, lastEventAt, new Date().toISOString()));
 
-  const movedAbnormalIds: string[] = [];
   for (const [index, row] of orderedRows.entries()) {
     const scope = scopes[rows.indexOf(row)]!;
     const sourceEventId = `${requestId}:move:${row.itemId}`;
@@ -364,46 +399,80 @@ async function moveBundleItems(
       const original = await env.DB.prepare(`SELECT e.* FROM operational_events e WHERE e.id = ? AND ${effectiveOperationalEventPredicate("e")} LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
       if (!original) throw new Error("correction_target_inactive");
       const newId = `operational-line-move-${requestId}-${index}`.replace(/[^A-Za-z0-9_:.=-]/gu, "_");
+      const lineage = await persistOperationalEventLineage(
+        { DB: env.DB, EVENTS: env.EVENTS },
+        original as unknown as LegacyOperationalEventRow,
+        {
+          kind: "correction",
+          originalId: row.operationalEventId,
+          childId: newId,
+          clientOperationId: sourceEventId,
+          rawText: String(original.raw_message),
+          note: reason,
+          reason,
+          quickBundleId: bundleId,
+          allowCrossFarm: true,
+          targetFarmId: farm.id,
+          targetHouseId: scope.houseId,
+          targetFlockId: scope.flockId,
+        },
+        {
+          organizationId: String(original.organization_id),
+          actorType: "line_user",
+          actorId: userId,
+          requestId,
+          lineGroupId: sourceBundle.lineGroupId,
+          lineUserId: userId,
+          environment: row.environment,
+          expectedSourceChannel: "line",
+        },
+      );
       statements.push(
-        env.DB.prepare(`UPDATE operational_events SET reversed_at = CURRENT_TIMESTAMP, reversal_reason = ? WHERE id = ? AND reversed_at IS NULL`).bind(reason, row.operationalEventId),
-        env.DB.prepare(
-          `INSERT OR IGNORE INTO operational_events
-            (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit, event_date,
-             house, house_id, flock_id, raw_message, raw_farm_text, note, source_event_id,
-             correction_of_event_id, quick_bundle_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(newId, original.organization_id, farm.id, sourceBundle.lineGroupId, userId, original.intent, original.quantity, original.unit, original.event_date, scope.houseName, scope.houseId, scope.flockId, original.raw_message, farm.name, original.note, sourceEventId, row.operationalEventId, bundleId),
         env.DB.prepare(`UPDATE quick_record_items SET status = 'moved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(row.itemId),
         env.DB.prepare(
           `INSERT OR IGNORE INTO quick_record_items
             (id, bundle_id, item_index, item_type, intent, raw_text, quantity, unit, occurred_at,
              occurred_date, operational_event_id, status, correction_of_item_id, source_event_id)
            VALUES (?, ?, ?, 'operational', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-        ).bind(`quick-item-${sourceEventId}`, bundleId, index, row.intent, row.rawText, row.quantity, row.unit, row.occurredAt, row.occurredDate, newId, row.itemId, sourceEventId),
-        auditStatement(env, sourceBundle.organizationId, userId, "move", "operational_event", row.operationalEventId, { farmId: row.farmId, farmName: row.farmName, quantity: row.quantity }, { farmId: farm.id, farmName: farm.name, quantity: row.quantity, correctionEventId: newId, bundleId }, reason, requestId),
+        ).bind(`quick-item-${sourceEventId}`, bundleId, index, row.intent, row.rawText, row.quantity, row.unit, row.occurredAt, row.occurredDate, lineage.id, row.itemId, sourceEventId),
       );
     } else if (row.itemType === "abnormal" && row.abnormalEventId) {
       const original = await env.DB.prepare(`SELECT * FROM abnormal_events WHERE id = ? AND status = 'active' LIMIT 1`).bind(row.abnormalEventId).first<Record<string, unknown>>();
       if (!original) throw new Error("correction_target_inactive");
       const newId = `abnormal-line-move-${requestId}-${index}`.replace(/[^A-Za-z0-9_:.=-]/gu, "_");
-      movedAbnormalIds.push(newId);
+      const lineage = await persistAbnormalEventLineage(
+        { DB: env.DB, EVENTS: env.EVENTS },
+        original as unknown as LegacyAbnormalEventRow,
+        {
+          kind: "correction",
+          originalId: row.abnormalEventId,
+          childId: newId,
+          clientOperationId: sourceEventId,
+          rawText: String(original.raw_text),
+          reason,
+          quickBundleId: bundleId,
+          allowCrossFarm: true,
+          targetFarmId: farm.id,
+          targetHouseId: scope.houseId,
+          targetFlockId: scope.flockId,
+        },
+        {
+          organizationId: String(original.organization_id),
+          actorType: "line_user",
+          actorId: userId,
+          requestId,
+          environment: row.environment,
+          expectedSourceChannel: "line",
+        },
+      );
       statements.push(
-        env.DB.prepare(`UPDATE abnormal_events SET status = 'reversed', reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(reason, row.abnormalEventId),
-        env.DB.prepare(
-          `INSERT OR IGNORE INTO abnormal_events
-            (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date, approximate_period,
-             reported_at, raw_text, source, actor_id, classification_status, weather_date, status,
-             correction_of_id, reversal_of_id, reason, source_event_id, quick_bundle_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', ?, 'pending', ?, 'active', ?, NULL, ?, ?, ?)`,
-        ).bind(newId, original.organization_id, farm.id, scope.houseId, scope.flockId, original.occurred_at, original.occurred_date, original.approximate_period, new Date().toISOString(), original.raw_text, userId, original.weather_date, row.abnormalEventId, reason, sourceEventId, bundleId),
         env.DB.prepare(`UPDATE quick_record_items SET status = 'moved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(row.itemId),
         env.DB.prepare(
           `INSERT OR IGNORE INTO quick_record_items
             (id, bundle_id, item_index, item_type, raw_text, occurred_at, occurred_date,
              abnormal_event_id, status, correction_of_item_id, source_event_id)
            VALUES (?, ?, ?, 'abnormal', ?, ?, ?, ?, 'active', ?, ?)`,
-        ).bind(`quick-item-${sourceEventId}`, bundleId, index, row.rawText, row.occurredAt, row.occurredDate, newId, row.itemId, sourceEventId),
-        auditStatement(env, sourceBundle.organizationId, userId, "move", "abnormal_event", row.abnormalEventId, { farmId: row.farmId, farmName: row.farmName, rawText: row.rawText }, { farmId: farm.id, farmName: farm.name, rawText: row.rawText, correctionEventId: newId, bundleId }, reason, requestId),
+        ).bind(`quick-item-${sourceEventId}`, bundleId, index, row.rawText, row.occurredAt, row.occurredDate, lineage.id, row.itemId, sourceEventId),
       );
     }
   }
@@ -427,11 +496,6 @@ async function moveBundleItems(
        house_id = excluded.house_id, flock_id = excluded.flock_id, updated_at = excluded.updated_at`,
   ).bind(sourceBundle.lineGroupId, userId, sourceBundle.organizationId, farm.id, firstScope.houseId, firstScope.flockId, new Date().toISOString()));
   await env.DB.batch(statements);
-  for (const abnormalId of movedAbnormalIds) {
-    if (env.EVENTS) {
-      try { await env.EVENTS.send({ kind: "classify_abnormal", abnormalEventId: abnormalId }); } catch { /* classification is non-blocking */ }
-    }
-  }
 }
 
 function correctionReply(row: CorrectionItemRow, text: string): string {
@@ -694,43 +758,90 @@ async function applyCorrection(env: QuickRecordEnv, row: CorrectionItemRow, inte
 }
 
 async function moveItem(env: QuickRecordEnv, row: CorrectionItemRow, farm: QuickFarm, userId: string, reason: string, requestId: string): Promise<void> {
-  const scope = await targetScope(env, row.farmId ? row.farmId : row.farmId, farm, row);
+  const scope = await targetScope(env, row.farmId, farm, row);
   if (!scope) throw new Error("move_house_ambiguous");
   if (row.itemType === "operational" && row.operationalEventId) {
     const original = await env.DB.prepare(`SELECT e.* FROM operational_events e WHERE e.id = ? AND ${effectiveOperationalEventPredicate("e")} LIMIT 1`).bind(row.operationalEventId).first<Record<string, unknown>>();
     if (!original) return;
     const newId = `operational-line-move-${requestId}-${row.itemId}`;
     const sourceEventId = `${requestId}:move:${row.itemId}`;
+    const lineage = await persistOperationalEventLineage(
+      { DB: env.DB, EVENTS: env.EVENTS },
+      original as unknown as LegacyOperationalEventRow,
+      {
+        kind: "correction",
+        originalId: row.operationalEventId,
+        childId: newId,
+        clientOperationId: sourceEventId,
+        rawText: String(original.raw_message),
+        note: reason,
+        reason,
+        quickBundleId: row.bundleId,
+        allowCrossFarm: true,
+        targetFarmId: farm.id,
+        targetHouseId: scope.houseId,
+        targetFlockId: scope.flockId,
+      },
+      {
+        organizationId: String(original.organization_id),
+        actorType: "line_user",
+        actorId: userId,
+        requestId,
+        lineGroupId: String(original.line_group_id),
+        lineUserId: userId,
+        environment: row.environment,
+        expectedSourceChannel: "line",
+      },
+    );
     await env.DB.batch([
-      env.DB.prepare(`UPDATE operational_events SET reversed_at = CURRENT_TIMESTAMP, reversal_reason = ? WHERE id = ? AND reversed_at IS NULL`).bind(reason, row.operationalEventId),
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO operational_events
-          (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit, event_date,
-           house, house_id, flock_id, raw_message, raw_farm_text, note, source_event_id, correction_of_event_id, quick_bundle_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(newId, original.organization_id, farm.id, original.line_group_id, userId, original.intent, original.quantity, original.unit, original.event_date, scope.houseName, scope.houseId, scope.flockId, reason, farm.name, sourceEventId, row.operationalEventId, row.bundleId),
       env.DB.prepare(`UPDATE quick_record_items SET status = 'moved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(row.itemId),
-      auditStatement(env, original.organization_id as string, userId, "move", "operational_event", row.operationalEventId, { farmId: row.farmId, farmName: row.farmName }, { farmId: farm.id, farmName: farm.name }, reason, requestId),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO quick_record_items
+          (id, bundle_id, item_index, item_type, intent, raw_text, quantity, unit, occurred_at,
+           occurred_date, operational_event_id, status, correction_of_item_id, source_event_id)
+         SELECT ?, bundle_id, item_index, item_type, intent, ?, quantity, unit, occurred_at,
+                occurred_date, ?, 'active', id, ? FROM quick_record_items WHERE id = ?`,
+      ).bind(`quick-item-${sourceEventId}`, row.rawText, lineage.id, sourceEventId, row.itemId),
     ]);
   } else if (row.itemType === "abnormal" && row.abnormalEventId) {
     const original = await env.DB.prepare(`SELECT * FROM abnormal_events WHERE id = ? AND status = 'active' LIMIT 1`).bind(row.abnormalEventId).first<Record<string, unknown>>();
     if (!original) return;
     const newId = `abnormal-line-move-${requestId}-${row.itemId}`;
     const sourceEventId = `${requestId}:move:${row.itemId}`;
+    const lineage = await persistAbnormalEventLineage(
+      { DB: env.DB, EVENTS: env.EVENTS },
+      original as unknown as LegacyAbnormalEventRow,
+      {
+        kind: "correction",
+        originalId: row.abnormalEventId,
+        childId: newId,
+        clientOperationId: sourceEventId,
+        rawText: String(original.raw_text),
+        reason,
+        quickBundleId: row.bundleId,
+        allowCrossFarm: true,
+        targetFarmId: farm.id,
+        targetHouseId: scope.houseId,
+        targetFlockId: scope.flockId,
+      },
+      {
+        organizationId: String(original.organization_id),
+        actorType: "line_user",
+        actorId: userId,
+        requestId,
+        environment: row.environment,
+        expectedSourceChannel: "line",
+      },
+    );
     await env.DB.batch([
-      env.DB.prepare(`UPDATE abnormal_events SET status = 'reversed', reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(reason, row.abnormalEventId),
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO abnormal_events
-          (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date, approximate_period,
-           reported_at, raw_text, source, actor_id, classification_status, weather_date, status,
-           correction_of_id, reversal_of_id, reason, source_event_id, quick_bundle_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', ?, 'pending', ?, 'active', ?, NULL, ?, ?, ?)`,
-      ).bind(newId, original.organization_id, farm.id, scope.houseId, scope.flockId, original.occurred_at, original.occurred_date, original.approximate_period, new Date().toISOString(), original.raw_text, userId, original.weather_date, row.abnormalEventId, reason, sourceEventId, row.bundleId),
       env.DB.prepare(`UPDATE quick_record_items SET status = 'moved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'`).bind(row.itemId),
-      auditStatement(env, original.organization_id as string, userId, "move", "abnormal_event", row.abnormalEventId, { farmId: row.farmId, farmName: row.farmName }, { farmId: farm.id, farmName: farm.name }, reason, requestId),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO quick_record_items
+          (id, bundle_id, item_index, item_type, raw_text, occurred_at, occurred_date,
+           abnormal_event_id, status, correction_of_item_id, source_event_id)
+         SELECT ?, bundle_id, item_index, item_type, ?, occurred_at, occurred_date,
+                ?, 'active', id, ? FROM quick_record_items WHERE id = ?`,
+      ).bind(`quick-item-${sourceEventId}`, row.rawText, lineage.id, sourceEventId, row.itemId),
     ]);
-    if (env.EVENTS) {
-      try { await env.EVENTS.send({ kind: "classify_abnormal", abnormalEventId: newId }); } catch { /* non-blocking */ }
-    }
   }
 }
