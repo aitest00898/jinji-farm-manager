@@ -16,6 +16,15 @@ import {
   type CanonicalPersistenceDestination,
   type RecordingLineageReference,
 } from "./recording-runtime-bridge";
+import {
+  validateCanonicalShipmentMutation,
+  type CanonicalShipmentReadInput,
+} from "./canonical-shipment-read-model";
+import type {
+  CanonicalLifecycleFact,
+  CanonicalLifecycleFlock,
+  CanonicalLifecycleScope,
+} from "./canonical-lifecycle-read-model";
 
 /**
  * The only D1 write boundary for a canonical RecordCommand.
@@ -200,6 +209,179 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
 
   const groupId = context.lineGroupId || `canonical-${record.sourceChannel}-${organizationId}`;
   return { organizationId, farm, houseId, houseName, flockId, lineGroupId: groupId };
+}
+
+interface CanonicalShipmentFactRow {
+  id: string;
+  taxonomyId: string | null;
+  intent?: string | null;
+  farmId: string;
+  houseId: string | null;
+  flockId: string | null;
+  occurredAt: string | null;
+  createdAt: string;
+  quantity: number | null;
+  totalCount: number | null;
+  lifecycleStatus: string | null;
+  reversedAt: string | null;
+  correctionOfId: string | null;
+  reversalOfId: string | null;
+  replacementOfId: string | null;
+  totalWeight?: number | null;
+  averageWeight?: number | null;
+  weightUnit?: string | null;
+}
+
+interface CanonicalShipmentFlockRow {
+  id: string;
+  farmId: string;
+  houseId: string;
+  batchCode: string;
+  chickInDate: string;
+  initialCount: number;
+  status: "active" | "closed" | "cancelled";
+  createdAt: string;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  return Number(value);
+}
+
+function canonicalShipmentFact(row: CanonicalShipmentFactRow): CanonicalLifecycleFact | null {
+  const taxonomyId = row.taxonomyId || (
+    row.intent === "shipment" ? "O3" : row.intent === "mortality" || row.intent === "cull" ? "O9" : null
+  );
+  if (taxonomyId !== "O1" && taxonomyId !== "O3" && taxonomyId !== "O9") return null;
+  return {
+    id: String(row.id),
+    taxonomyId,
+    farmId: String(row.farmId),
+    houseId: row.houseId === null || row.houseId === undefined ? null : String(row.houseId),
+    flockId: row.flockId === null || row.flockId === undefined ? null : String(row.flockId),
+    occurredAt: row.occurredAt ?? null,
+    createdAt: String(row.createdAt),
+    quantity: nullableNumber(row.quantity),
+    totalCount: nullableNumber(row.totalCount),
+    workflowStatus: null,
+    completedAt: null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    reversedAt: row.reversedAt ?? null,
+    correctionOfId: row.correctionOfId ?? null,
+    reversalOfId: row.reversalOfId ?? null,
+    replacementOfId: row.replacementOfId ?? null,
+    totalWeight: nullableNumber(row.totalWeight),
+    averageWeight: nullableNumber(row.averageWeight),
+    weightUnit: row.weightUnit ?? null,
+  };
+}
+
+async function canonicalShipmentWriteState(
+  env: CanonicalWriteEnv,
+  organizationId: string,
+  scope: CanonicalScope,
+): Promise<{ input: CanonicalShipmentReadInput; currentFlock: CanonicalLifecycleFlock }> {
+  if (!scope.houseId || !scope.flockId) fail("CANONICAL_SHIPMENT_FLOCK_REQUIRED", "flockId");
+  const flockRows = await env.DB.prepare(
+    `SELECT id, farm_id AS farmId, house_id AS houseId, batch_code AS batchCode,
+            chick_in_date AS chickInDate, initial_count AS initialCount,
+            status, created_at AS createdAt
+       FROM flocks
+      WHERE farm_id = ? AND house_id = ? AND status <> 'cancelled'`,
+  ).bind(scope.farm.id, scope.houseId).all<CanonicalShipmentFlockRow>();
+  const currentRow = flockRows.results.find((row) => row.id === scope.flockId);
+  if (!currentRow) fail("CANONICAL_SCOPE_INVALID", "flockId");
+  const flocks: CanonicalLifecycleFlock[] = flockRows.results.map((row) => ({
+    id: String(row.id),
+    farmId: String(row.farmId),
+    houseId: String(row.houseId),
+    batchCode: String(row.batchCode),
+    chickInDate: String(row.chickInDate),
+    initialCount: Number(row.initialCount),
+    status: row.status,
+    createdAt: String(row.createdAt),
+  }));
+  const [intakes, operations] = await Promise.all([
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.farm_id AS farmId,
+              e.house_id AS houseId, e.flock_id AS flockId, e.occurred_at AS occurredAt,
+              e.created_at AS createdAt, NULL AS quantity, e.total_count AS totalCount,
+              e.lifecycle_status AS lifecycleStatus, NULL AS reversedAt,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.replacement_of_id AS replacementOfId
+         FROM recording_events e
+        WHERE e.organization_id = ? AND e.farm_id = ? AND e.taxonomy_id = 'O1'
+          AND (e.flock_id = ? OR (e.flock_id IS NULL AND e.house_id = ?))`,
+    ).bind(organizationId, scope.farm.id, scope.flockId, scope.houseId).all<CanonicalShipmentFactRow>(),
+    env.DB.prepare(
+      `SELECT e.id, e.taxonomy_id AS taxonomyId, e.intent,
+              e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.quantity, NULL AS totalCount,
+              CASE WHEN e.reversed_at IS NOT NULL THEN 'reversed' ELSE 'active' END AS lifecycleStatus,
+              e.reversed_at AS reversedAt, e.correction_of_event_id AS correctionOfId,
+              e.reversal_of_event_id AS reversalOfId, NULL AS replacementOfId,
+              e.total_weight AS totalWeight, e.average_weight AS averageWeight,
+              e.weight_unit AS weightUnit
+         FROM operational_events e
+        WHERE e.organization_id = ? AND e.farm_id = ?
+          AND (e.taxonomy_id IN ('O3', 'O9') OR e.intent IN ('shipment', 'mortality', 'cull'))
+          AND (e.flock_id = ? OR (e.flock_id IS NULL AND e.house_id = ?))`,
+    ).bind(organizationId, scope.farm.id, scope.flockId, scope.houseId).all<CanonicalShipmentFactRow>(),
+  ]);
+  const facts = [...intakes.results, ...operations.results]
+    .map(canonicalShipmentFact)
+    .filter((fact): fact is CanonicalLifecycleFact => fact !== null);
+  const currentFlock = flocks.find((flock) => flock.id === scope.flockId);
+  if (!currentFlock) fail("CANONICAL_SCOPE_INVALID", "flockId");
+  const shipmentScope: CanonicalLifecycleScope = {
+    farmId: scope.farm.id,
+    farmName: scope.farm.name,
+    environment: scope.farm.environment,
+    houseId: scope.houseId,
+    houseName: scope.houseName,
+  };
+  return {
+    currentFlock,
+    input: { scope: shipmentScope, currentFlock, flocks, facts },
+  };
+}
+
+async function validateCanonicalShipmentWrite(
+  env: CanonicalWriteEnv,
+  record: RecordingDraft,
+  scope: CanonicalScope,
+  relation: Relation | null,
+): Promise<void> {
+  if (record.taxonomyId !== "O3") return;
+  const state = await canonicalShipmentWriteState(env, scope.organizationId, scope);
+  const candidate: CanonicalLifecycleFact = {
+    id: String(record.id),
+    taxonomyId: "O3",
+    farmId: scope.farm.id,
+    houseId: scope.houseId,
+    flockId: scope.flockId,
+    occurredAt: String(record.occurredAt),
+    createdAt: String(record.createdAt),
+    quantity: nullableNumber(record.quantity),
+    totalCount: null,
+    workflowStatus: null,
+    completedAt: null,
+    lifecycleStatus: typeof record.lifecycleStatus === "string" ? record.lifecycleStatus : "active",
+    reversedAt: null,
+    correctionOfId: typeof record.correctionOfId === "string" ? record.correctionOfId : null,
+    reversalOfId: typeof record.reversalOfId === "string" ? record.reversalOfId : null,
+    replacementOfId: typeof record.replacementOfId === "string" ? record.replacementOfId : null,
+    totalWeight: nullableNumber(record.totalWeight),
+    averageWeight: nullableNumber(record.averageWeight),
+    weightUnit: typeof record.weightUnit === "string" ? record.weightUnit : null,
+  };
+  const verdict = validateCanonicalShipmentMutation({ ...state.input, candidate });
+  if (verdict.accepted) return;
+  if (verdict.reason === "SHIPMENT_FLOCK_SCOPE_REQUIRED") fail("CANONICAL_SHIPMENT_FLOCK_REQUIRED", "flockId");
+  if (verdict.reason === "SHIPMENT_REVERSAL_TARGET_SCOPE_INVALID") fail("CANONICAL_SHIPMENT_REVERSAL_SCOPE_INVALID", "reversalOfId");
+  if (verdict.reason === "NEGATIVE_EFFECTIVE_STOCK") fail("CANONICAL_SHIPMENT_STOCK_EXCEEDED", "quantity");
+  fail("CANONICAL_SHIPMENT_STOCK_ARITHMETIC_INVALID", "quantity");
 }
 
 async function ensureLineGroup(
@@ -640,6 +822,10 @@ export async function persistRecordCommand(
       lineage: relation ? { kind: relation.kind, referenceId: relation.id } : { kind: null, referenceId: null },
     };
   }
+
+  // O3 is the only canonical shipment authority. Validate its prospective
+  // effective arithmetic before creating any metadata or business row.
+  await validateCanonicalShipmentWrite(env, record, scope, relation);
 
   // Resolve/ensure the LINE group only after all fail-closed validation and
   // idempotency checks. Invalid Web/API requests must not leave metadata rows.

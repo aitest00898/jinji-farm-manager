@@ -50,6 +50,10 @@ import {
   type FeedEstimateResult,
 } from "./canonical-feed-estimation";
 import {
+  deriveCanonicalShipmentReadModel,
+  type CanonicalShipmentProjection,
+} from "./canonical-shipment-read-model";
+import {
   deriveCanonicalLabSubmissionSummary,
   type CanonicalLabSubmissionFact,
   type CanonicalLabSubmissionScope,
@@ -1281,6 +1285,9 @@ interface CanonicalLifecycleFactRow {
   correctionOfId: string | null;
   reversalOfId: string | null;
   replacementOfId: string | null;
+  totalWeight: number | null;
+  averageWeight: number | null;
+  weightUnit: string | null;
 }
 
 interface CanonicalLabSubmissionFactRow {
@@ -1319,6 +1326,7 @@ interface CanonicalFeedFactRow {
 type CanonicalReadSummary = ReturnType<typeof deriveCanonicalLifecycleSummary> & {
   labSubmission: CanonicalLabSubmissionSummary;
   feedEstimate: FeedEstimateResult;
+  shipments: CanonicalShipmentProjection[];
 };
 
 function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFact {
@@ -1339,6 +1347,9 @@ function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFac
     correctionOfId: row.correctionOfId ?? null,
     reversalOfId: row.reversalOfId ?? null,
     replacementOfId: row.replacementOfId ?? null,
+    totalWeight: row.totalWeight === null || row.totalWeight === undefined ? null : Number(row.totalWeight),
+    averageWeight: row.averageWeight === null || row.averageWeight === undefined ? null : Number(row.averageWeight),
+    weightUnit: row.weightUnit ?? null,
   };
 }
 
@@ -1433,6 +1444,7 @@ async function canonicalLifecycleSummaries(
       `SELECT e.id, e.taxonomy_id AS taxonomyId, e.farm_id AS farmId,
               e.house_id AS houseId, e.flock_id AS flockId, e.occurred_at AS occurredAt,
               e.created_at AS createdAt, NULL AS quantity, e.total_count AS totalCount,
+              NULL AS totalWeight, NULL AS averageWeight, NULL AS weightUnit,
               NULL AS workflowStatus, NULL AS completedAt, e.lifecycle_status AS lifecycleStatus,
               NULL AS reversedAt, e.correction_of_id AS correctionOfId,
               e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
@@ -1442,6 +1454,7 @@ async function canonicalLifecycleSummaries(
        SELECT e.id, COALESCE(e.taxonomy_id, CASE WHEN e.intent IN ('shipment') THEN 'O3' ELSE 'O9' END) AS taxonomyId,
               e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
               e.occurred_at AS occurredAt, e.created_at AS createdAt, e.quantity AS quantity,
+              e.total_weight AS totalWeight, e.average_weight AS averageWeight, e.weight_unit AS weightUnit,
               NULL AS totalCount, NULL AS workflowStatus, NULL AS completedAt,
               CASE WHEN e.reversed_at IS NOT NULL THEN 'reversed' ELSE 'active' END AS lifecycleStatus,
               e.reversed_at AS reversedAt, e.correction_of_event_id AS correctionOfId,
@@ -1452,7 +1465,8 @@ async function canonicalLifecycleSummaries(
        UNION ALL
        SELECT e.id, 'O7' AS taxonomyId, e.farm_id AS farmId, e.house_id AS houseId,
               e.flock_id AS flockId, e.occurred_at AS occurredAt, e.created_at AS createdAt,
-              NULL AS quantity, NULL AS totalCount, e.workflow_status AS workflowStatus,
+              NULL AS quantity, NULL AS totalCount, NULL AS totalWeight, NULL AS averageWeight, NULL AS weightUnit,
+              e.workflow_status AS workflowStatus,
               e.completed_at AS completedAt, e.lifecycle_status AS lifecycleStatus,
               NULL AS reversedAt, e.correction_of_id AS correctionOfId,
               e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
@@ -1517,6 +1531,16 @@ async function canonicalLifecycleSummaries(
         flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id)),
         factRows.filter((fact) => fact.farmId === farm.id),
       );
+      const scopedFlocks = flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id));
+      const currentFlock = lifecycle.currentFlock ? scopedFlocks.find((flock) => flock.id === lifecycle.currentFlock?.id) ?? null : null;
+      const shipmentModel = currentFlock
+        ? deriveCanonicalShipmentReadModel({
+          scope,
+          currentFlock,
+          flocks: scopedFlocks,
+          facts: factRows.filter((fact) => fact.farmId === farm.id),
+        })
+        : { projections: [], effectiveStock: null, reason: "NO_CURRENT_FLOCK" };
       const labScope: CanonicalLabSubmissionScope = {
         farmId: farm.id,
         farmName: farm.name,
@@ -1533,7 +1557,7 @@ async function canonicalLifecycleSummaries(
         scope,
         currentCycleId: lifecycle.currentFlock?.id ?? "",
         asOf: readAt,
-        flocks: flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id)),
+        flocks: scopedFlocks,
         facts: [
           ...factRows
             .filter((fact) => fact.farmId === farm.id)
@@ -1541,7 +1565,7 @@ async function canonicalLifecycleSummaries(
           ...feedFactRows.filter((fact) => fact.farmId === farm.id),
         ],
       });
-      summaries.push({ ...lifecycle, labSubmission, feedEstimate });
+      summaries.push({ ...lifecycle, labSubmission, feedEstimate, shipments: shipmentModel.projections });
     }
   }
   return summaries;
@@ -1650,6 +1674,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
       `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
               e.subtype, e.intent, e.occurred_at AS occurredAt, e.created_at AS createdAt,
               e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.quantity, e.sex, e.total_weight AS totalWeight,
+              e.average_weight AS averageWeight, e.weight_unit AS weightUnit,
               e.source_channel AS sourceChannel, e.raw_message AS rawText,
               e.source_event_id AS clientOperationId,
               e.correction_of_event_id AS correctionOfId, e.reversal_of_event_id AS reversalOfId,
@@ -1706,7 +1732,31 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
   records.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
   records.splice(limit);
   const lifecycleSummaries = await canonicalLifecycleSummaries(env, session.organizationId, environment, farmId);
-  return response(request, { records, lifecycleSummaries, environment });
+  const shipmentById = new Map<string, CanonicalShipmentProjection>();
+  for (const summary of lifecycleSummaries) {
+    for (const shipment of summary.shipments) shipmentById.set(shipment.shipmentId, shipment);
+  }
+  const enrichedRecords = records.map((row) => {
+    if (row.taxonomyId !== "O3") return row;
+    const shipment = shipmentById.get(String(row.id));
+    if (!shipment) return { ...row, shipmentProjection: null };
+    return {
+      ...row,
+      shipmentProjection: shipment,
+      shipmentId: shipment.shipmentId,
+      cycleId: shipment.cycleId,
+      batchCode: shipment.batchCode,
+      birdCount: shipment.birdCount,
+      stockBefore: shipment.stockBefore,
+      stockAfter: shipment.stockAfter,
+      shipmentState: shipment.shipmentState,
+      shipmentEffective: shipment.effective,
+      shipmentCorrected: shipment.corrected,
+      shipmentReversed: shipment.reversed,
+      shipmentLineageState: shipment.lineageState,
+    };
+  });
+  return response(request, { records: enrichedRecords, lifecycleSummaries, environment });
 }
 
 function encodeCursor(value: string): string {

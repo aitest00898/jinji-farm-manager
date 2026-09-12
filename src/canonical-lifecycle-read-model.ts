@@ -34,6 +34,10 @@ export interface CanonicalLifecycleFact {
   correctionOfId: string | null;
   reversalOfId: string | null;
   replacementOfId: string | null;
+  /** Optional O3 shipment weight evidence carried by the canonical read bridge. */
+  totalWeight?: number | null;
+  averageWeight?: number | null;
+  weightUnit?: string | null;
 }
 
 export interface CanonicalLifecycleScope {

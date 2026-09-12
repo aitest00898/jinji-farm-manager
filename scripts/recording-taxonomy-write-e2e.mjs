@@ -19,6 +19,9 @@ const org = "org-canonical-write-e2e";
 const farm = "farm-canonical-write-e2e";
 const house = "house-canonical-write-e2e";
 const flock = "flock-canonical-write-e2e";
+const apiFarm = "farm-canonical-write-e2e-api";
+const apiHouse = "house-canonical-write-e2e-api";
+const apiFlock = "flock-canonical-write-e2e-api";
 const otherOrg = "org-canonical-write-e2e-other";
 const otherFarm = "farm-canonical-write-e2e-other";
 const otherHouse = "house-canonical-write-e2e-other";
@@ -191,13 +194,18 @@ async function main() {
       INSERT INTO organizations (id, name, active) VALUES ('${otherOrg}', 'canonical write e2e other org', 1);
       INSERT INTO farms (id, organization_id, name, active, farm_total_equity_fraction, player_group_equity_fraction, environment, farm_structure_mode)
         VALUES ('${farm}', '${org}', 'canonical write e2e farm', 1, 1, 1, 'test', 'multi_house');
+      INSERT INTO farms (id, organization_id, name, active, farm_total_equity_fraction, player_group_equity_fraction, environment, farm_structure_mode)
+        VALUES ('${apiFarm}', '${org}', 'canonical write e2e API farm', 1, 1, 1, 'test', 'multi_house');
       INSERT INTO farms (id, organization_id, name, active, farm_total_equity_fraction, player_group_equity_fraction, environment)
         VALUES ('${otherFarm}', '${otherOrg}', 'canonical write e2e other farm', 1, 1, 1, 'test');
       INSERT INTO line_groups (group_id, status, organization_id, farm_id) VALUES ('group-canonical-write-e2e', 'bound', '${org}', '${farm}');
       INSERT INTO houses (id, farm_id, name, normalized_name) VALUES ('${house}', '${farm}', 'canonical write e2e house', 'canonical-write-e2e-house');
+      INSERT INTO houses (id, farm_id, name, normalized_name) VALUES ('${apiHouse}', '${apiFarm}', 'canonical write e2e API house', 'canonical-write-e2e-api-house');
       INSERT INTO houses (id, farm_id, name, normalized_name) VALUES ('${otherHouse}', '${otherFarm}', 'other house', 'other-house');
       INSERT INTO flocks (id, farm_id, house_id, batch_code, chick_in_date, initial_count, status)
         VALUES ('${flock}', '${farm}', '${house}', 'E2E-001', '2026-09-01', 1000, 'active');
+      INSERT INTO flocks (id, farm_id, house_id, batch_code, chick_in_date, initial_count, status)
+        VALUES ('${apiFlock}', '${apiFarm}', '${apiHouse}', 'API-E2E-001', '2026-09-01', 1000, 'active');
       INSERT INTO flocks (id, farm_id, house_id, batch_code, chick_in_date, initial_count, status)
         VALUES ('${otherFlock}', '${otherFarm}', '${otherHouse}', 'OTHER-001', '2026-09-01', 1000, 'active');
     `;
@@ -297,6 +305,15 @@ async function main() {
     assert.equal(projection.currentStockDelta, 1193);
     assert.equal(projection.appliedFactCount, 25);
 
+    const overShipment = createRecordCommand({
+      ...validRecord("bad-over-shipment", "O3", 205),
+      quantity: 5000,
+      totalWeight: 10000,
+      clientOperationId: "client-bad-over-shipment",
+    });
+    await expectReject("over shipment is rejected before write", () => persistRecordCommand({ DB: db }, overShipment, context), "CANONICAL_SHIPMENT_STOCK_EXCEEDED");
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE id = 'bad-over-shipment'"))[0].count, 0);
+
     const invalidQuantity = validRecord("bad-quantity", "O9");
     delete invalidQuantity.quantity;
     await expectReject("missing required quantity", async () => persistRecordCommand({ DB: db }, createRecordCommand(invalidQuantity), context), "RECORDING_REQUIRED_FIELD:quantity");
@@ -353,27 +370,30 @@ async function main() {
     for (const id of apiIds) {
       const record = validRecord(`api-${id}`, id, 300 + apiResults.size);
       record.clientOperationId = `api-client-${id}`;
+      record.farmId = apiFarm;
+      record.houseId = apiHouse;
+      record.flockId = apiFlock;
       if (id === "A1") record.linkedMortalityEventId = "api-O9";
       if (id === "A12") {
         record.subtype = "other";
         record.detail = "api equipment detail";
       }
       const { response, payload } = await apiCall(db, sessionToken, "/api/records?environment=test", { record });
-      assert.equal(response.status, 201, `API ${id}`);
+      assert.equal(response.status, 201, `API ${id}: ${JSON.stringify(payload)}`);
       assert.equal(payload.record.taxonomyId, id);
       apiResults.set(id, payload.record);
     }
-    const replayRecord = { ...validRecord("api-O1", "O1", 300), clientOperationId: "api-client-O1" };
+    const replayRecord = { ...validRecord("api-O1", "O1", 300), farmId: apiFarm, houseId: apiHouse, flockId: apiFlock, clientOperationId: "api-client-O1" };
     const replayApi = await apiCall(db, sessionToken, "/api/records?environment=test", { record: replayRecord });
     assert.equal(replayApi.response.status, 200);
     assert.equal(replayApi.payload.record.created, false);
     const correctedApi = await apiCall(db, sessionToken, `/api/records/${encodeURIComponent(apiResults.get("O2").id)}/correct?environment=test`, {
-      record: { ...validRecord("api-O2-correction", "O2", 320), subtype: "vaccination", content: "api corrected vaccine", clientOperationId: "api-client-O2-correction" },
+      record: { ...validRecord("api-O2-correction", "O2", 320), farmId: apiFarm, houseId: apiHouse, flockId: apiFlock, subtype: "vaccination", content: "api corrected vaccine", clientOperationId: "api-client-O2-correction" },
     });
     assert.equal(correctedApi.response.status, 201);
     assert.equal(correctedApi.payload.record.lineage.kind, "correction");
     const reversedApi = await apiCall(db, sessionToken, `/api/records/${encodeURIComponent(apiResults.get("O9").id)}/reverse?environment=test`, {
-      record: { ...validRecord("api-O9-reversal", "O9", 321), subtype: "mortality", clientOperationId: "api-client-O9-reversal" },
+      record: { ...validRecord("api-O9-reversal", "O9", 321), farmId: apiFarm, houseId: apiHouse, flockId: apiFlock, subtype: "mortality", clientOperationId: "api-client-O9-reversal" },
     });
     assert.equal(reversedApi.response.status, 201);
     assert.equal(reversedApi.payload.record.lineage.kind, "reversal");
@@ -459,11 +479,17 @@ async function main() {
     assert.equal((await rows(db, "SELECT status FROM abnormal_events WHERE id = ?", legacyAbnormalReversalId))[0].status, "active");
     assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM abnormal_events WHERE reversal_of_id = ?", legacyAbnormalReversalId))[0].count, 1);
 
-    const listed = await apiCall(db, sessionToken, "/api/records?environment=test&limit=100");
+    const listed = await apiCall(db, sessionToken, `/api/records?environment=test&limit=100&farmId=${farm}`);
     assert.equal(listed.response.status, 200);
     assert.equal(listed.payload.records.some((item) => item.taxonomyId === "A16" && item.destination === "abnormal_events"), true);
     assert.equal(Array.isArray(listed.payload.lifecycleSummaries), true);
     assert.equal(listed.payload.lifecycleSummaries.length, 1);
+    assert.equal(Array.isArray(listed.payload.lifecycleSummaries[0].shipments), true);
+    const listedShipment = listed.payload.records.find((item) => item.id === "e2e-O3-correction");
+    assert.equal(listedShipment.shipmentProjection.shipmentState, "PARTIAL_SHIPMENT");
+    assert.equal(listedShipment.shipmentProjection.stockBefore, 1200);
+    assert.equal(listedShipment.shipmentProjection.stockAfter, 1193);
+    assert.equal(listedShipment.shipmentProjection.effective, true);
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, "number");
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, "boolean");
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.statusLabel, "string");
@@ -471,15 +497,34 @@ async function main() {
     assert.equal(listed.payload.lifecycleSummaries[0].feedEstimate.status, "INSUFFICIENT_DATA");
     assert.equal(listed.payload.lifecycleSummaries[0].feedEstimate.minimumDataRequirement.minimumEligibleCycles, 3);
     assert.equal(Array.isArray(listed.payload.lifecycleSummaries[0].feedEstimate.missingData), true);
+    const apiListed = await apiCall(db, sessionToken, `/api/records?environment=test&limit=100&farmId=${apiFarm}`);
+    assert.equal(apiListed.response.status, 200);
+    assert.equal(apiListed.payload.lifecycleSummaries.length, 1, JSON.stringify(apiListed.payload));
+    const apiShipment = apiListed.payload.records.find((item) => item.id === "api-O3");
+    assert.equal(apiShipment.shipmentProjection.shipmentState, "PARTIAL_SHIPMENT");
+    assert.equal(apiShipment.shipmentProjection.stockBefore, 1000);
+    assert.equal(apiShipment.shipmentProjection.stockAfter, 990, JSON.stringify(apiShipment));
+    assert.equal(apiShipment.shipmentProjection.effective, true);
+    const reversedApiShipment = await apiCall(db, sessionToken, `/api/records/${encodeURIComponent(apiShipment.id)}/reverse?environment=test`, {
+      record: { ...validRecord("api-O3-reversal", "O3", 323), farmId: apiFarm, houseId: apiHouse, flockId: apiFlock, subtype: "shipment", quantity: 10, sex: "male", totalWeight: 20, weightUnit: "kg", clientOperationId: "api-client-O3-reversal" },
+    });
+    assert.equal(reversedApiShipment.response.status, 201);
+    assert.equal(reversedApiShipment.payload.record.lineage.kind, "reversal");
+    const apiListedAfterReversal = await apiCall(db, sessionToken, `/api/records?environment=test&limit=100&farmId=${apiFarm}`);
+    const reversedShipment = apiListedAfterReversal.payload.records.find((item) => item.id === "api-O3");
+    assert.equal(reversedShipment.shipmentProjection.effective, false);
+    assert.equal(reversedShipment.shipmentProjection.reversed, true);
+    assert.equal(apiListedAfterReversal.payload.lifecycleSummaries[0].effectiveStock, 1000);
     const lifecycle = await apiCall(db, sessionToken, `/api/lifecycle?environment=test&farmId=${farm}&houseId=${house}`);
     assert.equal(lifecycle.response.status, 200);
     assert.equal(lifecycle.payload.lifecycleSummaries.length, 1);
     assert.equal(typeof lifecycle.payload.lifecycleSummaries[0].lifecycleStatus, "string");
-    assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, 2);
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, 1);
     assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, true);
     assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.incompleteReason, "OVERDUE_UNRESOLVED_SUBMISSION");
     assert.equal(typeof lifecycle.payload.lifecycleSummaries[0].feedEstimate.status, "string");
     assert.equal(lifecycle.payload.lifecycleSummaries[0].feedEstimate.status, "INSUFFICIENT_DATA");
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].shipments.some((item) => item.shipmentState === "PARTIAL_SHIPMENT"), true);
 
     const unauthenticated = await handleWebApi(new Request("https://canonical-write-e2e.test/api/records?environment=test", { method: "GET" }), { DB: db });
     assert.equal(unauthenticated.status, 401);
