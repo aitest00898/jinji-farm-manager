@@ -31,7 +31,14 @@ import {
 import { handlePhaseApi } from "./phase-api";
 import { createRecordCommand } from "./record-command";
 import { RecordingContractError } from "./recording-taxonomy";
-import { CanonicalWriteError, persistRecordCommand } from "./recording-write-adapter";
+import {
+  CanonicalWriteError,
+  CanonicalWriteHoldError,
+  canonicalWebMutationRequiresHold,
+  canonicalWriteHoldState,
+  persistRecordCommand,
+} from "./recording-write-adapter";
+import { OperatorScopeError, operatorIdentityKeyFor } from "./operator-scope";
 import {
   persistAbnormalEventLineage,
   persistCanonicalLineage,
@@ -82,6 +89,7 @@ export interface WebApiEnv {
   LINE_ACCOUNT_NAME?: string;
   CONVERSATION_V2_MODE?: string;
   CONVERSATION_MODEL?: string;
+  CANONICAL_WRITE_HOLD?: string;
 }
 
 const ALLOWED_ORIGINS = new Set([
@@ -862,6 +870,249 @@ async function assignCaretaker(request: Request, env: WebApiEnv, session: Sessio
   return response(request, { assignment: { id, farmId, caretakerId, caretakerName: caretaker.name, effectiveFrom, isPrimary } }, 201);
 }
 
+type ProvisionedEnvironment = OperationalEnvironment;
+
+interface OperatorIdentityRow {
+  id: string;
+  organizationId: string;
+  identityType: "line_user" | "web_admin";
+  identityKey: string;
+  displayName: string;
+  active: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function explicitProvisionedEnvironment(value: unknown): ProvisionedEnvironment | null {
+  return value === "production" || value === "test" ? value : null;
+}
+
+function operatorIdentityPayload(row: OperatorIdentityRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    identityType: row.identityType,
+    identityKey: row.identityKey,
+    displayName: row.displayName,
+    active: Number(row.active) === 1,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function operatorIdentityById(
+  env: WebApiEnv,
+  organizationId: string,
+  id: string,
+): Promise<OperatorIdentityRow | null> {
+  return env.DB.prepare(
+    `SELECT id, organization_id AS organizationId, identity_type AS identityType,
+            identity_key AS identityKey, display_name AS displayName, active, version,
+            created_at AS createdAt, updated_at AS updatedAt
+       FROM operator_identities
+      WHERE id = ? AND organization_id = ?
+      LIMIT 1`,
+  ).bind(id, organizationId).first<OperatorIdentityRow>();
+}
+
+async function listOperators(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const url = new URL(request.url);
+  const rawEnvironment = url.searchParams.get("environment");
+  const environment = rawEnvironment === null ? null : explicitProvisionedEnvironment(rawEnvironment);
+  if (rawEnvironment !== null && !environment) return errorResponse(request, 400, "invalid_environment", "資料環境必須是 production 或 test。");
+
+  const identities = await env.DB.prepare(
+    `SELECT id, organization_id AS organizationId, identity_type AS identityType,
+            identity_key AS identityKey, display_name AS displayName, active, version,
+            created_at AS createdAt, updated_at AS updatedAt
+       FROM operator_identities
+      WHERE organization_id = ?
+      ORDER BY active DESC, display_name, id`,
+  ).bind(session.organizationId).all<OperatorIdentityRow>();
+  const scopeBindings: unknown[] = [session.organizationId];
+  const scopeEnvironment = environment ? " AND b.environment = ?" : "";
+  if (environment) scopeBindings.push(environment);
+  const scopes = await env.DB.prepare(
+    `SELECT b.id, b.operator_id AS operatorId, b.environment,
+            b.farm_id AS farmId, f.name AS farmName,
+            b.house_id AS houseId, h.name AS houseName,
+            b.flock_id AS flockId, k.batch_code AS batchCode,
+            b.active, b.created_at AS createdAt
+       FROM operator_scope_bindings b
+       JOIN operator_identities i ON i.id = b.operator_id AND i.organization_id = b.organization_id
+       JOIN farms f ON f.id = b.farm_id AND f.organization_id = b.organization_id
+       LEFT JOIN houses h ON h.id = b.house_id AND h.farm_id = b.farm_id
+       LEFT JOIN flocks k ON k.id = b.flock_id AND k.farm_id = b.farm_id
+      WHERE b.organization_id = ?${scopeEnvironment}
+      ORDER BY b.operator_id, b.environment, f.name, h.name, k.batch_code, b.id`,
+  ).bind(...scopeBindings).all<Record<string, unknown>>();
+  const byOperator = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of scopes.results) {
+    const entries = byOperator.get(String(row.operatorId)) ?? [];
+    entries.push({
+      id: String(row.id),
+      environment: String(row.environment),
+      farmId: String(row.farmId),
+      farmName: String(row.farmName),
+      houseId: row.houseId ? String(row.houseId) : null,
+      houseName: row.houseName ? String(row.houseName) : null,
+      flockId: row.flockId ? String(row.flockId) : null,
+      batchCode: row.batchCode ? String(row.batchCode) : null,
+      active: Number(row.active) === 1,
+      createdAt: row.createdAt,
+    });
+    byOperator.set(String(row.operatorId), entries);
+  }
+  return response(request, {
+    environment,
+    operators: identities.results.map((row) => ({
+      ...operatorIdentityPayload(row),
+      scopes: byOperator.get(row.id) ?? [],
+    })),
+  });
+}
+
+async function createOperator(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const body = await bodyJson(request);
+  const identityType = body?.identityType === "line_user" || body?.identityType === "web_admin" ? body.identityType : null;
+  const displayName = stringValue(body?.displayName, 100);
+  if (!identityType || !displayName) return errorResponse(request, 400, "invalid_operator", "操作人類型與顯示名稱必填。");
+  if (identityType === "web_admin" && body?.identityKey !== undefined) {
+    return errorResponse(request, 400, "invalid_operator_identity", "Web 管理操作人的識別由既有登入組織決定。");
+  }
+  const requestedIdentityKey = identityType === "line_user" ? stringValue(body?.identityKey, 200) : null;
+  const identity = operatorIdentityKeyFor({
+    organizationId: session.organizationId,
+    actorType: identityType,
+    actorId: requestedIdentityKey,
+  });
+  if (!identity) return errorResponse(request, 400, "invalid_operator_identity", "LINE 操作人必須提供穩定的 LINE user id。");
+  const existing = await env.DB.prepare(
+    `SELECT id, organization_id AS organizationId, identity_type AS identityType,
+            identity_key AS identityKey, display_name AS displayName, active, version,
+            created_at AS createdAt, updated_at AS updatedAt
+       FROM operator_identities
+      WHERE organization_id = ? AND identity_type = ? AND identity_key = ?
+      LIMIT 1`,
+  ).bind(session.organizationId, identity.identityType, identity.identityKey).first<OperatorIdentityRow>();
+  if (existing) return response(request, { operator: operatorIdentityPayload(existing), created: false });
+
+  const id = `operator-${crypto.randomUUID()}`;
+  await env.DB.prepare(
+    `INSERT INTO operator_identities
+      (id, organization_id, identity_type, identity_key, display_name)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).bind(id, session.organizationId, identity.identityType, identity.identityKey, displayName).run();
+  const operator = await operatorIdentityById(env, session.organizationId, id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId,
+    source: "web",
+    actorType: "web_admin",
+    actorId: session.id,
+    action: "create",
+    entityType: "operator_identity",
+    entityId: id,
+    after: operator ? operatorIdentityPayload(operator) : { id, identityType: identity.identityType, identityKey: identity.identityKey, displayName },
+    requestId: requestId(request),
+  });
+  return response(request, { operator: operator ? operatorIdentityPayload(operator) : null, created: true }, 201);
+}
+
+async function createOperatorScope(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  operatorId: string,
+): Promise<Response> {
+  const operator = await operatorIdentityById(env, session.organizationId, operatorId);
+  if (!operator) return errorResponse(request, 404, "not_found", "找不到操作人。");
+  if (Number(operator.active) !== 1) return errorResponse(request, 409, "operator_inactive", "操作人已停用，不能新增資料範圍。");
+  const body = await bodyJson(request);
+  const environment = explicitProvisionedEnvironment(body?.environment);
+  const farmId = stringValue(body?.farmId, 160);
+  const houseId = body?.houseId === null || body?.houseId === undefined ? null : stringValue(body.houseId, 160);
+  const requestedFlockId = body?.flockId === null || body?.flockId === undefined ? null : stringValue(body.flockId, 160);
+  if (!environment || !farmId || (body?.houseId !== null && body?.houseId !== undefined && !houseId)
+      || (body?.flockId !== null && body?.flockId !== undefined && !requestedFlockId)) {
+    return errorResponse(request, 400, "invalid_operator_scope", "environment 與 farmId 必填，houseId、flockId 必須是有效識別。");
+  }
+  const farm = await farmById(env, session.organizationId, farmId);
+  if (!farm || farm.active !== 1 || farm.environment !== environment) return errorResponse(request, 400, "invalid_scope", "雞場不在指定資料環境或已停用。");
+  let house = houseId ? await houseById(env, session.organizationId, houseId) : null;
+  if (houseId && (!house || house.farmId !== farm.id || house.active !== 1 || house.farmEnvironment !== environment)) {
+    return errorResponse(request, 400, "invalid_scope", "雞舍不屬於指定雞場或資料環境。");
+  }
+  let flock = requestedFlockId ? await flockById(env, session.organizationId, requestedFlockId) : null;
+  if (requestedFlockId && (!flock || flock.farmId !== farm.id || flock.status === "cancelled")) {
+    return errorResponse(request, 400, "invalid_scope", "批次不屬於指定雞場或已取消。");
+  }
+  if (flock && house && flock.houseId !== house.id) return errorResponse(request, 400, "invalid_scope", "批次不屬於指定雞舍。");
+  if (flock && !house) {
+    house = await houseById(env, session.organizationId, flock.houseId);
+    if (!house || house.farmId !== farm.id || house.active !== 1 || house.farmEnvironment !== environment) {
+      return errorResponse(request, 400, "invalid_scope", "批次所屬雞舍不在指定資料環境。");
+    }
+  }
+  const flockId = flock?.id ?? null;
+  const existingScopes = await env.DB.prepare(
+    `SELECT id, environment, farm_id AS farmId, house_id AS houseId, flock_id AS flockId, active, created_at AS createdAt
+       FROM operator_scope_bindings
+      WHERE operator_id = ? AND organization_id = ? AND environment = ? AND farm_id = ?`,
+  ).bind(operator.id, session.organizationId, environment, farm.id).all<Record<string, unknown>>();
+  const existing = existingScopes.results.find((row) =>
+    (row.houseId ? String(row.houseId) : null) === (house?.id ?? houseId ?? null)
+    && (row.flockId ? String(row.flockId) : null) === flockId,
+  );
+  if (existing) {
+    if (Number(existing.active) !== 1) return errorResponse(request, 409, "scope_inactive", "這個資料範圍已停用，請使用新的範圍或先由管理流程恢復。");
+    return response(request, { binding: operatorScopePayload(existing, farm, house, flock), created: false });
+  }
+
+  const id = `operator-scope-${crypto.randomUUID()}`;
+  await env.DB.prepare(
+    `INSERT INTO operator_scope_bindings
+      (id, operator_id, organization_id, environment, farm_id, house_id, flock_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, operator.id, session.organizationId, environment, farm.id, house?.id ?? null, flockId).run();
+  const binding = { id, environment, farmId: farm.id, houseId: house?.id ?? null, flockId, active: 1, createdAt: new Date().toISOString() };
+  await writeAuditLog(env, {
+    organizationId: session.organizationId,
+    source: "web",
+    actorType: "web_admin",
+    actorId: session.id,
+    action: "create",
+    entityType: "operator_scope_binding",
+    entityId: id,
+    after: { ...binding, operatorId: operator.id },
+    requestId: requestId(request),
+  });
+  return response(request, {
+    binding: operatorScopePayload(binding, farm, house, flock),
+    created: true,
+  }, 201);
+}
+
+function operatorScopePayload(
+  row: Record<string, unknown>,
+  farm: FarmRow,
+  house: (HouseRow & { farmName?: string; farmEnvironment?: string }) | null,
+  flock: FlockRow | null,
+): Record<string, unknown> {
+  return {
+    id: String(row.id),
+    environment: String(row.environment),
+    farmId: farm.id,
+    farmName: farm.name,
+    houseId: house?.id ?? null,
+    houseName: house?.name ?? null,
+    flockId: flock?.id ?? (row.flockId ? String(row.flockId) : null),
+    batchCode: flock?.batchCode ?? null,
+    active: Number(row.active) === 1,
+    createdAt: row.createdAt ?? null,
+  };
+}
+
 async function listHouses(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
   const rawFarmId = url.searchParams.get("farmId");
@@ -1113,7 +1364,7 @@ async function createValidatedRetainedRecord(env: WebApiEnv, input: RetainedManu
     });
     if (!command) throw new Error("invalid_event");
     const result = await persistRecordCommand(
-      { DB: env.DB },
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       command,
       {
         organizationId: input.organizationId,
@@ -1123,6 +1374,7 @@ async function createValidatedRetainedRecord(env: WebApiEnv, input: RetainedManu
         lineGroupId: groupId,
         environment: scope.farm.environment,
         expectedSourceChannel: "web",
+        operatorScopeRequired: true,
       },
     );
     return {
@@ -1243,6 +1495,15 @@ function canonicalRecordFromWebBody(
 }
 
 function canonicalWriteErrorResponse(request: Request, error: unknown): Response | null {
+  if (error instanceof CanonicalWriteHoldError) {
+    const code = error.state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : error.code;
+    return errorResponse(request, 503, code, "目前正在進行安全切換，暫停正式寫入；沒有寫入資料。");
+  }
+  if (error instanceof OperatorScopeError) {
+    const status = error.code === "CANONICAL_OPERATOR_SCOPE_NOT_ALLOWED"
+      || error.code === "CANONICAL_LINE_GROUP_SCOPE_NOT_BOUND" ? 403 : 409;
+    return errorResponse(request, status, error.code, "目前操作人的資料範圍未完成授權，沒有寫入。");
+  }
   if (error instanceof CanonicalWriteError || error instanceof RecordingContractError) {
     const code = error instanceof CanonicalWriteError ? error.code : error.code;
     const field = error instanceof CanonicalWriteError ? error.field : error.field;
@@ -1270,10 +1531,11 @@ async function writeCanonicalRecord(
       requestId: requestId(request),
       environment: operationalEnvironmentFor(new URL(request.url)),
       expectedSourceChannel: "web" as const,
+      operatorScopeRequired: true,
     };
     const result = relation
       ? await persistCanonicalLineage(
-        { DB: env.DB },
+        { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
         record,
         {
           kind: relation.kind,
@@ -1283,7 +1545,7 @@ async function writeCanonicalRecord(
         },
         context,
       )
-      : await persistRecordCommand({ DB: env.DB }, createRecordCommand(record), context);
+      : await persistRecordCommand({ DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD }, createRecordCommand(record), context);
     return response(request, { record: result }, result.created ? 201 : 200);
   } catch (error) {
     const rejected = canonicalWriteErrorResponse(request, error);
@@ -1856,7 +2118,7 @@ async function createOperationalEvent(request: Request, env: WebApiEnv, session:
     };
     try {
       const result = await persistRecordCommand(
-        { DB: env.DB },
+        { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
         createRecordCommand(record),
         {
           organizationId: session.organizationId,
@@ -1865,6 +2127,7 @@ async function createOperationalEvent(request: Request, env: WebApiEnv, session:
           requestId: requestId(request),
           environment: operationalEnvironmentFor(new URL(request.url)),
           expectedSourceChannel: "web",
+          operatorScopeRequired: true,
         },
       );
       return response(request, { event: result }, result.created ? 201 : 200);
@@ -1908,7 +2171,7 @@ async function reverseOperationalEvent(request: Request, env: WebApiEnv, session
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-reversal:${id}`;
   try {
     const result = await persistOperationalEventLineage(
-      { DB: env.DB },
+        { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: "reversal",
@@ -1925,6 +2188,7 @@ async function reverseOperationalEvent(request: Request, env: WebApiEnv, session
         lineGroupId: row.line_group_id ?? null,
         environment: operationalEnvironmentFor(new URL(request.url)),
         expectedSourceChannel: "web",
+        operatorScopeRequired: true,
       },
     );
     return response(request, { reversed: result.created, alreadyReversed: !result.created, eventId: id, reversalId: result.id, canonical: result });
@@ -1946,7 +2210,7 @@ async function correctOperationalEvent(request: Request, env: WebApiEnv, session
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-correction:${id}`;
   try {
     const result = await persistOperationalEventLineage(
-      { DB: env.DB },
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: "correction",
@@ -1966,6 +2230,7 @@ async function correctOperationalEvent(request: Request, env: WebApiEnv, session
         lineGroupId: row.line_group_id ?? null,
         environment: operationalEnvironmentFor(new URL(request.url)),
         expectedSourceChannel: "web",
+        operatorScopeRequired: true,
       },
     );
     return response(request, { corrected: result.created, alreadyCorrected: !result.created, originalEventId: id, eventId: result.id, canonical: result }, result.created ? 201 : 200);
@@ -1996,7 +2261,7 @@ async function writeLegacyAbnormalRelation(
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-abnormal-${relation.kind}:${relation.id}`;
   try {
     const result = await persistAbnormalEventLineage(
-      { DB: env.DB, EVENTS: env.EVENTS },
+      { DB: env.DB, EVENTS: env.EVENTS, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: relation.kind,
@@ -2013,6 +2278,7 @@ async function writeLegacyAbnormalRelation(
         requestId: requestId(request),
         environment: operationalEnvironmentFor(new URL(request.url)),
         expectedSourceChannel: "web",
+        operatorScopeRequired: true,
       },
     );
     return relation.kind === "reversal"
@@ -2654,6 +2920,54 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
       WHERE organization_id = ?
       ORDER BY status, group_id`,
   ).bind(session.organizationId).all<Record<string, unknown>>();
+  const bindings = await env.DB.prepare(
+    `SELECT gb.id AS bindingId, gb.line_group_id AS groupId,
+            gb.operator_id AS operatorId, i.identity_type AS identityType,
+            i.identity_key AS identityKey, i.display_name AS displayName,
+            i.active AS operatorActive, gb.scope_binding_id AS scopeId,
+            s.environment, s.farm_id AS farmId, f.name AS farmName,
+            s.house_id AS houseId, h.name AS houseName,
+            s.flock_id AS flockId, k.batch_code AS batchCode,
+            gb.active, gb.created_at AS createdAt
+       FROM line_group_operator_bindings gb
+       JOIN operator_identities i
+         ON i.id = gb.operator_id
+        AND i.organization_id = gb.organization_id
+       JOIN operator_scope_bindings s
+         ON s.id = gb.scope_binding_id
+        AND s.operator_id = gb.operator_id
+        AND s.organization_id = gb.organization_id
+       JOIN farms f
+         ON f.id = s.farm_id
+        AND f.organization_id = s.organization_id
+       LEFT JOIN houses h ON h.id = s.house_id AND h.farm_id = s.farm_id
+       LEFT JOIN flocks k ON k.id = s.flock_id AND k.farm_id = s.farm_id
+      WHERE gb.organization_id = ?
+      ORDER BY gb.line_group_id, i.display_name, gb.id`,
+  ).bind(session.organizationId).all<Record<string, unknown>>();
+  const bindingsByGroup = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of bindings.results) {
+    const groupId = String(row.groupId);
+    const groupBindings = bindingsByGroup.get(groupId) ?? [];
+    groupBindings.push({
+      id: String(row.bindingId),
+      scopeId: String(row.scopeId),
+      operator: {
+        id: String(row.operatorId),
+        identityType: String(row.identityType),
+        identityKey: String(row.identityKey),
+        displayName: String(row.displayName),
+        active: Number(row.operatorActive) === 1,
+      },
+      environment: String(row.environment),
+      farm: { id: String(row.farmId), name: String(row.farmName) },
+      house: row.houseId ? { id: String(row.houseId), name: row.houseName ? String(row.houseName) : null } : null,
+      flock: row.flockId ? { id: String(row.flockId), batchCode: row.batchCode ? String(row.batchCode) : null } : null,
+      active: Number(row.active) === 1,
+      createdAt: row.createdAt,
+    });
+    bindingsByGroup.set(groupId, groupBindings);
+  }
   return response(request, {
     groups: rows.results.map((row) => ({
       groupId: String(row.groupId),
@@ -2662,8 +2976,208 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
       farmName: row.farmName ? String(row.farmName) : null,
       farmId: row.farmId ? String(row.farmId) : null,
       conversationV2Enabled: Number(row.conversationV2Enabled ?? 0) === 1,
+      operatorBindings: bindingsByGroup.get(String(row.groupId)) ?? [],
     })),
   });
+}
+
+interface LineGroupBindingReadbackRow {
+  bindingId: string;
+  groupId: string;
+  operatorId: string;
+  identityType: "line_user" | "web_admin";
+  identityKey: string;
+  displayName: string;
+  operatorActive: number;
+  scopeId: string;
+  environment: ProvisionedEnvironment;
+  farmId: string;
+  farmName: string;
+  houseId: string | null;
+  houseName: string | null;
+  flockId: string | null;
+  batchCode: string | null;
+  active: number;
+  createdAt: string;
+}
+
+async function lineGroupBindingById(
+  env: WebApiEnv,
+  organizationId: string,
+  bindingId: string,
+): Promise<LineGroupBindingReadbackRow | null> {
+  return env.DB.prepare(
+    `SELECT gb.id AS bindingId, gb.line_group_id AS groupId,
+            gb.operator_id AS operatorId, i.identity_type AS identityType,
+            i.identity_key AS identityKey, i.display_name AS displayName,
+            i.active AS operatorActive, gb.scope_binding_id AS scopeId,
+            s.environment, s.farm_id AS farmId, f.name AS farmName,
+            s.house_id AS houseId, h.name AS houseName,
+            s.flock_id AS flockId, k.batch_code AS batchCode,
+            gb.active, gb.created_at AS createdAt
+       FROM line_group_operator_bindings gb
+       JOIN operator_identities i
+         ON i.id = gb.operator_id
+        AND i.organization_id = gb.organization_id
+       JOIN operator_scope_bindings s
+         ON s.id = gb.scope_binding_id
+        AND s.operator_id = gb.operator_id
+        AND s.organization_id = gb.organization_id
+       JOIN farms f
+         ON f.id = s.farm_id
+        AND f.organization_id = s.organization_id
+       LEFT JOIN houses h ON h.id = s.house_id AND h.farm_id = s.farm_id
+       LEFT JOIN flocks k ON k.id = s.flock_id AND k.farm_id = s.farm_id
+      WHERE gb.id = ? AND gb.organization_id = ?
+      LIMIT 1`,
+  ).bind(bindingId, organizationId).first<LineGroupBindingReadbackRow>();
+}
+
+function lineGroupBindingPayload(row: LineGroupBindingReadbackRow): Record<string, unknown> {
+  return {
+    id: row.bindingId,
+    groupId: row.groupId,
+    operator: {
+      id: row.operatorId,
+      identityType: row.identityType,
+      identityKey: row.identityKey,
+      displayName: row.displayName,
+      active: Number(row.operatorActive) === 1,
+    },
+    scopeId: row.scopeId,
+    environment: row.environment,
+    farm: { id: row.farmId, name: row.farmName },
+    house: row.houseId ? { id: row.houseId, name: row.houseName } : null,
+    flock: row.flockId ? { id: row.flockId, batchCode: row.batchCode } : null,
+    active: Number(row.active) === 1,
+    createdAt: row.createdAt,
+  };
+}
+
+async function bindLineGroupOperatorScope(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  groupId: string,
+): Promise<Response> {
+  const group = await env.DB.prepare(
+    `SELECT group_id AS groupId, organization_id AS organizationId,
+            status, farm_id AS farmId, farm_name AS farmName
+       FROM line_groups
+      WHERE group_id = ?
+      LIMIT 1`,
+  ).bind(groupId).first<{ groupId: string; organizationId: string | null; status: string; farmId: string | null; farmName: string | null }>();
+  if (!group || group.organizationId !== session.organizationId) return errorResponse(request, 404, "not_found", "找不到這個 LINE 群組。");
+  if (group.status === "left") return errorResponse(request, 409, "group_left", "這個群組已離開，不能綁定操作範圍。");
+
+  const body = await bodyJson(request);
+  const operatorId = stringValue(body?.operatorId, 160);
+  const scopeId = stringValue(body?.scopeId, 160);
+  if (!operatorId || !scopeId) return errorResponse(request, 400, "invalid_binding", "operatorId 與 scopeId 必填。");
+
+  const operator = await operatorIdentityById(env, session.organizationId, operatorId);
+  if (!operator) return errorResponse(request, 404, "not_found", "找不到操作人。");
+  if (Number(operator.active) !== 1) return errorResponse(request, 409, "operator_inactive", "操作人已停用，不能綁定 LINE 群組。");
+  const scope = await env.DB.prepare(
+    `SELECT s.id AS scopeId, s.operator_id AS operatorId, s.environment,
+            s.farm_id AS farmId, f.name AS farmName, f.environment AS farmEnvironment,
+            s.house_id AS houseId, h.name AS houseName,
+            s.flock_id AS flockId, k.batch_code AS batchCode,
+            s.active, s.created_at AS createdAt
+       FROM operator_scope_bindings s
+       JOIN farms f ON f.id = s.farm_id AND f.organization_id = s.organization_id
+       LEFT JOIN houses h ON h.id = s.house_id AND h.farm_id = s.farm_id
+       LEFT JOIN flocks k ON k.id = s.flock_id AND k.farm_id = s.farm_id
+      WHERE s.id = ? AND s.operator_id = ? AND s.organization_id = ?
+        AND s.active = 1 AND f.active = 1
+        AND (s.house_id IS NULL OR h.active = 1)
+        AND (s.flock_id IS NULL OR k.status <> 'cancelled')
+      LIMIT 1`,
+  ).bind(scopeId, operatorId, session.organizationId).first<{
+    scopeId: string;
+    operatorId: string;
+    environment: ProvisionedEnvironment;
+    farmId: string;
+    farmName: string;
+    farmEnvironment: ProvisionedEnvironment;
+    houseId: string | null;
+    houseName: string | null;
+    flockId: string | null;
+    batchCode: string | null;
+    active: number;
+    createdAt: string;
+  }>();
+  if (!scope || Number(scope.active) !== 1 || scope.environment !== scope.farmEnvironment) {
+    return errorResponse(request, 400, "invalid_scope", "操作人的資料範圍不存在、已停用或資料環境不一致。");
+  }
+  if (group.farmId && group.farmId !== scope.farmId) {
+    return errorResponse(request, 409, "group_farm_conflict", "LINE 群組已綁定其他雞場，沒有寫入。");
+  }
+
+  const existing = await env.DB.prepare(
+    `SELECT id, scope_binding_id AS scopeId
+       FROM line_group_operator_bindings
+      WHERE organization_id = ? AND line_group_id = ? AND operator_id = ? AND active = 1
+      LIMIT 1`,
+  ).bind(session.organizationId, groupId, operatorId).first<{ id: string; scopeId: string }>();
+  if (existing) {
+    if (existing.scopeId !== scope.scopeId) return errorResponse(request, 409, "group_operator_scope_conflict", "這個 LINE 群組操作人已綁定其他資料範圍。");
+    const readback = await lineGroupBindingById(env, session.organizationId, existing.id);
+    return response(request, { binding: readback ? lineGroupBindingPayload(readback) : null, created: false });
+  }
+
+  const bindingId = `line-group-operator-binding-${crypto.randomUUID()}`;
+  const groupNeedsUpdate = group.status !== "bound" || group.farmId !== scope.farmId || group.farmName !== scope.farmName;
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `INSERT INTO line_group_operator_bindings
+        (id, organization_id, line_group_id, operator_id, scope_binding_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).bind(bindingId, session.organizationId, groupId, operatorId, scope.scopeId),
+  ];
+  if (groupNeedsUpdate) {
+    statements.unshift(env.DB.prepare(
+      `UPDATE line_groups
+          SET status = 'bound', farm_id = ?, farm_name = ?, bound_at = COALESCE(bound_at, CURRENT_TIMESTAMP), left_at = NULL
+        WHERE group_id = ? AND organization_id = ?`,
+    ).bind(scope.farmId, scope.farmName, groupId, session.organizationId));
+    statements.push(auditLogStatement(env, {
+      organizationId: session.organizationId,
+      source: "web",
+      actorType: "web_admin",
+      actorId: session.id,
+      action: "update",
+      entityType: "line_group",
+      entityId: groupId,
+      before: { status: group.status, farmId: group.farmId, farmName: group.farmName },
+      after: { status: "bound", farmId: scope.farmId, farmName: scope.farmName },
+      reason: "line_group_operator_scope_binding",
+      requestId: requestId(request),
+    }));
+  }
+  statements.push(auditLogStatement(env, {
+    organizationId: session.organizationId,
+    source: "web",
+    actorType: "web_admin",
+    actorId: session.id,
+    action: "create",
+    entityType: "line_group_operator_binding",
+    entityId: bindingId,
+    after: {
+      id: bindingId,
+      groupId,
+      operatorId,
+      scopeId: scope.scopeId,
+      environment: scope.environment,
+      farmId: scope.farmId,
+      houseId: scope.houseId,
+      flockId: scope.flockId,
+    },
+    requestId: requestId(request),
+  }));
+  await env.DB.batch(statements);
+  const readback = await lineGroupBindingById(env, session.organizationId, bindingId);
+  return response(request, { binding: readback ? lineGroupBindingPayload(readback) : null, created: true }, 201);
 }
 
 async function updateLineGroupConversationV2(
@@ -2923,6 +3437,15 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const session = await requireSession(request, env);
     if (session instanceof Response) return session;
     if (url.pathname === "/api/web/auth/logout" && request.method === "POST") return authLogout(request, env, session);
+    if (canonicalWriteHoldState(env) !== "OFF" && canonicalWebMutationRequiresHold(url.pathname, request.method)) {
+      const state = canonicalWriteHoldState(env);
+      return errorResponse(
+        request,
+        503,
+        state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : "CANONICAL_WRITE_HOLD_ACTIVE",
+        "目前正在進行安全切換，暫停正式寫入；沒有寫入資料。",
+      );
+    }
     if (url.pathname === "/api/lifecycle" && request.method === "GET") return lifecycleReadModel(request, env, session);
     if (url.pathname === "/api/records" && request.method === "GET") return listCanonicalRecords(request, env, session);
     if (url.pathname === "/api/records" && request.method === "POST") return writeCanonicalRecord(request, env, session);
@@ -2951,7 +3474,17 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/reliability/events" && request.method === "GET") return reliabilityEvents(request, env, session);
     if (url.pathname === "/api/ambient/preview" && request.method === "GET") return ambientPreview(request, env, session);
     if (url.pathname === "/api/pending-candidates" && request.method === "GET") return pendingCandidates(request, env, session);
+    if (url.pathname === "/api/operators" && request.method === "GET") return listOperators(request, env, session);
+    if (url.pathname === "/api/operators" && request.method === "POST") return createOperator(request, env, session);
+    const operatorScopeMatch = /^\/api\/operators\/([^/]+)\/scopes$/u.exec(url.pathname);
+    if (operatorScopeMatch && request.method === "POST") {
+      return createOperatorScope(request, env, session, decodeURIComponent(operatorScopeMatch[1]));
+    }
     if (url.pathname === "/api/line-groups" && request.method === "GET") return lineGroups(request, env, session);
+    const lineGroupOperatorBindingMatch = /^\/api\/line-groups\/([^/]+)\/operator-bindings$/u.exec(url.pathname);
+    if (lineGroupOperatorBindingMatch && request.method === "POST") {
+      return bindLineGroupOperatorScope(request, env, session, decodeURIComponent(lineGroupOperatorBindingMatch[1]));
+    }
     const lineGroupConversationMatch = /^\/api\/line-groups\/([^/]+)\/ai-conversation$/u.exec(url.pathname);
     if (lineGroupConversationMatch && request.method === "PATCH") {
       return updateLineGroupConversationV2(request, env, session, decodeURIComponent(lineGroupConversationMatch[1]));

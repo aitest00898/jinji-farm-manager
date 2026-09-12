@@ -4,7 +4,7 @@ import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-reso
 import { normalizedHouseName, taipeiDate } from "./master-data";
 import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
 import type { RecordCommand } from "./record-command";
-import { persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
+import { assertCanonicalWritesOpen, persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
 import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-guard";
 
 /**
@@ -15,6 +15,7 @@ import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-g
 export interface QuickRecordEnv {
   DB: D1Database;
   EVENTS?: { send(message: unknown): Promise<unknown> };
+  CANONICAL_WRITE_HOLD?: string;
 }
 
 export interface QuickLineEvent {
@@ -539,6 +540,7 @@ async function commitBundles(
   organizationId: string,
   bundles: Array<{ farm: QuickFarm; scope: Scope; items: QuickItemDraft[]; bundleIndex: number; existingBundleId?: string | null }>,
 ): Promise<CommittedBundle[]> {
+  assertCanonicalWritesOpen(env);
   const committed: CommittedBundle[] = [];
   const requestId = stablePart(eventId);
   const plans = bundles.map((bundle) => {
@@ -581,13 +583,14 @@ async function commitBundles(
       lineUserId: userId,
       environment: plan.bundle.farm.environment,
       expectedSourceChannel: "line" as const,
+      operatorScopeRequired: true,
       quickBundleId: plan.bundleId,
     },
   }] : []));
   // Validate the whole grouped submission before creating its metadata or
   // any business row. The sequence preview carries accepted candidates in
   // memory, so one later overdraw cannot leave a partial stock mutation.
-  await previewCanonicalStockMutations({ DB: env.DB }, previewInputs);
+  await previewCanonicalStockMutations({ DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD }, previewInputs);
 
   for (const plan of plans) {
     const { bundle, bundleId, commands } = plan;
@@ -633,7 +636,7 @@ async function commitBundles(
         let stockMutation: CanonicalStockMutationReceipt | undefined;
         if (recordCommand) {
           const result = await persistRecordCommand(
-            { DB: env.DB },
+            { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
             {
               ...recordCommand,
               record: {
@@ -650,6 +653,7 @@ async function commitBundles(
               lineUserId: userId,
               environment: bundle.farm.environment,
               expectedSourceChannel: "line",
+              operatorScopeRequired: true,
               quickBundleId: bundleId,
             },
           );

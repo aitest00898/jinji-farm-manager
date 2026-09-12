@@ -29,6 +29,7 @@ import type {
   CanonicalLifecycleFlock,
   CanonicalLifecycleScope,
 } from "./canonical-lifecycle-read-model";
+import { requireProvisionedOperatorScope } from "./operator-scope";
 
 /**
  * The only D1 write boundary for a canonical RecordCommand.
@@ -41,6 +42,8 @@ import type {
 
 export interface CanonicalWriteEnv {
   DB: D1Database;
+  /** Operational transition control; absent means writes are open. */
+  CANONICAL_WRITE_HOLD?: string;
 }
 
 export type CanonicalActorType = "web_admin" | "line_user" | "system";
@@ -56,6 +59,8 @@ export interface CanonicalWriteContext {
   quickBundleId?: string | null;
   environment?: "production" | "test";
   expectedSourceChannel?: RecordingSourceChannel;
+  /** Require an explicit provisioned identity/scope before this write. */
+  operatorScopeRequired?: boolean;
   now?: string;
 }
 
@@ -84,6 +89,48 @@ export class CanonicalWriteError extends Error {
     this.code = code;
     this.field = field;
   }
+}
+
+export type CanonicalWriteHoldState = "ON" | "OFF" | "INVALID";
+
+/**
+ * Tiny deployment-transition control. It reads only an environment variable
+ * and never touches D1, so a bridge Worker can run before migrations 0039/0040.
+ * Unknown values fail closed.
+ */
+export function canonicalWriteHoldState(env: { CANONICAL_WRITE_HOLD?: string }): CanonicalWriteHoldState {
+  const value = env.CANONICAL_WRITE_HOLD?.trim().toLowerCase();
+  if (!value || value === "off" || value === "false" || value === "0") return "OFF";
+  if (value === "on" || value === "true" || value === "1") return "ON";
+  return "INVALID";
+}
+
+export class CanonicalWriteHoldError extends Error {
+  readonly code = "CANONICAL_WRITE_HOLD_ACTIVE";
+  readonly state: Exclude<CanonicalWriteHoldState, "OFF">;
+
+  constructor(state: Exclude<CanonicalWriteHoldState, "OFF">) {
+    super(state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : "CANONICAL_WRITE_HOLD_ACTIVE");
+    this.name = "CanonicalWriteHoldError";
+    this.state = state;
+  }
+}
+
+export function assertCanonicalWritesOpen(env: { CANONICAL_WRITE_HOLD?: string }): void {
+  const state = canonicalWriteHoldState(env);
+  if (state !== "OFF") throw new CanonicalWriteHoldError(state);
+}
+
+/**
+ * Web API mutation ingress is conservative while the hold is active. Auth
+ * lifecycle endpoints and all reads remain available; other /api methods are
+ * rejected before their route handler runs.
+ */
+export function canonicalWebMutationRequiresHold(pathname: string, method: string): boolean {
+  if (!pathname.startsWith("/api/")) return false;
+  if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
+  if (pathname === "/api/web/auth/login" || pathname === "/api/web/auth/logout") return false;
+  return true;
 }
 
 interface CanonicalFarm {
@@ -216,6 +263,26 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
 
   const groupId = context.lineGroupId || `canonical-${record.sourceChannel}-${organizationId}`;
   return { organizationId, farm, houseId, houseName, flockId, lineGroupId: groupId };
+}
+
+async function requireOperatorScopeIfNeeded(
+  env: CanonicalWriteEnv,
+  context: CanonicalWriteContext,
+  scope: CanonicalScope,
+): Promise<void> {
+  if (!context.operatorScopeRequired) return;
+  await requireProvisionedOperatorScope(env, {
+    organizationId: context.organizationId,
+    actorType: context.actorType,
+    actorId: context.actorId,
+    lineGroupId: context.lineGroupId,
+    target: {
+      environment: scope.farm.environment,
+      farmId: scope.farm.id,
+      houseId: scope.houseId,
+      flockId: scope.flockId,
+    },
+  });
 }
 
 interface CanonicalShipmentFactRow {
@@ -466,9 +533,11 @@ export async function previewCanonicalStockMutation(
   input: RecordCommand,
   context: CanonicalWriteContext,
 ): Promise<CanonicalStockMutationProjection | null> {
+  assertCanonicalWritesOpen(env);
   const record = normalizeRecordingDraft(input.record);
   validateRecordingDraft(record);
   const scope = await resolveScope(env, record, context);
+  await requireOperatorScopeIfNeeded(env, context, scope);
   return validateCanonicalStockMutationWrite(env, record, scope, lineageFor(record));
 }
 
@@ -487,6 +556,7 @@ export async function previewCanonicalStockMutations(
   env: CanonicalWriteEnv,
   inputs: readonly CanonicalStockMutationPreviewInput[],
 ): Promise<readonly CanonicalStockMutationProjection[]> {
+  assertCanonicalWritesOpen(env);
   const projections: CanonicalStockMutationProjection[] = [];
   let state: CanonicalShipmentReadInput | null = null;
   let stateKey: string | null = null;
@@ -495,6 +565,7 @@ export async function previewCanonicalStockMutations(
     validateRecordingDraft(record);
     if (record.taxonomyId !== "O1" && record.taxonomyId !== "O3" && record.taxonomyId !== "O9") continue;
     const scope = await resolveScope(env, record, entry.context);
+    await requireOperatorScopeIfNeeded(env, entry.context, scope);
     const nextKey = [scope.farm.id, scope.houseId ?? "", scope.flockId ?? ""].join("|");
     if (!state || stateKey !== nextKey) {
       state = await canonicalStockMutationState(env, record, scope);
@@ -927,6 +998,7 @@ export async function persistRecordCommand(
   input: RecordCommand,
   context: CanonicalWriteContext,
 ): Promise<CanonicalWriteResult> {
+  assertCanonicalWritesOpen(env);
   const record = normalizeRecordingDraft(input.record);
   validateRecordingDraft(record);
   const canonical = createRecordCommand(record);
@@ -940,6 +1012,7 @@ export async function persistRecordCommand(
   const destination = canonical.destination;
   const relation = lineageFor(record);
   let scope = await resolveScope(env, record, context);
+  await requireOperatorScopeIfNeeded(env, context, scope);
   await validateRelation(env, record, destination, relation, context.organizationId);
   await validateMortalityLink(env, record, context.organizationId);
 
