@@ -45,6 +45,11 @@ import {
   type CanonicalLifecycleScope,
 } from "./canonical-lifecycle-read-model";
 import {
+  getFeedEstimate,
+  type CanonicalFeedFact,
+  type FeedEstimateResult,
+} from "./canonical-feed-estimation";
+import {
   deriveCanonicalLabSubmissionSummary,
   type CanonicalLabSubmissionFact,
   type CanonicalLabSubmissionScope,
@@ -1296,8 +1301,24 @@ interface CanonicalLabSubmissionFactRow {
   replacementOfId: string | null;
 }
 
+interface CanonicalFeedFactRow {
+  id: string;
+  farmId: string;
+  houseId: string | null;
+  flockId: string | null;
+  occurredAt: string | null;
+  createdAt: string;
+  weight: number | null;
+  weightUnit: string | null;
+  lifecycleStatus: string | null;
+  correctionOfId: string | null;
+  reversalOfId: string | null;
+  replacementOfId: string | null;
+}
+
 type CanonicalReadSummary = ReturnType<typeof deriveCanonicalLifecycleSummary> & {
   labSubmission: CanonicalLabSubmissionSummary;
+  feedEstimate: FeedEstimateResult;
 };
 
 function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFact {
@@ -1341,6 +1362,37 @@ function labSubmissionFactRow(row: CanonicalLabSubmissionFactRow): CanonicalLabS
   };
 }
 
+function feedFactRow(row: CanonicalFeedFactRow): CanonicalFeedFact {
+  return {
+    id: String(row.id),
+    taxonomyId: "O5",
+    farmId: String(row.farmId),
+    houseId: row.houseId === null || row.houseId === undefined ? null : String(row.houseId),
+    flockId: row.flockId === null || row.flockId === undefined ? null : String(row.flockId),
+    occurredAt: row.occurredAt ?? null,
+    createdAt: String(row.createdAt),
+    totalCount: null,
+    quantity: null,
+    weight: row.weight === null || row.weight === undefined ? null : Number(row.weight),
+    weightUnit: row.weightUnit ?? null,
+    workflowStatus: null,
+    completedAt: null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    reversedAt: null,
+    correctionOfId: row.correctionOfId ?? null,
+    reversalOfId: row.reversalOfId ?? null,
+    replacementOfId: row.replacementOfId ?? null,
+  };
+}
+
+function feedLifecycleFact(fact: CanonicalLifecycleFact): CanonicalFeedFact {
+  return {
+    ...fact,
+    weight: null,
+    weightUnit: null,
+  };
+}
+
 async function canonicalLifecycleSummaries(
   env: WebApiEnv,
   organizationId: string,
@@ -1356,7 +1408,7 @@ async function canonicalLifecycleSummaries(
   const flockBindings = houseId ? [organizationId, environment, houseId] : farmId ? [organizationId, environment, farmId] : [organizationId, environment];
   const factFarmClause = farmId ? " AND e.farm_id = ?" : "";
   const factBindings = farmId ? [organizationId, environment, farmId] : [organizationId, environment];
-  const [farms, houses, flocks, facts, labSubmissions] = await Promise.all([
+  const [farms, houses, flocks, facts, labSubmissions, feedOrders] = await Promise.all([
     env.DB.prepare(
       `SELECT f.id, f.name, f.environment
          FROM farms f
@@ -1420,6 +1472,16 @@ async function canonicalLifecycleSummaries(
         WHERE e.organization_id = ? AND f.environment = ?
           AND e.taxonomy_id = 'O6' AND e.subtype = 'lab_test'${factFarmClause}`,
     ).bind(...factBindings).all<CanonicalLabSubmissionFactRow>(),
+    env.DB.prepare(
+      `SELECT e.id, e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
+              e.occurred_at AS occurredAt, e.created_at AS createdAt,
+              e.weight, e.weight_unit AS weightUnit, e.lifecycle_status AS lifecycleStatus,
+              e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
+              e.replacement_of_id AS replacementOfId
+         FROM operational_actions e JOIN farms f ON f.id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?
+          AND e.taxonomy_id = 'O5' AND e.subtype = 'feed_order'${factFarmClause}`,
+    ).bind(...factBindings).all<CanonicalFeedFactRow>(),
   ]);
 
   const farmRows = farms.results;
@@ -1436,6 +1498,7 @@ async function canonicalLifecycleSummaries(
   }));
   const factRows = facts.results.map(lifecycleFactRow);
   const labFactRows = labSubmissions.results.map(labSubmissionFactRow);
+  const feedFactRows = feedOrders.results.map(feedFactRow);
   const readAt = new Date();
   const summaries: CanonicalReadSummary[] = [];
   for (const farm of farmRows) {
@@ -1466,7 +1529,19 @@ async function canonicalLifecycleSummaries(
         labFactRows.filter((fact) => fact.farmId === farm.id && (!house.id || fact.houseId === house.id)),
         readAt,
       );
-      summaries.push({ ...lifecycle, labSubmission });
+      const feedEstimate = getFeedEstimate({
+        scope,
+        currentCycleId: lifecycle.currentFlock?.id ?? "",
+        asOf: readAt,
+        flocks: flockRows.filter((flock) => flock.farmId === farm.id && (!house.id || flock.houseId === house.id)),
+        facts: [
+          ...factRows
+            .filter((fact) => fact.farmId === farm.id)
+            .map(feedLifecycleFact),
+          ...feedFactRows.filter((fact) => fact.farmId === farm.id),
+        ],
+      });
+      summaries.push({ ...lifecycle, labSubmission, feedEstimate });
     }
   }
   return summaries;

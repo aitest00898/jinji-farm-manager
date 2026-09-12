@@ -467,6 +467,10 @@ async function main() {
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, "number");
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, "boolean");
     assert.equal(typeof listed.payload.lifecycleSummaries[0].labSubmission.statusLabel, "string");
+    assert.equal(typeof listed.payload.lifecycleSummaries[0].feedEstimate.status, "string");
+    assert.equal(listed.payload.lifecycleSummaries[0].feedEstimate.status, "INSUFFICIENT_DATA");
+    assert.equal(listed.payload.lifecycleSummaries[0].feedEstimate.minimumDataRequirement.minimumEligibleCycles, 3);
+    assert.equal(Array.isArray(listed.payload.lifecycleSummaries[0].feedEstimate.missingData), true);
     const lifecycle = await apiCall(db, sessionToken, `/api/lifecycle?environment=test&farmId=${farm}&houseId=${house}`);
     assert.equal(lifecycle.response.status, 200);
     assert.equal(lifecycle.payload.lifecycleSummaries.length, 1);
@@ -474,6 +478,8 @@ async function main() {
     assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.pendingSubmissionCount, 2);
     assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.hasOverdueLabSubmission, true);
     assert.equal(lifecycle.payload.lifecycleSummaries[0].labSubmission.incompleteReason, "OVERDUE_UNRESOLVED_SUBMISSION");
+    assert.equal(typeof lifecycle.payload.lifecycleSummaries[0].feedEstimate.status, "string");
+    assert.equal(lifecycle.payload.lifecycleSummaries[0].feedEstimate.status, "INSUFFICIENT_DATA");
 
     const unauthenticated = await handleWebApi(new Request("https://canonical-write-e2e.test/api/records?environment=test", { method: "GET" }), { DB: db });
     assert.equal(unauthenticated.status, 401);
