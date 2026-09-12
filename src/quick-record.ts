@@ -4,6 +4,8 @@ import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-reso
 import { normalizedHouseName, taipeiDate } from "./master-data";
 import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
 import type { RecordCommand } from "./record-command";
+import { persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
+import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-guard";
 
 /**
  * Small, deliberately bounded LINE quick-record layer. It is not a second
@@ -101,6 +103,7 @@ interface CommittedItem {
   eventId: string;
   itemId: string;
   recordCommand?: RecordCommand;
+  stockMutation?: CanonicalStockMutationReceipt;
 }
 
 interface CommittedBundle {
@@ -470,6 +473,20 @@ function pendingReply(items: QuickItemDraft[], candidates: FarmCandidate[], conf
   return [header, ...items.map((item) => `• ${itemLabel(item)}`), candidateList(candidates), confirmation && candidates.length === 1 ? "請回覆：是 / 否" : "請回覆名稱或編號。"].join("\n");
 }
 
+function quickStockReadbackLines(stockMutation: CanonicalStockMutationReceipt | undefined): string[] {
+  if (!stockMutation) return [];
+  const authoritative = stockMutation.authoritativeStock === null ? "無法取得" : String(stockMutation.authoritativeStock);
+  const lines = [`目前存欄：${authoritative}`];
+  if (!stockMutation.readbackMatchesProjection) {
+    lines.push(`⚠️ 權威回讀與預估不同（預估 ${stockMutation.projectedStock}），以上述權威回讀為準。`);
+  }
+  return lines;
+}
+
+function committedItemLines(item: CommittedItem): string[] {
+  return [`• ${itemLabel(item.item)}`, ...quickStockReadbackLines(item.stockMutation)];
+}
+
 function farmOnlyIsQuery(text: string): boolean {
   const value = compact(text);
   return /(?:今天|今日|昨天|昨晚|目前|現在|现在|存欄|存栏|日齡|日龄|盈虧|盈亏|持股|股份|列表|清單|清单|近期|天氣|天气|哪|死亡(?:數|数|多少|幾隻|几只)?$|出雞|出鸡)/u.test(value);
@@ -522,111 +539,176 @@ async function commitBundles(
   organizationId: string,
   bundles: Array<{ farm: QuickFarm; scope: Scope; items: QuickItemDraft[]; bundleIndex: number; existingBundleId?: string | null }>,
 ): Promise<CommittedBundle[]> {
-  const statements: D1PreparedStatement[] = [];
   const committed: CommittedBundle[] = [];
   const requestId = stablePart(eventId);
-  for (const bundle of bundles) {
+  const plans = bundles.map((bundle) => {
     const bundleId = bundle.existingBundleId ?? `quick-bundle-${requestId}-${bundle.bundleIndex}`;
+    const commands = bundle.items.map((item, itemIndex) => {
+      if (item.itemType !== "operational") return null;
+      const command = item.intent && item.quantity !== null && item.unit
+        ? canonicalCommandForLegacyOperational({
+          id: `operational-${requestId}:quick:${bundle.bundleIndex}:${itemIndex}`,
+          intent: item.intent,
+          quantity: item.quantity,
+          unit: item.unit,
+          farmId: bundle.farm.id,
+          ...(bundle.scope.houseId ? { houseId: bundle.scope.houseId } : {}),
+          ...(bundle.scope.flockId ? { flockId: bundle.scope.flockId } : {}),
+          occurredAt: item.timing.occurredAt ?? item.timing.reportedAt,
+          createdAt: new Date().toISOString(),
+          sourceChannel: "line",
+          rawText: item.originalText,
+          clientOperationId: `${requestId}:quick:${bundle.bundleIndex}:${itemIndex}`,
+          actorId: userId,
+          confirmedBy: "line-quick-record",
+        })
+        : null;
+      if (!command && item.intent !== "feed" && item.intent !== "water") {
+        throw new Error("RECORD_COMMAND_REQUIRED_FOR_OPERATIONAL_WRITE");
+      }
+      return command;
+    });
+    return { bundle, bundleId, commands };
+  });
+  const previewInputs = plans.flatMap((plan) => plan.commands.flatMap((input) => input ? [{
+    input,
+    context: {
+      organizationId,
+      actorType: "line_user" as const,
+      actorId: userId,
+      requestId,
+      lineGroupId: groupId,
+      lineUserId: userId,
+      environment: plan.bundle.farm.environment,
+      expectedSourceChannel: "line" as const,
+      quickBundleId: plan.bundleId,
+    },
+  }] : []));
+  // Validate the whole grouped submission before creating its metadata or
+  // any business row. The sequence preview carries accepted candidates in
+  // memory, so one later overdraw cannot leave a partial stock mutation.
+  await previewCanonicalStockMutations({ DB: env.DB }, previewInputs);
+
+  for (const plan of plans) {
+    const { bundle, bundleId, commands } = plan;
     const openedAt = bundle.items[0]?.timing.reportedAt ?? new Date().toISOString();
     const lastEventAt = bundle.items[bundle.items.length - 1]?.timing.reportedAt ?? openedAt;
     let itemIndexOffset = 0;
+    const bundleStatements: D1PreparedStatement[] = [];
     if (bundle.existingBundleId) {
       const lastItem = await env.DB.prepare(
         `SELECT COALESCE(MAX(item_index) + 1, 0) AS nextIndex
            FROM quick_record_items WHERE bundle_id = ? AND status <> 'reversed'`,
       ).bind(bundle.existingBundleId).first<{ nextIndex: number }>();
       itemIndexOffset = Number(lastItem?.nextIndex ?? 0);
-      statements.push(env.DB.prepare(
+      bundleStatements.push(env.DB.prepare(
         `UPDATE quick_record_bundles
             SET last_event_at = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ? AND status <> 'reversed'`,
       ).bind(lastEventAt, bundle.existingBundleId));
     } else {
-      statements.push(env.DB.prepare(
+      bundleStatements.push(env.DB.prepare(
         `INSERT OR IGNORE INTO quick_record_bundles
           (id, line_group_id, line_user_id, organization_id, farm_id, house_id, flock_id,
            status, opened_at, last_event_at, confirmed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       ).bind(bundleId, groupId, userId, organizationId, bundle.farm.id, bundle.scope.houseId, bundle.scope.flockId, openedAt, lastEventAt, new Date().toISOString()));
     }
+    await env.DB.batch(bundleStatements);
     const committedItems: CommittedItem[] = [];
-    bundle.items.forEach((item, itemIndex) => {
+    for (const [itemIndex, item] of bundle.items.entries()) {
       const childEventId = `${requestId}:quick:${bundle.bundleIndex}:${itemIndex}`;
       const itemId = `quick-item-${childEventId}`;
       const sourceEventId = childEventId;
       const rawMessage = item.originalText;
       if (item.itemType === "operational") {
-        const operationalId = `operational-${childEventId}`;
-        const recordCommand = item.intent && item.quantity !== null && item.unit
-          ? canonicalCommandForLegacyOperational({
-            id: operationalId,
-            intent: item.intent,
-            quantity: item.quantity,
-            unit: item.unit,
-            farmId: bundle.farm.id,
-            ...(bundle.scope.houseId ? { houseId: bundle.scope.houseId } : {}),
-            ...(bundle.scope.flockId ? { flockId: bundle.scope.flockId } : {}),
-            occurredAt: item.timing.occurredAt ?? item.timing.reportedAt,
-            createdAt: new Date().toISOString(),
-            sourceChannel: "line",
-            sourceMessageId: event.message?.id,
-            rawText: rawMessage,
-            clientOperationId: sourceEventId,
-            actorId: userId,
-            confirmedBy: "line-quick-record",
-          })
-          : null;
+        const recordCommand = commands[itemIndex];
         // Feed/water are legacy consumption records with no exact canonical
         // taxonomy equivalent. All other operational intents must be proven
         // command-compatible before the existing batch is allowed to run.
         if (!recordCommand && item.intent !== "feed" && item.intent !== "water") {
           throw new Error("RECORD_COMMAND_REQUIRED_FOR_OPERATIONAL_WRITE");
         }
-        statements.push(env.DB.prepare(
-          `INSERT OR IGNORE INTO operational_events
-            (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit,
-             event_date, house, house_id, flock_id, raw_message, raw_farm_text, note,
-             pending_action_id, source_event_id, quick_bundle_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
-        ).bind(operationalId, organizationId, bundle.farm.id, groupId, userId, item.intent, item.quantity, item.unit, item.timing.occurredDate, bundle.scope.houseName, bundle.scope.houseId, bundle.scope.flockId, rawMessage, bundle.farm.name, sourceEventId, bundleId));
-        statements.push(auditStatement(env, organizationId, userId, "create", "operational_event", operationalId, undefined, { id: operationalId, farmId: bundle.farm.id, houseId: bundle.scope.houseId, flockId: bundle.scope.flockId, intent: item.intent, quantity: item.quantity, unit: item.unit, occurredAt: item.timing.occurredAt, bundleId }, null, sourceEventId));
-        statements.push(env.DB.prepare(
+        let persistedEventId = `operational-${childEventId}`;
+        let stockMutation: CanonicalStockMutationReceipt | undefined;
+        if (recordCommand) {
+          const result = await persistRecordCommand(
+            { DB: env.DB },
+            {
+              ...recordCommand,
+              record: {
+                ...recordCommand.record,
+                sourceMessageId: event.message?.id ?? recordCommand.record.sourceMessageId,
+              },
+            },
+            {
+              organizationId,
+              actorType: "line_user",
+              actorId: userId,
+              requestId: sourceEventId,
+              lineGroupId: groupId,
+              lineUserId: userId,
+              environment: bundle.farm.environment,
+              expectedSourceChannel: "line",
+              quickBundleId: bundleId,
+            },
+          );
+          persistedEventId = result.id;
+          stockMutation = result.stockMutation;
+        } else {
+          await env.DB.batch([
+            env.DB.prepare(
+              `INSERT OR IGNORE INTO operational_events
+                (id, organization_id, farm_id, line_group_id, line_user_id, intent, quantity, unit,
+                 event_date, house, house_id, flock_id, raw_message, raw_farm_text, note,
+                 pending_action_id, source_event_id, quick_bundle_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+            ).bind(persistedEventId, organizationId, bundle.farm.id, groupId, userId, item.intent, item.quantity, item.unit, item.timing.occurredDate, bundle.scope.houseName, bundle.scope.houseId, bundle.scope.flockId, rawMessage, bundle.farm.name, sourceEventId, bundleId),
+            auditStatement(env, organizationId, userId, "create", "operational_event", persistedEventId, undefined, { id: persistedEventId, farmId: bundle.farm.id, houseId: bundle.scope.houseId, flockId: bundle.scope.flockId, intent: item.intent, quantity: item.quantity, unit: item.unit, occurredAt: item.timing.occurredAt, bundleId }, null, sourceEventId),
+          ]);
+        }
+        await env.DB.batch([
+          env.DB.prepare(
           `INSERT OR IGNORE INTO quick_record_items
             (id, bundle_id, item_index, item_type, intent, raw_text, quantity, unit,
              occurred_at, occurred_date, operational_event_id, status, source_event_id)
            VALUES (?, ?, ?, 'operational', ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-        ).bind(itemId, bundleId, itemIndexOffset + itemIndex, item.intent, item.rawText, item.quantity, item.unit, item.timing.occurredAt ?? item.timing.reportedAt, item.timing.occurredDate, operationalId, sourceEventId));
-        committedItems.push({ item, eventId: operationalId, itemId, ...(recordCommand ? { recordCommand } : {}) });
+          ).bind(itemId, bundleId, itemIndexOffset + itemIndex, item.intent, item.rawText, item.quantity, item.unit, item.timing.occurredAt ?? item.timing.reportedAt, item.timing.occurredDate, persistedEventId, sourceEventId),
+        ]);
+        committedItems.push({ item, eventId: persistedEventId, itemId, ...(recordCommand ? { recordCommand } : {}), ...(stockMutation ? { stockMutation } : {}) });
       } else {
         const abnormalId = `abnormal-${childEventId}`;
-        statements.push(env.DB.prepare(
+        await env.DB.batch([
+          env.DB.prepare(
           `INSERT OR IGNORE INTO abnormal_events
             (id, organization_id, farm_id, house_id, flock_id, occurred_at, occurred_date,
              approximate_period, reported_at, raw_text, source, actor_id, weather_date,
              status, source_event_id, quick_bundle_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', ?, ?, 'active', ?, ?)`,
-        ).bind(abnormalId, organizationId, bundle.farm.id, bundle.scope.houseId, bundle.scope.flockId, item.timing.occurredAt, item.timing.occurredDate, item.timing.approximatePeriod, item.timing.reportedAt, item.rawText, userId, item.timing.weatherDate, sourceEventId, bundleId));
-        statements.push(auditStatement(env, organizationId, userId, "create", "abnormal_event", abnormalId, undefined, { id: abnormalId, farmId: bundle.farm.id, houseId: bundle.scope.houseId, flockId: bundle.scope.flockId, rawText: item.rawText, occurredAt: item.timing.occurredAt, bundleId }, null, sourceEventId));
-        statements.push(env.DB.prepare(
+          ).bind(abnormalId, organizationId, bundle.farm.id, bundle.scope.houseId, bundle.scope.flockId, item.timing.occurredAt, item.timing.occurredDate, item.timing.approximatePeriod, item.timing.reportedAt, item.rawText, userId, item.timing.weatherDate, sourceEventId, bundleId),
+          auditStatement(env, organizationId, userId, "create", "abnormal_event", abnormalId, undefined, { id: abnormalId, farmId: bundle.farm.id, houseId: bundle.scope.houseId, flockId: bundle.scope.flockId, rawText: item.rawText, occurredAt: item.timing.occurredAt, bundleId }, null, sourceEventId),
+          env.DB.prepare(
           `INSERT OR IGNORE INTO quick_record_items
             (id, bundle_id, item_index, item_type, raw_text, occurred_at, occurred_date,
              abnormal_event_id, status, source_event_id)
            VALUES (?, ?, ?, 'abnormal', ?, ?, ?, ?, 'active', ?)`,
-        ).bind(itemId, bundleId, itemIndexOffset + itemIndex, item.rawText, item.timing.occurredAt ?? item.timing.reportedAt, item.timing.occurredDate, abnormalId, sourceEventId));
+          ).bind(itemId, bundleId, itemIndexOffset + itemIndex, item.rawText, item.timing.occurredAt ?? item.timing.reportedAt, item.timing.occurredDate, abnormalId, sourceEventId),
+        ]);
         committedItems.push({ item, eventId: abnormalId, itemId });
       }
-    });
-    statements.push(env.DB.prepare(
+    }
+    await env.DB.batch([
+      env.DB.prepare(
       `INSERT INTO line_operational_contexts
         (line_group_id, line_user_id, organization_id, farm_id, house_id, flock_id, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(line_group_id, line_user_id) DO UPDATE SET
          organization_id = excluded.organization_id, farm_id = excluded.farm_id,
          house_id = excluded.house_id, flock_id = excluded.flock_id, updated_at = excluded.updated_at`,
-    ).bind(groupId, userId, organizationId, bundle.farm.id, bundle.scope.houseId, bundle.scope.flockId, new Date().toISOString()));
+      ).bind(groupId, userId, organizationId, bundle.farm.id, bundle.scope.houseId, bundle.scope.flockId, new Date().toISOString()),
+    ]);
     committed.push({ id: bundleId, farm: bundle.farm, houseName: bundle.scope.houseName, items: committedItems });
   }
-  if (statements.length) await env.DB.batch(statements);
   for (const bundle of committed) {
     for (const item of bundle.items) {
       if (item.item.itemType === "abnormal" && env.EVENTS) {
@@ -686,9 +768,9 @@ function toDraft(item: PendingItem): QuickItemDraft {
 function groupReply(bundles: CommittedBundle[]): string {
   if (bundles.length === 1) {
     const bundle = bundles[0];
-    return [`✅ 已紀錄至 ${farmDisplay(bundle.farm)}${bundle.houseName ? `｜${bundle.houseName}` : ""}`, ...bundle.items.map((item) => `• ${itemLabel(item.item)}`)].join("\n");
+    return [`✅ 已紀錄至 ${farmDisplay(bundle.farm)}${bundle.houseName ? `｜${bundle.houseName}` : ""}`, ...bundle.items.flatMap(committedItemLines)].join("\n");
   }
-  return ["✅ 已完成紀錄", ...bundles.map((bundle, index) => [`${index + 1}. ${farmDisplay(bundle.farm)}${bundle.houseName ? `｜${bundle.houseName}` : ""}`, ...bundle.items.map((item) => `   • ${itemLabel(item.item)}`)].join("\n"))].join("\n\n");
+  return ["✅ 已完成紀錄", ...bundles.map((bundle, index) => [`${index + 1}. ${farmDisplay(bundle.farm)}${bundle.houseName ? `｜${bundle.houseName}` : ""}`, ...bundle.items.flatMap((item) => committedItemLines(item).map((line) => `   ${line}`))].join("\n"))].join("\n\n");
 }
 
 async function commitForFarm(env: QuickRecordEnv, event: QuickLineEvent, eventId: string, groupId: string, userId: string, organizationId: string, farm: QuickFarm, items: QuickItemDraft[], requestedHouse: string | null, fallbackHouseId: string | null, bundleIndex: number, existingBundleId: string | null = null): Promise<{ bundle: CommittedBundle | null; reply: string | null; scope: Scope }> {

@@ -229,6 +229,39 @@ async function main() {
       const result = await persistRecordCommand({ DB: db }, command, context);
       assert.equal(result.created, true, definition.id);
       assert.equal(result.taxonomyId, definition.id);
+      if (definition.id === "O1") {
+        assert.deepEqual(
+          {
+            currentStock: result.stockMutation?.currentStock,
+            projectedStock: result.stockMutation?.projectedStock,
+            authoritativeStock: result.stockMutation?.authoritativeStock,
+            readbackMatchesProjection: result.stockMutation?.readbackMatchesProjection,
+          },
+          { currentStock: null, projectedStock: 1000, authoritativeStock: 1000, readbackMatchesProjection: true },
+        );
+      }
+      if (definition.id === "O3") {
+        assert.deepEqual(
+          {
+            currentStock: result.stockMutation?.currentStock,
+            projectedStock: result.stockMutation?.projectedStock,
+            authoritativeStock: result.stockMutation?.authoritativeStock,
+            readbackMatchesProjection: result.stockMutation?.readbackMatchesProjection,
+          },
+          { currentStock: 1000, projectedStock: 990, authoritativeStock: 990, readbackMatchesProjection: true },
+        );
+      }
+      if (definition.id === "O9") {
+        assert.deepEqual(
+          {
+            currentStock: result.stockMutation?.currentStock,
+            projectedStock: result.stockMutation?.projectedStock,
+            authoritativeStock: result.stockMutation?.authoritativeStock,
+            readbackMatchesProjection: result.stockMutation?.readbackMatchesProjection,
+          },
+          { currentStock: 990, projectedStock: 985, authoritativeStock: 985, readbackMatchesProjection: true },
+        );
+      }
       commands.set(definition.id, command);
       records.set(definition.id, record);
     }
@@ -313,6 +346,16 @@ async function main() {
     });
     await expectReject("over shipment is rejected before write", () => persistRecordCommand({ DB: db }, overShipment, context), "CANONICAL_SHIPMENT_STOCK_EXCEEDED");
     assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE id = 'bad-over-shipment'"))[0].count, 0);
+    const overMortality = createRecordCommand({
+      ...validRecord("bad-over-mortality", "O9", 206),
+      quantity: 5000,
+      clientOperationId: "client-bad-over-mortality",
+    });
+    await expectReject("over mortality is rejected before write", () => persistRecordCommand({ DB: db }, overMortality, context), "CANONICAL_STOCK_EXCEEDED");
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE id = 'bad-over-mortality'"))[0].count, 0);
+    const missingStockFlock = { ...validRecord("bad-stock-flock", "O9", 207), flockId: undefined };
+    await expectReject("stock mutation requires an explicit flock", () => persistRecordCommand({ DB: db }, createRecordCommand(missingStockFlock), context), "CANONICAL_STOCK_FLOCK_REQUIRED");
+    assert.equal((await rows(db, "SELECT COUNT(*) AS count FROM operational_events WHERE id = 'bad-stock-flock'"))[0].count, 0);
 
     const invalidQuantity = validRecord("bad-quantity", "O9");
     delete invalidQuantity.quantity;
@@ -381,6 +424,9 @@ async function main() {
       const { response, payload } = await apiCall(db, sessionToken, "/api/records?environment=test", { record });
       assert.equal(response.status, 201, `API ${id}: ${JSON.stringify(payload)}`);
       assert.equal(payload.record.taxonomyId, id);
+      if (id === "O1") assert.deepEqual({ currentStock: payload.record.stockMutation?.currentStock, projectedStock: payload.record.stockMutation?.projectedStock, authoritativeStock: payload.record.stockMutation?.authoritativeStock }, { currentStock: null, projectedStock: 1000, authoritativeStock: 1000 });
+      if (id === "O3") assert.deepEqual({ currentStock: payload.record.stockMutation?.currentStock, projectedStock: payload.record.stockMutation?.projectedStock, authoritativeStock: payload.record.stockMutation?.authoritativeStock }, { currentStock: 1000, projectedStock: 990, authoritativeStock: 990 });
+      if (id === "O9") assert.deepEqual({ currentStock: payload.record.stockMutation?.currentStock, projectedStock: payload.record.stockMutation?.projectedStock, authoritativeStock: payload.record.stockMutation?.authoritativeStock }, { currentStock: 990, projectedStock: 985, authoritativeStock: 985 });
       apiResults.set(id, payload.record);
     }
     const replayRecord = { ...validRecord("api-O1", "O1", 300), farmId: apiFarm, houseId: apiHouse, flockId: apiFlock, clientOperationId: "api-client-O1" };

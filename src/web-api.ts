@@ -37,7 +37,12 @@ import {
   persistCanonicalLineage,
   persistOperationalEventLineage,
 } from "./canonical-lineage-service";
-import type { LegacyAbnormalEventRow, LegacyOperationalEventRow } from "./recording-runtime-bridge";
+import {
+  canonicalCommandForLegacyOperational,
+  type LegacyAbnormalEventRow,
+  type LegacyOperationalEventRow,
+} from "./recording-runtime-bridge";
+import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-guard";
 import {
   deriveCanonicalLifecycleSummary,
   type CanonicalLifecycleFact,
@@ -1039,6 +1044,7 @@ interface RetainedManualRecordResult {
   kind: "operational_event" | "abnormal_event";
   created: boolean;
   farmName: string;
+  stockMutation?: CanonicalStockMutationReceipt;
 }
 
 async function createValidatedRetainedRecord(env: WebApiEnv, input: RetainedManualRecordInput): Promise<RetainedManualRecordResult> {
@@ -1086,6 +1092,47 @@ async function createValidatedRetainedRecord(env: WebApiEnv, input: RetainedManu
   const id = `operational-retained-${crypto.randomUUID()}`;
   const groupId = input.lineGroupId ?? await ensureWebGroup(env, input.organizationId);
   const rawMessage = "管理者補登：原始訊息已過保存期限";
+  if (input.intent === "mortality" || input.intent === "cull" || input.intent === "shipment") {
+    const command = canonicalCommandForLegacyOperational({
+      id,
+      intent: input.intent,
+      quantity: input.quantity,
+      unit: input.unit === "bird" ? "隻" : input.unit,
+      farmId: scope.farm.id,
+      houseId: scope.house?.id ?? null,
+      flockId,
+      occurredAt: new Date(`${input.eventDate}T00:00:00+08:00`).toISOString(),
+      createdAt: new Date().toISOString(),
+      sourceChannel: "web",
+      rawText: rawMessage,
+      clientOperationId: input.sourceEventId,
+      actorId: input.actorId,
+      confirmedBy: input.actorId,
+      sex: input.intent === "shipment" ? "unspecified" : null,
+      note: input.note,
+    });
+    if (!command) throw new Error("invalid_event");
+    const result = await persistRecordCommand(
+      { DB: env.DB },
+      command,
+      {
+        organizationId: input.organizationId,
+        actorType: "web_admin",
+        actorId: input.actorId,
+        requestId: input.requestId,
+        lineGroupId: groupId,
+        environment: scope.farm.environment,
+        expectedSourceChannel: "web",
+      },
+    );
+    return {
+      id: result.id,
+      kind: "operational_event",
+      created: result.created,
+      farmName: scope.farm.name,
+      ...(result.stockMutation ? { stockMutation: result.stockMutation } : {}),
+    };
+  }
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO operational_events

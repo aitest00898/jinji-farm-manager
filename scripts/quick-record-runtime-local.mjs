@@ -1,11 +1,14 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const port = 8788 + Math.floor(Math.random() * 80);
 const baseUrl = `http://127.0.0.1:${port}`;
 const token = `local-runtime-${randomBytes(18).toString("hex")}`;
 const groupId = "local-quick-record-group";
 const prefix = `codex-runtime-quick-${Date.now().toString(36)}`;
+const localPersistDir = mkdtempSync(`${tmpdir()}/jinji-quick-record-`);
 const userId = `${prefix}-user`;
 const boundaryUser = `${prefix}-boundary-user`;
 const pendingCorrectionUser = `${prefix}-pending-correction-user`;
@@ -94,17 +97,21 @@ async function cleanup() {
     `UPDATE quick_record_bundles SET status = CASE WHEN status = 'active' THEN 'reversed' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE id LIKE 'quick-bundle-${prefix}%';`,
     `UPDATE quick_record_sessions SET pending_status = 'closed', pending_items_json = '[]', pending_farm_candidates_json = '[]', pending_correction_json = NULL, active_farm_id = NULL, active_house_id = NULL, active_flock_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE line_user_id IN ('${userId}', '${userId}-other', '${boundaryUser}', '${pendingCorrectionUser}', '${effectiveUser}', '${moveUser}', '${multiCorrectionUser}', '${rollingUser}', '${gapUser}');`,
     "UPDATE flocks SET status = 'closed', updated_at = CURRENT_TIMESTAMP WHERE id = 'flock-local-quick-record-1';",
+    "UPDATE flocks SET status = 'closed', updated_at = CURRENT_TIMESTAMP WHERE id = 'flock-local-quick-record-b-1';",
     "UPDATE houses SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = 'house-local-quick-record-1';",
+    "UPDATE houses SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = 'house-local-quick-record-b-1';",
     "UPDATE farms SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = 'farm-local-quick-record';",
     "UPDATE farms SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = 'farm-local-quick-record-b';",
   ].join("\n");
-  run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", cleanupSql]);
+  run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--persist-to", localPersistDir, "--command", cleanupSql]);
 }
 
 async function main() {
-  run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--file=scripts/quick-record-fixture.sql"]);
+  run("npx", ["wrangler", "d1", "migrations", "apply", "DB", "--local", "--persist-to", localPersistDir]);
+  run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--persist-to", localPersistDir, "--command", "INSERT OR IGNORE INTO organizations (id, name, active) VALUES ('org-mafu-investment', 'local quick record organization', 1);"]);
+  run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--persist-to", localPersistDir, "--file=scripts/quick-record-fixture.sql"]);
   const worker = spawn("npx", [
-    "wrangler", "dev", "--local", "--port", String(port),
+    "wrangler", "dev", "--local", "--persist-to", localPersistDir, "--port", String(port),
     "--var", `RUNTIME_TEST_TOKEN:${token}`,
     "--var", "LINE_CHANNEL_SECRET:local-only-secret",
     "--var", "LINE_CHANNEL_ACCESS_TOKEN:local-only-token",
@@ -202,6 +209,7 @@ async function main() {
   } finally {
     worker.kill("SIGTERM");
     try { await cleanup(); } catch (error) { console.error(`LOCAL_CLEANUP_FAILED=${error instanceof Error ? error.message : String(error)}`); }
+    rmSync(localPersistDir, { recursive: true, force: true });
   }
   const passed = checks.filter((item) => item.pass).length;
   console.log(`LOCAL_QUICK_RUNTIME_CHECKS=${passed}/${checks.length}`);

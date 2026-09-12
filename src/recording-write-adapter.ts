@@ -16,10 +16,14 @@ import {
   type CanonicalPersistenceDestination,
   type RecordingLineageReference,
 } from "./recording-runtime-bridge";
+import type { CanonicalShipmentReadInput } from "./canonical-shipment-read-model";
 import {
-  validateCanonicalShipmentMutation,
-  type CanonicalShipmentReadInput,
-} from "./canonical-shipment-read-model";
+  deriveCanonicalStockReadState,
+  reconcileCanonicalStockMutation,
+  validateCanonicalStockMutation,
+  type CanonicalStockMutationProjection,
+  type CanonicalStockMutationReceipt,
+} from "./canonical-stock-mutation-guard";
 import type {
   CanonicalLifecycleFact,
   CanonicalLifecycleFlock,
@@ -48,6 +52,8 @@ export interface CanonicalWriteContext {
   requestId: string;
   lineGroupId?: string | null;
   lineUserId?: string | null;
+  /** Links a canonical operational row to an existing quick-record bundle. */
+  quickBundleId?: string | null;
   environment?: "production" | "test";
   expectedSourceChannel?: RecordingSourceChannel;
   now?: string;
@@ -65,6 +71,7 @@ export interface CanonicalWriteResult {
     kind: "correction" | "reversal" | "replacement" | null;
     referenceId: string | null;
   };
+  stockMutation?: CanonicalStockMutationReceipt;
 }
 
 export class CanonicalWriteError extends Error {
@@ -347,24 +354,23 @@ async function canonicalShipmentWriteState(
   };
 }
 
-async function validateCanonicalShipmentWrite(
-  env: CanonicalWriteEnv,
+function canonicalStockMutationCandidate(
   record: RecordingDraft,
   scope: CanonicalScope,
-  relation: Relation | null,
-): Promise<void> {
-  if (record.taxonomyId !== "O3") return;
-  const state = await canonicalShipmentWriteState(env, scope.organizationId, scope);
-  const candidate: CanonicalLifecycleFact = {
+): CanonicalLifecycleFact {
+  const taxonomyId = String(record.taxonomyId) as CanonicalLifecycleFact["taxonomyId"];
+  return {
     id: String(record.id),
-    taxonomyId: "O3",
+    taxonomyId,
     farmId: scope.farm.id,
     houseId: scope.houseId,
     flockId: scope.flockId,
     occurredAt: String(record.occurredAt),
     createdAt: String(record.createdAt),
     quantity: nullableNumber(record.quantity),
-    totalCount: null,
+    totalCount: taxonomyId === "O1"
+      ? nullableNumber(record.totalCount ?? Number(record.maleCount) + Number(record.femaleCount))
+      : null,
     workflowStatus: null,
     completedAt: null,
     lifecycleStatus: typeof record.lifecycleStatus === "string" ? record.lifecycleStatus : "active",
@@ -376,12 +382,140 @@ async function validateCanonicalShipmentWrite(
     averageWeight: nullableNumber(record.averageWeight),
     weightUnit: typeof record.weightUnit === "string" ? record.weightUnit : null,
   };
-  const verdict = validateCanonicalShipmentMutation({ ...state.input, candidate });
-  if (verdict.accepted) return;
-  if (verdict.reason === "SHIPMENT_FLOCK_SCOPE_REQUIRED") fail("CANONICAL_SHIPMENT_FLOCK_REQUIRED", "flockId");
-  if (verdict.reason === "SHIPMENT_REVERSAL_TARGET_SCOPE_INVALID") fail("CANONICAL_SHIPMENT_REVERSAL_SCOPE_INVALID", "reversalOfId");
-  if (verdict.reason === "NEGATIVE_EFFECTIVE_STOCK") fail("CANONICAL_SHIPMENT_STOCK_EXCEEDED", "quantity");
-  fail("CANONICAL_SHIPMENT_STOCK_ARITHMETIC_INVALID", "quantity");
+}
+
+function stockGuardError(
+  record: RecordingDraft,
+  reason: string,
+): { code: string; field?: string } {
+  if (reason === "STOCK_SCOPE_HOUSE_REQUIRED") return { code: "CANONICAL_STOCK_HOUSE_REQUIRED", field: "houseId" };
+  if (reason === "STOCK_SCOPE_FARM_MISMATCH") return { code: "CANONICAL_SCOPE_INVALID", field: "farmId" };
+  if (reason === "STOCK_FLOCK_SCOPE_REQUIRED") {
+    return record.taxonomyId === "O3"
+      ? { code: "CANONICAL_SHIPMENT_FLOCK_REQUIRED", field: "flockId" }
+      : { code: "CANONICAL_STOCK_FLOCK_REQUIRED", field: "flockId" };
+  }
+  if (reason === "ACTIVE_FLOCK_REQUIRED") return { code: "CANONICAL_ACTIVE_FLOCK_REQUIRED", field: "flockId" };
+  if (reason === "STOCK_QUANTITY_INVALID") return { code: "CANONICAL_QUANTITY_INVALID", field: "quantity" };
+  if (reason === "STOCK_ORIGINAL_LINEAGE_STATUS_INVALID") return { code: "CANONICAL_STOCK_LINEAGE_STATUS_INVALID", field: "lifecycleStatus" };
+  if (reason === "STOCK_CANDIDATE_OUTSIDE_CURRENT_CYCLE") return { code: "CANONICAL_STOCK_CYCLE_SCOPE_INVALID", field: "occurredAt" };
+  if (reason === "INTAKE_ALREADY_ESTABLISHED" || reason === "INTAKE_CONTEXT_HAS_STOCK_ACTIVITY") {
+    return { code: "CANONICAL_INTAKE_CONTEXT_INVALID", field: "flockId" };
+  }
+  if (reason === "SHIPMENT_REVERSAL_TARGET_SCOPE_INVALID") {
+    return { code: "CANONICAL_SHIPMENT_REVERSAL_SCOPE_INVALID", field: "reversalOfId" };
+  }
+  if (reason === "NEGATIVE_EFFECTIVE_STOCK") {
+    return record.taxonomyId === "O3"
+      ? { code: "CANONICAL_SHIPMENT_STOCK_EXCEEDED", field: "quantity" }
+      : { code: "CANONICAL_STOCK_EXCEEDED", field: "quantity" };
+  }
+  if (reason === "SHIPMENT_STOCK_ARITHMETIC_INVALID") {
+    return { code: "CANONICAL_SHIPMENT_STOCK_ARITHMETIC_INVALID", field: "quantity" };
+  }
+  return { code: "CANONICAL_STOCK_ARITHMETIC_INVALID", field: "quantity" };
+}
+
+async function canonicalStockMutationState(
+  env: CanonicalWriteEnv,
+  record: RecordingDraft,
+  scope: CanonicalScope,
+): Promise<CanonicalShipmentReadInput> {
+  if (!scope.houseId || !scope.flockId) {
+    if (record.taxonomyId === "O3") fail("CANONICAL_SHIPMENT_FLOCK_REQUIRED", "flockId");
+    fail("CANONICAL_STOCK_FLOCK_REQUIRED", "flockId");
+  }
+  return (await canonicalShipmentWriteState(env, scope.organizationId, scope)).input;
+}
+
+async function validateCanonicalStockMutationWrite(
+  env: CanonicalWriteEnv,
+  record: RecordingDraft,
+  scope: CanonicalScope,
+  relation: Relation | null,
+): Promise<CanonicalStockMutationProjection | null> {
+  if (record.taxonomyId !== "O1" && record.taxonomyId !== "O3" && record.taxonomyId !== "O9") return null;
+  const state = await canonicalStockMutationState(env, record, scope);
+  const verdict = validateCanonicalStockMutation({
+    ...state,
+    candidate: canonicalStockMutationCandidate(record, scope),
+    relationKind: relation?.kind ?? null,
+    operationLabel: typeof record.subtype === "string" ? record.subtype : null,
+  });
+  if (verdict.accepted) return verdict.projection;
+  const error = stockGuardError(record, verdict.reason);
+  fail(error.code, error.field);
+}
+
+async function authoritativeStockAfterWrite(
+  env: CanonicalWriteEnv,
+  record: RecordingDraft,
+  scope: CanonicalScope,
+): Promise<number | null> {
+  const state = await canonicalStockMutationState(env, record, scope);
+  return deriveCanonicalStockReadState(state).effectiveStock;
+}
+
+/**
+ * Read-only preview for a pending operator confirmation.  It uses the exact
+ * same resolver and guard as the write path, but never ensures metadata or
+ * creates a business row.
+ */
+export async function previewCanonicalStockMutation(
+  env: CanonicalWriteEnv,
+  input: RecordCommand,
+  context: CanonicalWriteContext,
+): Promise<CanonicalStockMutationProjection | null> {
+  const record = normalizeRecordingDraft(input.record);
+  validateRecordingDraft(record);
+  const scope = await resolveScope(env, record, context);
+  return validateCanonicalStockMutationWrite(env, record, scope, lineageFor(record));
+}
+
+export interface CanonicalStockMutationPreviewInput {
+  input: RecordCommand;
+  context: CanonicalWriteContext;
+}
+
+/**
+ * Read-only sequence preview for a grouped LINE submission.  Each candidate
+ * is applied to the in-memory fact list only after the previous candidate has
+ * passed, so a later overdraw cannot leave an earlier item committed before
+ * the bundle reaches the write boundary.
+ */
+export async function previewCanonicalStockMutations(
+  env: CanonicalWriteEnv,
+  inputs: readonly CanonicalStockMutationPreviewInput[],
+): Promise<readonly CanonicalStockMutationProjection[]> {
+  const projections: CanonicalStockMutationProjection[] = [];
+  let state: CanonicalShipmentReadInput | null = null;
+  let stateKey: string | null = null;
+  for (const entry of inputs) {
+    const record = normalizeRecordingDraft(entry.input.record);
+    validateRecordingDraft(record);
+    if (record.taxonomyId !== "O1" && record.taxonomyId !== "O3" && record.taxonomyId !== "O9") continue;
+    const scope = await resolveScope(env, record, entry.context);
+    const nextKey = [scope.farm.id, scope.houseId ?? "", scope.flockId ?? ""].join("|");
+    if (!state || stateKey !== nextKey) {
+      state = await canonicalStockMutationState(env, record, scope);
+      stateKey = nextKey;
+    }
+    const relation = lineageFor(record);
+    const candidate = canonicalStockMutationCandidate(record, scope);
+    const verdict = validateCanonicalStockMutation({
+      ...state,
+      candidate,
+      relationKind: relation?.kind ?? null,
+      operationLabel: typeof record.subtype === "string" ? record.subtype : null,
+    });
+    if (!verdict.accepted) {
+      const error = stockGuardError(record, verdict.reason);
+      fail(error.code, error.field);
+    }
+    if (verdict.projection) projections.push(verdict.projection);
+    if (!relation) state = { ...state, facts: [...state.facts, candidate] };
+  }
+  return projections;
 }
 
 async function ensureLineGroup(
@@ -692,8 +826,8 @@ async function insertOperationalEvent(
        unit, event_date, house, house_id, flock_id, raw_message, raw_farm_text,
        note, pending_action_id, source_event_id, taxonomy_id, family, canonical_type,
        subtype, sex, total_weight, average_weight, weight_unit, occurred_at,
-       source_channel, created_at, reversal_of_event_id, correction_of_event_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       source_channel, created_at, reversal_of_event_id, correction_of_event_id, quick_bundle_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     String(record.id),
     scope.organizationId,
@@ -725,6 +859,7 @@ async function insertOperationalEvent(
     String(record.createdAt),
     relation?.kind === "reversal" ? relation.id : null,
     relation?.kind === "correction" || relation?.kind === "replacement" ? relation.id : null,
+    context.quickBundleId ?? null,
   );
 }
 
@@ -823,9 +958,11 @@ export async function persistRecordCommand(
     };
   }
 
-  // O3 is the only canonical shipment authority. Validate its prospective
-  // effective arithmetic before creating any metadata or business row.
-  await validateCanonicalShipmentWrite(env, record, scope, relation);
+  // O1/O3/O9 share one pre-write stock boundary.  It resolves the active
+  // flock, replays the canonical effective facts, validates the prospective
+  // arithmetic, and prepares the operator-facing confirmation projection
+  // before creating any metadata or business row.
+  const stockMutationProjection = await validateCanonicalStockMutationWrite(env, record, scope, relation);
 
   // Resolve/ensure the LINE group only after all fail-closed validation and
   // idempotency checks. Invalid Web/API requests must not leave metadata rows.
@@ -861,6 +998,12 @@ export async function persistRecordCommand(
     ? String(written.source_event_id)
     : String(written.client_operation_id);
   if (writtenClientOperationId !== clientOperationId) fail("CANONICAL_ID_CONFLICT");
+  if (stockMutationProjection) {
+    result.stockMutation = reconcileCanonicalStockMutation(
+      stockMutationProjection,
+      await authoritativeStockAfterWrite(env, record, scope),
+    );
+  }
   return result;
 }
 

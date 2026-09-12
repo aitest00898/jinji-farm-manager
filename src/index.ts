@@ -161,7 +161,14 @@ import {
   type RecordingIdentity,
   type ResolvedRecordingScope,
 } from "./recording-runtime-bridge";
-import { persistRecordCommand } from "./recording-write-adapter";
+import {
+  persistRecordCommand,
+  previewCanonicalStockMutation,
+} from "./recording-write-adapter";
+import type {
+  CanonicalStockMutationProjection,
+  CanonicalStockMutationReceipt,
+} from "./canonical-stock-mutation-guard";
 import {
   parseCanonicalRecordingText,
   taxonomyDefinitionFor,
@@ -3440,6 +3447,7 @@ async function writeOperationalEvent(
     `${botName(accountName)} ✅ 紀錄成功`,
     `${farmDisplayName(farm)}${canonicalHouse ? `｜${canonicalHouse}` : ""}｜${operationLabel(stored.intent)}｜${operationQuantityText(stored.quantity, stored.unit)}`,
     ...(stored.note ? [`備註：${stored.note}`] : []),
+    ...canonicalStockReadbackLines(canonicalResult.stockMutation),
   ].join("\n");
 }
 
@@ -6202,17 +6210,51 @@ function canonicalLineDetails(parsed: CanonicalTextParse, draft: Record<string, 
   return fields;
 }
 
+function canonicalStockConfirmationLines(stockMutation: CanonicalStockMutationProjection): string[] {
+  const stockText = stockMutation.currentStock === null ? "尚未建立" : String(stockMutation.currentStock);
+  return [
+    `目前存欄：${stockText}`,
+    `確認後預計存欄：${String(stockMutation.projectedStock)}`,
+  ];
+}
+
+function canonicalStockReadbackLines(stockMutation: CanonicalStockMutationReceipt | undefined): string[] {
+  if (!stockMutation) return [];
+  const authoritative = stockMutation.authoritativeStock === null ? "無法取得" : String(stockMutation.authoritativeStock);
+  const lines = [`權威回讀目前存欄：${authoritative}`];
+  if (!stockMutation.readbackMatchesProjection) {
+    lines.push(`⚠️ 預估存欄 ${String(stockMutation.projectedStock)} 與權威回讀不同，以上述權威回讀為準。`);
+  }
+  return lines;
+}
+
+function canonicalStockGuardClarification(error: unknown): string {
+  const code = error instanceof Error && "code" in error ? String((error as Error & { code?: unknown }).code) : "";
+  if (code === "CANONICAL_SHIPMENT_FLOCK_REQUIRED" || code === "CANONICAL_STOCK_FLOCK_REQUIRED") {
+    return "存欄異動需要明確批次，請補充正式批次代碼；目前沒有寫入正式資料。";
+  }
+  if (code === "CANONICAL_SHIPMENT_STOCK_EXCEEDED" || code === "CANONICAL_STOCK_EXCEEDED") {
+    return "目前有效存欄不足，這筆操作沒有寫入；請確認數量。";
+  }
+  if (code === "CANONICAL_STOCK_CYCLE_SCOPE_INVALID") return "事件日期不在目前批次範圍內，沒有寫入正式資料；請確認批次與日期。";
+  if (code === "CANONICAL_STOCK_LINEAGE_STATUS_INVALID") return "原始存欄操作的狀態無效，沒有寫入正式資料；請重新建立待確認紀錄。";
+  if (code === "CANONICAL_ACTIVE_FLOCK_REQUIRED") return "目前批次不是進行中，沒有寫入正式資料。";
+  if (code === "CANONICAL_INTAKE_CONTEXT_INVALID") return "目前批次已有入雛或存欄活動，請確認是否為新的批次；沒有寫入正式資料。";
+  return "目前無法安全推導存欄，沒有寫入正式資料；請確認雞舍、批次與數量。";
+}
+
 function canonicalLineCandidateReply(
   accountName: string,
   parsed: CanonicalTextParse,
   route: ReturnType<typeof canonicalRouteForText>,
   scope: CanonicalLineResolvedScope,
+  stockMutation: CanonicalStockMutationProjection | null,
 ): string {
   const definition = parsed.taxonomyId ? taxonomyDefinitionFor(parsed.taxonomyId) : null;
   return [
     `${botName(accountName)} 已辨識為「${definition?.label ?? parsed.taxonomyId ?? "營運紀錄"}」。`,
     ...canonicalLineDetails(parsed, route.draft, scope),
-    `權威資料表：${route.route.destination}`,
+    ...(stockMutation ? canonicalStockConfirmationLines(stockMutation) : []),
     "目前尚未寫入正式資料。",
     "請回覆：確認 / 取消",
   ].join("\n");
@@ -6271,8 +6313,7 @@ async function handleCanonicalLineInput(
       return [
         `${botName(accountName)} ${verb}`,
         ...canonicalLineDetails(parsed, route.draft, resolved),
-        `權威資料表：${result.destination}`,
-        `分類：${result.taxonomyId}`,
+        ...canonicalStockReadbackLines(result.stockMutation),
       ].join("\n");
     } catch (error) {
       console.log(JSON.stringify({
@@ -6334,6 +6375,29 @@ async function handleCanonicalLineInput(
       }));
     }
   }
+  let stockMutation: CanonicalStockMutationProjection | null = null;
+  let stockGuardClarification: string | null = null;
+  if (route && (parsed.taxonomyId === "O1" || parsed.taxonomyId === "O3" || parsed.taxonomyId === "O9")) {
+    try {
+      stockMutation = await previewCanonicalStockMutation(
+        { DB: env.DB },
+        route.command,
+        {
+          organizationId,
+          actorType: "line_user",
+          actorId: lineUserId,
+          requestId: eventId,
+          lineGroupId: groupId,
+          lineUserId,
+          environment: resolved.environment ?? "production",
+          expectedSourceChannel: "line",
+        },
+      );
+    } catch (error) {
+      stockGuardClarification = canonicalStockGuardClarification(error);
+      route = null;
+    }
+  }
   pending = { ...pending, status: route ? "confirmation" : "clarification" };
   await saveCanonicalLinePending(
     env,
@@ -6348,10 +6412,10 @@ async function handleCanonicalLineInput(
     return canonicalLineScopeFailureText(
       accountName,
       parsed,
-      resolved.clarification ?? parsed.clarificationQuestion,
+      stockGuardClarification ?? resolved.clarification ?? parsed.clarificationQuestion,
     );
   }
-  return canonicalLineCandidateReply(accountName, parsed, route, resolved);
+  return canonicalLineCandidateReply(accountName, parsed, route, resolved, stockMutation);
 }
 
 async function conversationV2FarmEnvironment(
