@@ -1,0 +1,647 @@
+{
+  "generatedFrom": "src/recording-taxonomy.ts + src/recording-write-matrix.ts",
+  "rows": [
+    {
+      "taxonomyId": "O1",
+      "family": "operational_event",
+      "type": "event",
+      "subtype": [
+        "chick_in"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "recording_event_adapter",
+      "authoritativeDestination": "recording_events",
+      "requiredFields": [
+        "houseId",
+        "flockId",
+        "maleCount",
+        "femaleCount",
+        "condition"
+      ],
+      "derivedFields": [
+        "totalCount"
+      ],
+      "readBridge": "canonical_recording_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 1,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O2",
+      "family": "operational_action",
+      "type": "action",
+      "subtype": [
+        "vaccination",
+        "medication",
+        "supplement"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_action_adapter",
+      "authoritativeDestination": "operational_actions",
+      "requiredFields": [
+        "content"
+      ],
+      "derivedFields": [],
+      "readBridge": "operational_actions",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O3",
+      "family": "operational_event",
+      "type": "event",
+      "subtype": [
+        "shipment"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_event_legacy_authority_adapter",
+      "authoritativeDestination": "operational_events",
+      "requiredFields": [
+        "quantity",
+        "sex"
+      ],
+      "derivedFields": [
+        "averageWeight"
+      ],
+      "readBridge": "legacy_operational_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": -1,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "existing_text_path_calls_shared_adapter",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O4",
+      "family": "operational_event",
+      "type": "event",
+      "subtype": [
+        "weigh"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "recording_event_adapter",
+      "authoritativeDestination": "recording_events",
+      "requiredFields": [
+        "houseId",
+        "flockId",
+        "averageWeight",
+        "sex"
+      ],
+      "derivedFields": [
+        "ageDays"
+      ],
+      "readBridge": "canonical_recording_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O5",
+      "family": "operational_action",
+      "type": "action",
+      "subtype": [
+        "feed_order"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_action_adapter",
+      "authoritativeDestination": "operational_actions",
+      "requiredFields": [
+        "vendor",
+        "weight",
+        "weightUnit"
+      ],
+      "derivedFields": [],
+      "readBridge": "operational_actions",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O6",
+      "family": "operational_action",
+      "type": "action",
+      "subtype": [
+        "lab_test"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_action_adapter",
+      "authoritativeDestination": "operational_actions",
+      "requiredFields": [
+        "submittedAt",
+        "content",
+        "workflowStatus"
+      ],
+      "derivedFields": [
+        "reminderDueAt"
+      ],
+      "readBridge": "operational_actions",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O7",
+      "family": "operational_action",
+      "type": "action",
+      "subtype": [
+        "disinfection"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_action_adapter",
+      "authoritativeDestination": "operational_actions",
+      "requiredFields": [
+        "workflowStatus"
+      ],
+      "derivedFields": [],
+      "readBridge": "operational_actions",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O8",
+      "family": "operational_action",
+      "type": "action",
+      "subtype": [
+        "maintenance"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_action_adapter",
+      "authoritativeDestination": "operational_actions",
+      "requiredFields": [
+        "maintenanceContent"
+      ],
+      "derivedFields": [],
+      "readBridge": "operational_actions",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_client_operation_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "O9",
+      "family": "operational_event",
+      "type": "event",
+      "subtype": [
+        "mortality",
+        "cull"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "operational_event_legacy_authority_adapter",
+      "authoritativeDestination": "operational_events",
+      "requiredFields": [
+        "quantity"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_operational_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": -1,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "existing_text_path_calls_shared_adapter",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A1",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "mortality_abnormality"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent",
+        "linkedMortalityEventId"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A2",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "cough"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A3",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "respiratory_distress"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A4",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "activity_down"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A5",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "eye_swelling",
+        "white_crown",
+        "purple_crown",
+        "black_crown"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A6",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "watery",
+        "white",
+        "green",
+        "bloody"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A7",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "growth_delay"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A8",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "foot_odor"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A9",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "fever"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A10",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "heat_stress",
+        "catching_stress"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A11",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "feeding_abnormality",
+        "water_abnormality"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A12",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "feed",
+        "water",
+        "electricity",
+        "fan",
+        "cooling",
+        "heating",
+        "other"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A13",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "high_temperature",
+        "low_temperature",
+        "heavy_rain"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A14",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "flooding"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A15",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "odor"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    },
+    {
+      "taxonomyId": "A16",
+      "family": "operational_observation",
+      "type": "observation",
+      "subtype": [
+        "attack",
+        "infection",
+        "spread"
+      ],
+      "recordCommandSupported": true,
+      "validatorSupported": true,
+      "resolverSupported": true,
+      "writeAdapter": "abnormal_event_adapter",
+      "authoritativeDestination": "abnormal_events",
+      "requiredFields": [
+        "extent"
+      ],
+      "derivedFields": [],
+      "readBridge": "legacy_abnormal_events",
+      "correctionPath": "append_only_lineage",
+      "idempotencyPath": "organization_plus_source_event_id",
+      "stockEffect": 0,
+      "apiExposed": "POST /api/records + GET /api/records",
+      "linePathExposed": "shared_adapter_command_boundary",
+      "gapClassification": "COMPLETE"
+    }
+  ]
+}

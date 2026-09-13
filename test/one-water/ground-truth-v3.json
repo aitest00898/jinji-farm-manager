@@ -1,0 +1,1408 @@
+{
+  "version": 1,
+  "variant": "boundary",
+  "baseSha": "7df2610070518122b1737c62a310ab5492c0e476",
+  "generatedAtPolicy": "fixed source-derived transcript; no wall-clock values",
+  "eventCount": 108,
+  "events": [
+    {
+      "webhookEventId": "owa-boundary-001-o1-intake-candidate",
+      "label": "o1-intake-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O1",
+        "subtype": "chick_in"
+      },
+      "parser": {
+        "taxonomyId": "O1",
+        "subtype": "chick_in",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-002-o1-intake-confirm",
+      "label": "o1-intake-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O1",
+        "subtype": "chick_in",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-003-o2-vaccine-candidate",
+      "label": "o2-vaccine-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O2",
+        "subtype": "supplement"
+      },
+      "parser": {
+        "taxonomyId": "O2",
+        "subtype": "supplement",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-004-o2-vaccine-confirm",
+      "label": "o2-vaccine-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O2",
+        "subtype": "supplement",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-005-o4-weigh-candidate",
+      "label": "o4-weigh-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O4",
+        "subtype": "weigh"
+      },
+      "parser": {
+        "taxonomyId": "O4",
+        "subtype": "weigh",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-006-o4-weigh-confirm",
+      "label": "o4-weigh-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O4",
+        "subtype": "weigh",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-007-o5-feed-candidate",
+      "label": "o5-feed-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O5",
+        "subtype": "feed_order"
+      },
+      "parser": {
+        "taxonomyId": "O5",
+        "subtype": "feed_order",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-008-o5-feed-confirm",
+      "label": "o5-feed-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O5",
+        "subtype": "feed_order",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-009-o6-submit-candidate",
+      "label": "o6-submit-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O6",
+        "subtype": "lab_test"
+      },
+      "parser": {
+        "taxonomyId": "O6",
+        "subtype": "lab_test",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-010-o6-submit-confirm",
+      "label": "o6-submit-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O6",
+        "subtype": "lab_test",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-011-o8-maintenance-candidate",
+      "label": "o8-maintenance-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O8",
+        "subtype": "maintenance"
+      },
+      "parser": {
+        "taxonomyId": "O8",
+        "subtype": "maintenance",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-012-o8-maintenance-confirm",
+      "label": "o8-maintenance-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O8",
+        "subtype": "maintenance",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-013-o9-mortality-candidate",
+      "label": "o9-mortality-candidate",
+      "expected": {
+        "kind": "direct_write",
+        "taxonomyId": "O9",
+        "subtype": "cull",
+        "write": true
+      },
+      "parser": {
+        "taxonomyId": "O9",
+        "subtype": "cull",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-014-o9-mortality-confirm",
+      "label": "o9-mortality-confirm",
+      "expected": {
+        "kind": "no_pending",
+        "taxonomyId": "O9",
+        "subtype": "cull",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-015-o3-partial-candidate",
+      "label": "o3-partial-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O3",
+        "subtype": "shipment"
+      },
+      "parser": {
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-016-o3-partial-confirm",
+      "label": "o3-partial-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-017-o3-reissue-candidate",
+      "label": "o3-reissue-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O3",
+        "subtype": "shipment"
+      },
+      "parser": {
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-018-o3-reissue-confirm",
+      "label": "o3-reissue-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-019-o3-final-candidate",
+      "label": "o3-final-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O3",
+        "subtype": "shipment"
+      },
+      "parser": {
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-020-o3-final-confirm",
+      "label": "o3-final-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O3",
+        "subtype": "shipment",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-021-o7-clean-candidate",
+      "label": "o7-clean-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O7",
+        "subtype": "disinfection"
+      },
+      "parser": {
+        "taxonomyId": "O7",
+        "subtype": "disinfection",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-022-o7-clean-confirm",
+      "label": "o7-clean-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O7",
+        "subtype": "disinfection",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-023-a2-cough-write-candidate",
+      "label": "a2-cough-write-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A2",
+        "subtype": "cough"
+      },
+      "parser": {
+        "taxonomyId": "A2",
+        "subtype": "cough",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-024-a2-cough-write-confirm",
+      "label": "a2-cough-write-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "A2",
+        "subtype": "cough",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-025-o2-medication-candidate",
+      "label": "o2-medication-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O2",
+        "subtype": "medication"
+      },
+      "parser": {
+        "taxonomyId": "O2",
+        "subtype": "medication",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-026-o2-medication-cancel",
+      "label": "o2-medication-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "O2",
+        "subtype": "medication",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-027-o2-supplement-candidate",
+      "label": "o2-supplement-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O2",
+        "subtype": "supplement"
+      },
+      "parser": {
+        "taxonomyId": "O2",
+        "subtype": "supplement",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-028-o2-supplement-cancel",
+      "label": "o2-supplement-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "O2",
+        "subtype": "supplement",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-029-o9-cull-candidate",
+      "label": "o9-cull-candidate",
+      "expected": {
+        "kind": "ignore",
+        "taxonomyId": "O9",
+        "subtype": "cull"
+      },
+      "parser": {
+        "taxonomyId": "O9",
+        "subtype": "cull",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-030-o9-cull-cancel",
+      "label": "o9-cull-cancel",
+      "expected": {
+        "kind": "no_pending",
+        "taxonomyId": "O9",
+        "subtype": "cull",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-031-A1-mortality_abnormality-candidate",
+      "label": "A1-mortality_abnormality-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A1",
+        "subtype": "mortality_abnormality"
+      },
+      "parser": {
+        "taxonomyId": "A1",
+        "subtype": "mortality_abnormality",
+        "recordWorthiness": "candidate",
+        "missingFields": [
+          "linkedMortalityEventId"
+        ]
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-032-A1-mortality_abnormality-cancel",
+      "label": "A1-mortality_abnormality-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A1",
+        "subtype": "mortality_abnormality",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-033-A3-respiratory_distress-candidate",
+      "label": "A3-respiratory_distress-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A3",
+        "subtype": "respiratory_distress"
+      },
+      "parser": {
+        "taxonomyId": "A3",
+        "subtype": "respiratory_distress",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-034-A3-respiratory_distress-cancel",
+      "label": "A3-respiratory_distress-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A3",
+        "subtype": "respiratory_distress",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-035-A4-activity_down-candidate",
+      "label": "A4-activity_down-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A4",
+        "subtype": "activity_down"
+      },
+      "parser": {
+        "taxonomyId": "A4",
+        "subtype": "activity_down",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-036-A4-activity_down-cancel",
+      "label": "A4-activity_down-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A4",
+        "subtype": "activity_down",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-037-A5-eye_swelling-candidate",
+      "label": "A5-eye_swelling-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A5",
+        "subtype": "eye_swelling"
+      },
+      "parser": {
+        "taxonomyId": "A5",
+        "subtype": "eye_swelling",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-038-A5-eye_swelling-cancel",
+      "label": "A5-eye_swelling-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A5",
+        "subtype": "eye_swelling",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-039-A5-white_crown-candidate",
+      "label": "A5-white_crown-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A5",
+        "subtype": "white_crown"
+      },
+      "parser": {
+        "taxonomyId": "A5",
+        "subtype": "white_crown",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-040-A5-white_crown-cancel",
+      "label": "A5-white_crown-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A5",
+        "subtype": "white_crown",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-041-A5-purple_crown-candidate",
+      "label": "A5-purple_crown-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A5",
+        "subtype": "purple_crown"
+      },
+      "parser": {
+        "taxonomyId": "A5",
+        "subtype": "purple_crown",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-042-A5-purple_crown-cancel",
+      "label": "A5-purple_crown-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A5",
+        "subtype": "purple_crown",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-043-A5-black_crown-candidate",
+      "label": "A5-black_crown-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A5",
+        "subtype": "black_crown"
+      },
+      "parser": {
+        "taxonomyId": "A5",
+        "subtype": "black_crown",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-044-A5-black_crown-cancel",
+      "label": "A5-black_crown-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A5",
+        "subtype": "black_crown",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-045-A6-watery-candidate",
+      "label": "A6-watery-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A6",
+        "subtype": "watery"
+      },
+      "parser": {
+        "taxonomyId": "A6",
+        "subtype": "watery",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-046-A6-watery-cancel",
+      "label": "A6-watery-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A6",
+        "subtype": "watery",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-047-A6-white-candidate",
+      "label": "A6-white-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A6",
+        "subtype": "white"
+      },
+      "parser": {
+        "taxonomyId": "A6",
+        "subtype": "white",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-048-A6-white-cancel",
+      "label": "A6-white-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A6",
+        "subtype": "white",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-049-A6-green-candidate",
+      "label": "A6-green-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A6",
+        "subtype": "green"
+      },
+      "parser": {
+        "taxonomyId": "A6",
+        "subtype": "green",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-050-A6-green-cancel",
+      "label": "A6-green-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A6",
+        "subtype": "green",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-051-A6-bloody-candidate",
+      "label": "A6-bloody-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A6",
+        "subtype": "bloody"
+      },
+      "parser": {
+        "taxonomyId": "A6",
+        "subtype": "bloody",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-052-A6-bloody-cancel",
+      "label": "A6-bloody-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A6",
+        "subtype": "bloody",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-053-A7-growth_delay-candidate",
+      "label": "A7-growth_delay-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A7",
+        "subtype": "growth_delay"
+      },
+      "parser": {
+        "taxonomyId": "A7",
+        "subtype": "growth_delay",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-054-A7-growth_delay-cancel",
+      "label": "A7-growth_delay-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A7",
+        "subtype": "growth_delay",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-055-A8-foot_odor-candidate",
+      "label": "A8-foot_odor-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A8",
+        "subtype": "foot_odor"
+      },
+      "parser": {
+        "taxonomyId": "A8",
+        "subtype": "foot_odor",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-056-A8-foot_odor-cancel",
+      "label": "A8-foot_odor-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A8",
+        "subtype": "foot_odor",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-057-A9-fever-candidate",
+      "label": "A9-fever-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A9",
+        "subtype": "fever"
+      },
+      "parser": {
+        "taxonomyId": "A9",
+        "subtype": "fever",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-058-A9-fever-cancel",
+      "label": "A9-fever-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A9",
+        "subtype": "fever",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-059-A10-heat_stress-candidate",
+      "label": "A10-heat_stress-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A10",
+        "subtype": "heat_stress"
+      },
+      "parser": {
+        "taxonomyId": "A10",
+        "subtype": "heat_stress",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-060-A10-heat_stress-cancel",
+      "label": "A10-heat_stress-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A10",
+        "subtype": "heat_stress",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-061-A10-catching_stress-candidate",
+      "label": "A10-catching_stress-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A10",
+        "subtype": "catching_stress"
+      },
+      "parser": {
+        "taxonomyId": "A10",
+        "subtype": "catching_stress",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-062-A10-catching_stress-cancel",
+      "label": "A10-catching_stress-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A10",
+        "subtype": "catching_stress",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-063-A11-feeding_abnormality-candidate",
+      "label": "A11-feeding_abnormality-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A11",
+        "subtype": "feeding_abnormality"
+      },
+      "parser": {
+        "taxonomyId": "A11",
+        "subtype": "feeding_abnormality",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-064-A11-feeding_abnormality-cancel",
+      "label": "A11-feeding_abnormality-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A11",
+        "subtype": "feeding_abnormality",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-065-A11-water_abnormality-candidate",
+      "label": "A11-water_abnormality-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A11",
+        "subtype": "water_abnormality"
+      },
+      "parser": {
+        "taxonomyId": "A11",
+        "subtype": "water_abnormality",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-066-A11-water_abnormality-cancel",
+      "label": "A11-water_abnormality-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A11",
+        "subtype": "water_abnormality",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-067-A12-feed-candidate",
+      "label": "A12-feed-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "feed"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "feed",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-068-A12-feed-cancel",
+      "label": "A12-feed-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "feed",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-069-A12-water-candidate",
+      "label": "A12-water-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "water"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "water",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-070-A12-water-cancel",
+      "label": "A12-water-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "water",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-071-A12-electricity-candidate",
+      "label": "A12-electricity-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "electricity"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "electricity",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-072-A12-electricity-cancel",
+      "label": "A12-electricity-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "electricity",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-073-A12-fan-candidate",
+      "label": "A12-fan-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "fan"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "fan",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-074-A12-fan-cancel",
+      "label": "A12-fan-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "fan",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-075-A12-cooling-candidate",
+      "label": "A12-cooling-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "cooling"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "cooling",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-076-A12-cooling-cancel",
+      "label": "A12-cooling-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "cooling",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-077-A12-heating-candidate",
+      "label": "A12-heating-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "heating"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "heating",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-078-A12-heating-cancel",
+      "label": "A12-heating-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "heating",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-079-A12-other-candidate",
+      "label": "A12-other-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A12",
+        "subtype": "other"
+      },
+      "parser": {
+        "taxonomyId": "A12",
+        "subtype": "other",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-080-A12-other-cancel",
+      "label": "A12-other-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A12",
+        "subtype": "other",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-081-A13-high_temperature-candidate",
+      "label": "A13-high_temperature-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A13",
+        "subtype": "high_temperature"
+      },
+      "parser": {
+        "taxonomyId": "A13",
+        "subtype": "high_temperature",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-082-A13-high_temperature-cancel",
+      "label": "A13-high_temperature-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A13",
+        "subtype": "high_temperature",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-083-A13-low_temperature-candidate",
+      "label": "A13-low_temperature-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A13",
+        "subtype": "low_temperature"
+      },
+      "parser": {
+        "taxonomyId": "A13",
+        "subtype": "low_temperature",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-084-A13-low_temperature-cancel",
+      "label": "A13-low_temperature-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A13",
+        "subtype": "low_temperature",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-085-A13-heavy_rain-candidate",
+      "label": "A13-heavy_rain-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A13",
+        "subtype": "heavy_rain"
+      },
+      "parser": {
+        "taxonomyId": "A13",
+        "subtype": "heavy_rain",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-086-A13-heavy_rain-cancel",
+      "label": "A13-heavy_rain-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A13",
+        "subtype": "heavy_rain",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-087-A14-flooding-candidate",
+      "label": "A14-flooding-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A14",
+        "subtype": "flooding"
+      },
+      "parser": {
+        "taxonomyId": "A14",
+        "subtype": "flooding",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-088-A14-flooding-cancel",
+      "label": "A14-flooding-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A14",
+        "subtype": "flooding",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-089-A15-odor-candidate",
+      "label": "A15-odor-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A15",
+        "subtype": "odor"
+      },
+      "parser": {
+        "taxonomyId": "A15",
+        "subtype": "odor",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-090-A15-odor-cancel",
+      "label": "A15-odor-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A15",
+        "subtype": "odor",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-091-A16-attack-candidate",
+      "label": "A16-attack-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A16",
+        "subtype": "attack"
+      },
+      "parser": {
+        "taxonomyId": "A16",
+        "subtype": "attack",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-092-A16-attack-cancel",
+      "label": "A16-attack-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A16",
+        "subtype": "attack",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-093-A16-infection-candidate",
+      "label": "A16-infection-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A16",
+        "subtype": "infection"
+      },
+      "parser": {
+        "taxonomyId": "A16",
+        "subtype": "infection",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-094-A16-infection-cancel",
+      "label": "A16-infection-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A16",
+        "subtype": "infection",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-095-A16-spread-candidate",
+      "label": "A16-spread-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "A16",
+        "subtype": "spread"
+      },
+      "parser": {
+        "taxonomyId": "A16",
+        "subtype": "spread",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-096-A16-spread-cancel",
+      "label": "A16-spread-cancel",
+      "expected": {
+        "kind": "cancel",
+        "taxonomyId": "A16",
+        "subtype": "spread",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-097-noise-chat",
+      "label": "noise-chat",
+      "expected": {
+        "kind": "ignore"
+      },
+      "parser": {
+        "taxonomyId": null,
+        "subtype": null,
+        "recordWorthiness": "ignore",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-098-future-hypothetical",
+      "label": "future-hypothetical",
+      "expected": {
+        "kind": "ignore"
+      },
+      "parser": {
+        "taxonomyId": null,
+        "subtype": null,
+        "recordWorthiness": "ignore",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-099-cross-farm",
+      "label": "cross-farm",
+      "expected": {
+        "kind": "scope_reject",
+        "taxonomyId": "O9"
+      },
+      "parser": {
+        "taxonomyId": "O9",
+        "subtype": "mortality",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-100-ambiguous-house",
+      "label": "ambiguous-house",
+      "expected": {
+        "kind": "scope_clarification",
+        "taxonomyId": "O9"
+      },
+      "parser": {
+        "taxonomyId": "O9",
+        "subtype": "mortality",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-101-unprovisioned-identity",
+      "label": "unprovisioned-identity",
+      "expected": {
+        "kind": "candidate_safe",
+        "taxonomyId": "O2"
+      },
+      "parser": {
+        "taxonomyId": "O2",
+        "subtype": "vaccination",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-102-unprovisioned-confirm",
+      "label": "unprovisioned-confirm",
+      "expected": {
+        "kind": "permission_reject",
+        "taxonomyId": "O2"
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-103-duplicate-candidate",
+      "label": "duplicate-candidate",
+      "expected": {
+        "kind": "candidate",
+        "taxonomyId": "O2",
+        "subtype": "medication"
+      },
+      "parser": {
+        "taxonomyId": "O2",
+        "subtype": "medication",
+        "recordWorthiness": "record",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-104-duplicate-confirm",
+      "label": "duplicate-confirm",
+      "expected": {
+        "kind": "confirm",
+        "taxonomyId": "O2",
+        "subtype": "medication",
+        "write": true
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-104-duplicate-confirm",
+      "label": "duplicate-replay",
+      "expected": {
+        "kind": "replay",
+        "taxonomyId": "O2",
+        "subtype": "medication",
+        "write": false
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-106-menu-postback",
+      "label": "menu-postback",
+      "expected": {
+        "kind": "postback"
+      },
+      "parser": null
+    },
+    {
+      "webhookEventId": "owa-boundary-107-menu-quick-reply",
+      "label": "menu-quick-reply",
+      "expected": {
+        "kind": "quick_reply"
+      },
+      "parser": {
+        "taxonomyId": null,
+        "subtype": null,
+        "recordWorthiness": "ignore",
+        "missingFields": []
+      }
+    },
+    {
+      "webhookEventId": "owa-boundary-108-menu-navigation",
+      "label": "menu-navigation",
+      "expected": {
+        "kind": "navigation"
+      },
+      "parser": null
+    }
+  ],
+  "composition": {
+    "officialAndCandidateTaxonomyMessages": 96,
+    "safetyControlAndNavigationMessages": 12,
+    "note": "The transcript preserves exactly 108 events; taxonomy/subtype coverage takes precedence over the illustrative target split."
+  }
+}

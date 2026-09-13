@@ -1,0 +1,1525 @@
+{
+  "baseSha": "7df2610070518122b1737c62a310ab5492c0e476",
+  "testBranch": "test/one-water-line-ai-acceptance-20260913",
+  "transcriptEvents": 108,
+  "variants": 3,
+  "fullRunCount": 3,
+  "fieldCoverage": "25/25",
+  "taxonomyCoverage": "25/25",
+  "subtypeCoverage": "46/46",
+  "groundTruthSha256": "48334bd4b604b9b3620464c43916f2d32c9a3224d559ac2194ccae57340338b4",
+  "baselineScore": "100%",
+  "finalScore": "100% observed harness checks",
+  "criticalSafetyScore": "PASS",
+  "finalStock": 0,
+  "lifecycleState": "READY_NEXT_INTAKE",
+  "closedComplete": true,
+  "productionTouched": "NO",
+  "lineSends": 0,
+  "queueMutations": 0,
+  "aiCalls": 0,
+  "sourceChangesRequired": "NO",
+  "acceptance": "PASS",
+  "variantsSummary": [
+    {
+      "run": 1,
+      "results": [
+        {
+          "variant": "canonical-run1",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-canonical-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-9966903b-3e10-41a0-9d40-f983c2085ddc",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "synonym-run1",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-synonym-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-df5389e8-7d75-40e2-8af7-ea40b977d62f",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "boundary-run1",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-boundary-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-1b211c22-0ff7-42bd-b707-dc1216605454",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "results": [
+        {
+          "variant": "canonical-run2",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-canonical-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-e3c5ae7f-f472-4d67-9811-41ccea6d9ca4",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "synonym-run2",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-synonym-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-2452455b-62f5-491a-af83-82193d06165d",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "boundary-run2",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-boundary-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-880ba96c-a4be-4f2a-97cd-8c0192384683",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "results": [
+        {
+          "variant": "canonical-run3",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-canonical-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-8c7f3283-0e69-457e-b2e9-24e103cdb45c",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-canonical-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "synonym-run3",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-synonym-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-11b85d8c-dd07-41d7-afb1-eb1a0a150ecd",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-synonym-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        },
+        {
+          "variant": "boundary-run3",
+          "lifecycle": {
+            "farm": {
+              "id": "sim-farm-a",
+              "name": "模擬甲場",
+              "environment": "test"
+            },
+            "house": {
+              "id": "sim-house-a1",
+              "name": "甲一舍"
+            },
+            "currentFlock": {
+              "id": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01",
+              "initialCount": 40,
+              "status": "active"
+            },
+            "currentCycle": {
+              "id": "sim-flock-a1",
+              "flockId": "sim-flock-a1",
+              "batchCode": "SIM-WATER-001",
+              "chickInDate": "2026-01-01"
+            },
+            "intakeDate": "2026-01-01",
+            "effectiveStock": 0,
+            "lifecycleStatus": "READY_NEXT_INTAKE",
+            "lifecycleStatusLabel": "清消完成，可準備下一批入雛",
+            "lastEffectiveStockEventAt": "2026-03-30T00:00:00+08:00",
+            "cleaningStatus": "completed",
+            "cleaningStatusLabel": "清消完成",
+            "cleaningCompletedAt": "2026-03-31T00:00:00+08:00",
+            "readyForNextIntake": true,
+            "dataCompleteness": "complete",
+            "reason": null,
+            "labSubmission": {
+              "pendingSubmissionCount": 0,
+              "oldestPendingSubmissionAt": null,
+              "hasOverdueLabSubmission": false,
+              "incompleteReason": null,
+              "status": "none",
+              "statusLabel": "送驗：無逾期未完成",
+              "dataCompleteness": "complete"
+            },
+            "feedEstimate": {
+              "status": "INSUFFICIENT_DATA",
+              "estimate": null,
+              "range": null,
+              "unit": "kg",
+              "referenceCycleCount": 0,
+              "availableEligibleCycleCount": 0,
+              "referenceWindowStart": "2021-09-13",
+              "referenceWindowEnd": "2026-09-13",
+              "currentStock": 0,
+              "currentAge": 255,
+              "currentPeriodFeedOrderCount": 0,
+              "minimumDataRequirement": {
+                "minimumEligibleCycles": 3,
+                "perCycle": [
+                  "cycle identity",
+                  "intake/start date",
+                  "initial bird count or reliable effective stock basis",
+                  "effective O5 feed-order quantity in kg",
+                  "feed-order timing that aligns to the current age window",
+                  "completed cycle duration / effective end timestamp"
+                ],
+                "ageWindowDays": 7
+              },
+              "missingData": [
+                "current_active_effective_stock"
+              ],
+              "methodSummary": "同舍、近5年、最多15水；每水以同一7日齡窗的有效 O5 kg 叫料量除以該次有效存欄，資料不足時不估算。",
+              "referenceCycles": []
+            },
+            "shipments": [
+              {
+                "shipmentId": "canonical-line-owa-boundary-015-o3-partial-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "operational-web-reversal-1bd625dc-4744-468c-b088-d337813f5736",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": null,
+                "stockAfter": null,
+                "shipmentState": "INCOMPLETE",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": false,
+                "corrected": false,
+                "reversed": true,
+                "lineageState": "reversed",
+                "occurredAt": "2026-02-01T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-017-o3-reissue-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 10,
+                "stockBefore": 38,
+                "stockAfter": 28,
+                "shipmentState": "PARTIAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.18,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-02-02T00:00:00+08:00"
+              },
+              {
+                "shipmentId": "canonical-line-owa-boundary-019-o3-final-candidate",
+                "farmId": "sim-farm-a",
+                "houseId": "sim-house-a1",
+                "cycleId": "sim-flock-a1",
+                "flockId": "sim-flock-a1",
+                "batchCode": "SIM-WATER-001",
+                "birdCount": 28,
+                "stockBefore": 28,
+                "stockAfter": 0,
+                "shipmentState": "FINAL_SHIPMENT",
+                "totalWeight": 1.8,
+                "averageWeight": 0.0642857142857143,
+                "weightUnit": null,
+                "effective": true,
+                "corrected": false,
+                "reversed": false,
+                "lineageState": "active",
+                "occurredAt": "2026-03-30T00:00:00+08:00"
+              }
+            ]
+          },
+          "officialCounts": {
+            "recordingEvents": 2,
+            "operationalEvents": 6,
+            "operationalActions": 7,
+            "abnormalEvents": 1
+          }
+        }
+      ]
+    }
+  ]
+}
