@@ -31,7 +31,13 @@ import {
 import { handlePhaseApi } from "./phase-api";
 import { createRecordCommand } from "./record-command";
 import { RecordingContractError } from "./recording-taxonomy";
-import { CanonicalWriteError, persistRecordCommand } from "./recording-write-adapter";
+import {
+  CanonicalWriteError,
+  CanonicalWriteHoldError,
+  canonicalWebMutationRequiresHold,
+  canonicalWriteHoldState,
+  persistRecordCommand,
+} from "./recording-write-adapter";
 import {
   persistAbnormalEventLineage,
   persistCanonicalLineage,
@@ -82,6 +88,7 @@ export interface WebApiEnv {
   LINE_ACCOUNT_NAME?: string;
   CONVERSATION_V2_MODE?: string;
   CONVERSATION_MODEL?: string;
+  CANONICAL_WRITE_HOLD?: string;
 }
 
 const ALLOWED_ORIGINS = new Set([
@@ -1113,7 +1120,7 @@ async function createValidatedRetainedRecord(env: WebApiEnv, input: RetainedManu
     });
     if (!command) throw new Error("invalid_event");
     const result = await persistRecordCommand(
-      { DB: env.DB },
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       command,
       {
         organizationId: input.organizationId,
@@ -1243,6 +1250,10 @@ function canonicalRecordFromWebBody(
 }
 
 function canonicalWriteErrorResponse(request: Request, error: unknown): Response | null {
+  if (error instanceof CanonicalWriteHoldError) {
+    const code = error.state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : error.code;
+    return errorResponse(request, 503, code, "目前正在進行安全切換，暫停正式寫入；沒有寫入資料。");
+  }
   if (error instanceof CanonicalWriteError || error instanceof RecordingContractError) {
     const code = error instanceof CanonicalWriteError ? error.code : error.code;
     const field = error instanceof CanonicalWriteError ? error.field : error.field;
@@ -1273,7 +1284,7 @@ async function writeCanonicalRecord(
     };
     const result = relation
       ? await persistCanonicalLineage(
-        { DB: env.DB },
+        { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
         record,
         {
           kind: relation.kind,
@@ -1283,7 +1294,7 @@ async function writeCanonicalRecord(
         },
         context,
       )
-      : await persistRecordCommand({ DB: env.DB }, createRecordCommand(record), context);
+      : await persistRecordCommand({ DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD }, createRecordCommand(record), context);
     return response(request, { record: result }, result.created ? 201 : 200);
   } catch (error) {
     const rejected = canonicalWriteErrorResponse(request, error);
@@ -1856,7 +1867,7 @@ async function createOperationalEvent(request: Request, env: WebApiEnv, session:
     };
     try {
       const result = await persistRecordCommand(
-        { DB: env.DB },
+        { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
         createRecordCommand(record),
         {
           organizationId: session.organizationId,
@@ -1908,7 +1919,7 @@ async function reverseOperationalEvent(request: Request, env: WebApiEnv, session
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-reversal:${id}`;
   try {
     const result = await persistOperationalEventLineage(
-      { DB: env.DB },
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: "reversal",
@@ -1946,7 +1957,7 @@ async function correctOperationalEvent(request: Request, env: WebApiEnv, session
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-correction:${id}`;
   try {
     const result = await persistOperationalEventLineage(
-      { DB: env.DB },
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: "correction",
@@ -1996,7 +2007,7 @@ async function writeLegacyAbnormalRelation(
   const clientOperationId = stringValue(body?.clientOperationId, 200) ?? `web-abnormal-${relation.kind}:${relation.id}`;
   try {
     const result = await persistAbnormalEventLineage(
-      { DB: env.DB, EVENTS: env.EVENTS },
+      { DB: env.DB, EVENTS: env.EVENTS, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       row,
       {
         kind: relation.kind,
@@ -2923,6 +2934,15 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const session = await requireSession(request, env);
     if (session instanceof Response) return session;
     if (url.pathname === "/api/web/auth/logout" && request.method === "POST") return authLogout(request, env, session);
+    if (canonicalWriteHoldState(env) !== "OFF" && canonicalWebMutationRequiresHold(url.pathname, request.method)) {
+      const state = canonicalWriteHoldState(env);
+      return errorResponse(
+        request,
+        503,
+        state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : "CANONICAL_WRITE_HOLD_ACTIVE",
+        "目前正在進行安全切換，暫停正式寫入；沒有寫入資料。",
+      );
+    }
     if (url.pathname === "/api/lifecycle" && request.method === "GET") return lifecycleReadModel(request, env, session);
     if (url.pathname === "/api/records" && request.method === "GET") return listCanonicalRecords(request, env, session);
     if (url.pathname === "/api/records" && request.method === "POST") return writeCanonicalRecord(request, env, session);

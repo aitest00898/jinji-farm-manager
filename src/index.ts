@@ -162,6 +162,7 @@ import {
   type ResolvedRecordingScope,
 } from "./recording-runtime-bridge";
 import {
+  canonicalWriteHoldState,
   persistRecordCommand,
   previewCanonicalStockMutation,
 } from "./recording-write-adapter";
@@ -295,6 +296,8 @@ export interface Env {
   RUNTIME_AMBIENT_SEMANTIC_EVAL_ENABLED?: string;
   /** Explicit, default-off allowlist for ordinary-line V2.2 shadow only. */
   AMBIENT_V2_2_SHADOW_GROUP_ALLOWLIST?: string;
+  /** Deployment-transition hold; unknown values fail closed for mutations. */
+  CANONICAL_WRITE_HOLD?: string;
 }
 
 /**
@@ -9939,7 +9942,12 @@ export default {
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true, service: "chicken-line-production", account: env.LINE_ACCOUNT_ID });
+      return json({
+        ok: true,
+        service: "chicken-line-production",
+        account: env.LINE_ACCOUNT_ID,
+        canonicalWriteHold: canonicalWriteHoldState(env),
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/ready") {
@@ -9951,6 +9959,7 @@ export default {
         checks: readiness.checks,
         status: readiness.status,
         errorClass: readiness.errorClass ?? null,
+        canonicalWriteHold: canonicalWriteHoldState(env),
       }, readiness.ok ? 200 : 503);
     }
 
@@ -10454,6 +10463,13 @@ export default {
       env.LINE_CHANNEL_SECRET,
     );
     if (!valid) return json({ error: "invalid_signature" }, 401);
+    if (canonicalWriteHoldState(env) !== "OFF") {
+      const state = canonicalWriteHoldState(env);
+      return json({
+        error: state === "INVALID" ? "CANONICAL_WRITE_HOLD_CONFIG_INVALID" : "CANONICAL_WRITE_HOLD_ACTIVE",
+        message: "目前正在進行安全切換，暫停正式寫入；沒有寫入資料。",
+      }, 503);
+    }
 
     let payload: LineWebhookPayload;
     try {
