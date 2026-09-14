@@ -104,3 +104,50 @@ Do not start a later feature chapter while Chapter 3 is `BLOCKED`. The
 blocker must be cleared through the explicit transition order above; do not
 use raw SQL, wildcard authorization, synthetic Production records, or a
 legacy operator binding as a substitute.
+
+## Chapter 3A — group identification and authorization readiness checkpoint
+
+Machine-only evidence exhausted the available authoritative sources without
+identifying a legitimate Production LINE group. The group with substantial
+historical activity is the human-confirmed Test group
+`++開發++金雞協會Ai助手測試頻道++`, mapped by the existing evidence to Test
+Farm `金雞測試場`; it must not be promoted. The other registered row is a
+synthetic Web registration with no real LINE group activity and no farm
+binding. Neither is a Production target.
+
+The missing authenticated procedure was added locally as a narrow Web admin
+route:
+`PATCH /api/line-groups/:groupId/operational-authorization`.
+It requires an existing authenticated admin session, an explicit target,
+organization ownership, `authorized` plus `confirm=true` and a reason, rejects
+left/unknown/cross-organization groups, writes immutable audit before/after
+state, reads the result back, and fails closed when the 0041 column is
+unavailable. Repeating the same state is idempotent. This route does not
+authorize any group by itself.
+
+```text
+CHAPTER_3A_GROUP_IDENTIFICATION = COMPLETE_READ_ONLY
+MACHINE_INVESTIGATION_EXHAUSTED = YES
+INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
+HUMAN_CHOICE_REQUIRED = YES
+AUTHENTICATED_GROUP_AUTHORIZATION_PROCEDURE = VERIFIED_LOCAL
+AUTHORIZATION_PROCEDURE_SOURCE_COMMIT = f5befec903dc56b8a5900dc934b8e4b9cca17ca7
+FOCUSED_AUTHORIZATION_TESTS = PASS
+FULL_REGRESSION = 920 passed / 11 skipped
+DIFF_CHECK = PASS
+PRODUCTION_MIGRATION = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+PRODUCTION_BUSINESS_WRITE = 0
+FINANCE_MUTATION = 0
+LINE_SEND = 0
+AI_CALLS = 0
+CHAPTER_3 = BLOCKED
+STOP_REASON = STOP_1_INTENDED_PRODUCTION_GROUP_NOT_UNIQUELY_IDENTIFIED
+```
+
+No raw provider group identifier is stored in this plan. The next human-only
+input is the name/identity of the real Production LINE group; do not select
+the Test group or the synthetic Web registration. The procedure must remain
+un-deployed and 0041 must remain unapplied until the approved Chapter 3
+transition order is explicitly authorized.
