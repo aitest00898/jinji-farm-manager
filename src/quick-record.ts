@@ -1,4 +1,4 @@
-import { normalize } from "./core";
+import { botName, normalize } from "./core";
 import { parseAbnormalTiming, type AbnormalTiming } from "./abnormal";
 import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-resolver";
 import { normalizedHouseName, taipeiDate } from "./master-data";
@@ -6,6 +6,7 @@ import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge
 import type { RecordCommand } from "./record-command";
 import { assertCanonicalWritesOpen, persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
 import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-guard";
+import { requireAuthorizedLineGroup } from "./line-group-authorization";
 
 /**
  * Small, deliberately bounded LINE quick-record layer. It is not a second
@@ -541,6 +542,7 @@ async function commitBundles(
   bundles: Array<{ farm: QuickFarm; scope: Scope; items: QuickItemDraft[]; bundleIndex: number; existingBundleId?: string | null }>,
 ): Promise<CommittedBundle[]> {
   assertCanonicalWritesOpen(env);
+  await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
   const committed: CommittedBundle[] = [];
   const requestId = stablePart(eventId);
   const plans = bundles.map((bundle) => {
@@ -583,7 +585,7 @@ async function commitBundles(
       lineUserId: userId,
       environment: plan.bundle.farm.environment,
       expectedSourceChannel: "line" as const,
-      operatorScopeRequired: true,
+      lineGroupAuthorizationRequired: true,
       quickBundleId: plan.bundleId,
     },
   }] : []));
@@ -653,7 +655,7 @@ async function commitBundles(
               lineUserId: userId,
               environment: bundle.farm.environment,
               expectedSourceChannel: "line",
-              operatorScopeRequired: true,
+              lineGroupAuthorizationRequired: true,
               quickBundleId: bundleId,
             },
           );
@@ -834,6 +836,11 @@ export async function handleQuickRecordInput(
 ): Promise<QuickHandleResult> {
   const userId = event.source?.userId;
   if (!userId) return { handled: false };
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return { handled: true, reply: `${botName(accountName)}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。` };
+  }
   const receivedAt = new Date(event.timestamp ?? Date.now()).toISOString();
   const { farms, aliases } = await loadFarmData(env, organizationId);
   const session = await getSession(env, groupId, userId, organizationId, receivedAt);
@@ -1001,6 +1008,11 @@ export async function handlePendingFarmPostback(
 ): Promise<QuickHandleResult> {
   const userId = event.source?.userId;
   if (!userId || !farmId) return { handled: true, reply: "這組紀錄已完成或已逾時，請重新輸入紀錄。" };
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return { handled: true, reply: "⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。" };
+  }
   const receivedAt = new Date(event.timestamp ?? Date.now()).toISOString();
   const { farms } = await loadFarmData(env, organizationId);
   const session = await getSession(env, groupId, userId, organizationId, receivedAt);
@@ -1061,6 +1073,11 @@ export async function handlePendingHousePostback(
 ): Promise<QuickHandleResult> {
   const userId = event.source?.userId;
   if (!userId || !farmId || !houseId) return { handled: true, reply: "這組紀錄已完成或已逾時，請重新輸入紀錄。" };
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return { handled: true, reply: "⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。" };
+  }
   const receivedAt = new Date(event.timestamp ?? Date.now()).toISOString();
   const { farms } = await loadFarmData(env, organizationId);
   const session = await getSession(env, groupId, userId, organizationId, receivedAt);

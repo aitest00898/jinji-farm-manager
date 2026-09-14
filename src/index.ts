@@ -166,6 +166,7 @@ import {
   persistRecordCommand,
   previewCanonicalStockMutation,
 } from "./recording-write-adapter";
+import { isLineGroupAuthorizationError, requireAuthorizedLineGroup } from "./line-group-authorization";
 import type {
   CanonicalStockMutationProjection,
   CanonicalStockMutationReceipt,
@@ -660,6 +661,29 @@ async function groupState(env: Env, groupId: string): Promise<GroupState> {
     .bind(groupId)
     .first<GroupState>();
   return row ?? { status: "unbound", farmName: null, organizationId: null, farmId: null };
+}
+
+function lineGroupAuthorizationDeniedReply(accountName: string): string {
+  return `${botName(accountName)}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。`;
+}
+
+async function requireLineGroupOperationalTrust(
+  env: Env,
+  groupId: string,
+  organizationId: string,
+  lineUserId: string | null | undefined,
+  accountName: string,
+): Promise<string | null> {
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId });
+    return null;
+  } catch (error) {
+    console.log(JSON.stringify({
+      event: "line_group_operational_authorization_denied",
+      code: isLineGroupAuthorizationError(error) ? error.code : "CANONICAL_LINE_GROUP_AUTH_UNAVAILABLE",
+    }));
+    return lineGroupAuthorizationDeniedReply(accountName);
+  }
 }
 
 function isExplicitWakeCommand(command: ParsedCommand, text = "", canonical?: CanonicalTextParse | null): boolean {
@@ -3321,6 +3345,14 @@ async function writeOperationalEvent(
   pendingActionId?: string,
 ): Promise<string> {
   if (!validOperationalDraft(draft)) return safeRejectionReply(accountName);
+  const authorizationReply = await requireLineGroupOperationalTrust(
+    env,
+    groupId,
+    organizationId,
+    event.source?.userId,
+    accountName,
+  );
+  if (authorizationReply) return authorizationReply;
   const validFarm = await validateOperationalFarm(env, organizationId, farm.id);
   if (!validFarm) return safeRejectionReply(accountName);
   let houseId: string | null = null;
@@ -3400,7 +3432,7 @@ async function writeOperationalEvent(
       lineUserId,
       environment: validFarm.environment ?? "production",
       expectedSourceChannel: "line",
-      operatorScopeRequired: true,
+      lineGroupAuthorizationRequired: true,
     });
   } catch {
     return safeRejectionReply(accountName);
@@ -4061,6 +4093,26 @@ function menuActionForCommand(command: ParsedCommand): string | null {
   }
 }
 
+const LINE_OPERATIONAL_MENU_ACTIONS = new Set([
+  "menu_quick_record",
+  "menu_today_summary",
+  "menu_today_mortality",
+  "menu_recent_abnormal",
+  "menu_recent_abnormal_range",
+  "menu_correction_help",
+  "menu_pending_candidates",
+  "menu_finance",
+  "menu_audit",
+  "menu_farms",
+  "menu_farm_summary",
+  "menu_house_summary",
+  "menu_flock_summary",
+  "menu_current_farm_summary",
+  "menu_ai",
+  "ai_custom",
+  "ai_preset",
+]);
+
 function logAiObservation(
   aiInvoked: boolean,
   intent: UnifiedIntent | null,
@@ -4227,6 +4279,15 @@ async function handleUnifiedIntent(
   intent: UnifiedIntent,
   accountName: string,
 ): Promise<string> {
+  if (!state.organizationId) return safeRejectionReply(accountName);
+  const authorizationReply = await requireLineGroupOperationalTrust(
+    env,
+    groupId,
+    state.organizationId,
+    event.source?.userId,
+    accountName,
+  );
+  if (authorizationReply) return authorizationReply;
   if (intent.intent === "unknown") return safeRejectionReply(accountName);
 
   if (intent.intent === "record_mortality" || intent.intent === "record_cull" || intent.intent === "record_feed" || intent.intent === "record_water" || intent.intent === "record_shipment") {
@@ -6283,10 +6344,14 @@ async function handleCanonicalLineInput(
   const isCancel = /^(?:取消|不用|不要|先不要記|取消這筆)$/iu.test(normalized);
 
   if (existing && isCancel) {
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, organizationId, lineUserId, accountName);
+    if (authorizationReply) return authorizationReply;
     await clearCanonicalLinePending(env, organizationId, groupId, lineUserId, now, existing.session);
     return `${botName(accountName)}\n✅ 已取消這筆待確認 canonical 資料；沒有新增正式紀錄。`;
   }
   if (existing && isConfirm) {
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, organizationId, lineUserId, accountName);
+    if (authorizationReply) return authorizationReply;
     if (existing.pending.status !== "confirmation") {
       return `${botName(accountName)}\n這筆資料仍缺少必要資訊，請先補充後再確認；目前沒有寫入正式資料。`;
     }
@@ -6310,7 +6375,7 @@ async function handleCanonicalLineInput(
         lineUserId,
         environment: resolved.environment ?? "production",
         expectedSourceChannel: "line",
-        operatorScopeRequired: true,
+        lineGroupAuthorizationRequired: true,
         now: now.toISOString(),
       });
       await clearCanonicalLinePending(env, organizationId, groupId, lineUserId, now, existing.session);
@@ -6363,6 +6428,9 @@ async function handleCanonicalLineInput(
   }
   if (!parsed.taxonomyId || parsed.recordWorthiness === "ignore") return null;
 
+  const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, organizationId, lineUserId, accountName);
+  if (authorizationReply) return authorizationReply;
+
   const resolved = await resolveCanonicalLineScope(env, organizationId, parsed, accountName);
   let route: ReturnType<typeof canonicalRouteForText> | null = null;
   if (parsed.recordWorthiness === "record" && parsed.missingFields.length === 0 && resolved.scope) {
@@ -6396,7 +6464,7 @@ async function handleCanonicalLineInput(
           lineUserId,
           environment: resolved.environment ?? "production",
           expectedSourceChannel: "line",
-          operatorScopeRequired: true,
+          lineGroupAuthorizationRequired: true,
         },
       );
     } catch (error) {
@@ -8007,6 +8075,14 @@ async function handleAmbientUniversalCandidateInput(
   const intent = parseCandidateRepairIntent(text);
   const repairLike = intent.kind !== "unknown" || /(?:候選|這筆|这笔|不對|不对|選錯|选错|改|取消|算了|不要記|不要记)/u.test(text);
   if (!repairLike) return null;
+  const authorizationReply = await requireLineGroupOperationalTrust(
+    env,
+    groupId,
+    organizationId,
+    event.source?.userId,
+    accountName,
+  );
+  if (authorizationReply) return [buildTextMessage(authorizationReply)];
   const now = new Date(event.timestamp ?? Date.now()).toISOString();
   const loaded = await loadSingleAmbientCandidateForAction(env, groupId, organizationId, now);
   if (!loaded.entries.length) {
@@ -8045,6 +8121,14 @@ async function handleAmbientCandidateTextInput(
   if (!userId) return null;
   const reviewed = await loadAmbientReview(env, groupId, organizationId, userId, new Date(event.timestamp ?? Date.now()).toISOString());
   if (!reviewed) return null;
+  const authorizationReply = await requireLineGroupOperationalTrust(
+    env,
+    groupId,
+    organizationId,
+    userId,
+    accountName,
+  );
+  if (authorizationReply) return [buildTextMessage(authorizationReply)];
   const candidate = reviewed.bundle.candidates[reviewed.candidateIndex];
   if (!candidate || !candidate.items.length) return [buildTextMessage("這筆待確認項目已失效，請重新開啟整理工作箱。")];
   const item = candidate.items[0];
@@ -8143,6 +8227,14 @@ async function handleAmbientPostback(
   organizationId: string,
   groupId: string,
 ): Promise<LineReplyMessage[]> {
+  const authorizationReply = await requireLineGroupOperationalTrust(
+    env,
+    groupId,
+    organizationId,
+    event.source?.userId,
+    accountName,
+  );
+  if (authorizationReply) return [buildTextMessage(authorizationReply)];
   const candidateId = params.get("candidate");
   if (!candidateId) return [buildTextMessage("這組候選紀錄已失效，沒有寫入。")];
   const loaded = await loadAmbientCandidate(env, groupId, organizationId, candidateId);
@@ -8329,6 +8421,8 @@ async function handleCorrectionPostback(
 ): Promise<LineReplyMessage[]> {
   const userId = event.source?.userId;
   if (!userId) return [buildTextMessage("⚠️ 這個更正操作目前無法驗證使用者。")];
+  const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, organizationId, userId, accountName);
+  if (authorizationReply) return [buildTextMessage(authorizationReply)];
   if (action === "correction_action") {
     const type = params.get("type");
     if (type === "whole_cancel") return [buildTextMessage("⚠️ 這會反轉上一組紀錄，原始 Audit 仍會保留。要繼續嗎？", buildWholeCancelConfirmationReplies())];
@@ -8485,6 +8579,16 @@ async function handleMenuAction(
   trace?: RuntimeTrace,
 ): Promise<LineReplyMessage[]> {
   if (!state.organizationId) return [buildTextMessage(unboundReply(accountName))];
+  if (LINE_OPERATIONAL_MENU_ACTIONS.has(action)) {
+    const authorizationReply = await requireLineGroupOperationalTrust(
+      env,
+      groupId,
+      state.organizationId,
+      event.source?.userId,
+      accountName,
+    );
+    if (authorizationReply) return [buildTextMessage(authorizationReply)];
+  }
   if (action === "menu_home") return [buildMainMenuFlex()];
   if (action === "menu_quick_record") return [buildTextMessage(MENU_QUICK_RECORD_TEXT, buildQuickRecordCategoryReplies())];
   if (action === "menu_today_summary") return [buildTextMessage(await menuTodaySummaryReply(env, state.organizationId, accountName, trace), buildTodaySummaryFollowupReplies())];
@@ -8553,7 +8657,6 @@ async function handleMenuAction(
     return lineTechnicalInfoReply(env, accountName);
   }
   if (action === "menu_finance") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
     return [buildTextMessage(await portfolioProfitReply(env, state.organizationId, accountName))];
   }
   if (action === "menu_audit") return [buildTextMessage(await menuAuditReply(env, state.organizationId, accountName))];
@@ -8853,6 +8956,8 @@ async function handleLinePostback(
 
   if (action === "ambient_preview_page" || action === "ambient_preview_digest") {
     if (!state.organizationId) return [buildTextMessage(unboundReply(accountName))];
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, state.organizationId, event.source?.userId, accountName);
+    if (authorizationReply) return [buildTextMessage(authorizationReply)];
     if (action === "ambient_preview_digest") {
       return runManualAmbientDigest(env, event, accountName, groupId, state.organizationId);
     }
@@ -8867,6 +8972,8 @@ async function handleLinePostback(
 
   if (action === "daily_review_correction" || action === "daily_review_candidates" || action === "daily_review_detail") {
     if (!state.organizationId || !event.source?.userId) return [buildTextMessage("這份日結目前無法驗證操作權限。")];
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, state.organizationId, event.source.userId, accountName);
+    if (authorizationReply) return [buildTextMessage(authorizationReply)];
     const now = new Date(event.timestamp ?? Date.now());
     if (action === "daily_review_correction") {
       const activated = await activateDailyReviewContext(
@@ -8989,6 +9096,22 @@ async function handleCommand(
   await ensureGroup(env, groupId);
   const state = await groupState(env, groupId);
 
+  // The authorized group is the first operational trust boundary. Only
+  // presentation-only help/menu/ping controls may remain available before it;
+  // legacy admin sessions, remembered scope, pending state, and old bindings
+  // must not bypass group authorization for any formal group operation.
+  const groupAuthorizationExempt = command.kind === "help";
+  if (state.organizationId && !groupAuthorizationExempt) {
+    const authorizationReply = await requireLineGroupOperationalTrust(
+      env,
+      groupId,
+      state.organizationId,
+      event.source?.userId,
+      accountName,
+    );
+    if (authorizationReply) return authorizationReply;
+  }
+
   // Deterministic canonical LINE ingress is intentionally narrow: it owns
   // parser-recognized taxonomy text plus confirmation/cancel for its own
   // transient candidate, and leaves all existing command owners below it.
@@ -9025,6 +9148,8 @@ async function handleCommand(
   }
 
   if (command.kind === "cancel" && state.organizationId && event.source?.userId) {
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, state.organizationId, event.source.userId, accountName);
+    if (authorizationReply) return authorizationReply;
     const entries = await loadAmbientCandidateInbox(
       env,
       groupId,
@@ -9125,6 +9250,14 @@ async function handleCommand(
       && commandClass !== "CONTROL"
       && commandClass !== "ADMIN";
     if (explicitConversation) {
+      const authorizationReply = await requireLineGroupOperationalTrust(
+        env,
+        groupId,
+        state.organizationId,
+        lineUserId,
+        accountName,
+      );
+      if (authorizationReply) return authorizationReply;
       // Explicit @Bot natural language is routed through the context-first
       // V2 orchestrator before the legacy repair/explain fallback. Ordinary
       // group chat never reaches this branch because the Interaction Gate
@@ -9287,6 +9420,8 @@ async function handleCommand(
   }
 
   if (state.organizationId && isReadOnlyAnalysisQuestion(messageText)) {
+    const authorizationReply = await requireLineGroupOperationalTrust(env, groupId, state.organizationId, lineUserId, accountName);
+    if (authorizationReply) return authorizationReply;
     if (lineUserId) await cancelScopedPendingActions(env, groupId, lineUserId);
     try {
       const scope = await lineAnalysisScope(env, groupId, lineUserId, state);

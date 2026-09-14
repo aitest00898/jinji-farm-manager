@@ -7,6 +7,7 @@ import {
 } from "./abnormal";
 import { canonicalFarmKey, FarmResolver, normalizedFarmKey, type FarmCandidate, type FarmRecord } from "./farm-resolver";
 import { normalizedHouseName } from "./master-data";
+import { requireAuthorizedLineGroup } from "./line-group-authorization";
 
 export interface LineAbnormalEnv {
   DB: D1Database;
@@ -328,6 +329,15 @@ async function latestPending(env: LineAbnormalEnv, groupId: string, userId: stri
 }
 
 async function completePending(env: LineAbnormalEnv, event: LineAbnormalEvent, eventId: string, pending: AbnormalPendingRow, farmId: string, houseId: string | null, accountName: string): Promise<string> {
+  try {
+    await requireAuthorizedLineGroup(env, {
+      organizationId: pending.organizationId,
+      groupId: pending.lineGroupId,
+      lineUserId: pending.lineUserId,
+    });
+  } catch {
+    return `${botName(accountName)}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。`;
+  }
   if (pending.expiresAt <= new Date().toISOString()) {
     await env.DB.prepare(`UPDATE abnormal_pending_actions SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('waiting_farm', 'waiting_house')`).bind(pending.id).run();
     return `${botName(accountName)}\n⚠️ 上一筆待確認異常已逾時，請重新輸入。`;
@@ -357,6 +367,18 @@ async function completePending(env: LineAbnormalEnv, event: LineAbnormalEvent, e
 export async function handleLineAbnormalPendingInput(env: LineAbnormalEnv, event: LineAbnormalEvent, text: string, eventId: string, groupId: string, accountName: string): Promise<string | null> {
   const userId = event.source?.userId;
   if (!userId) return null;
+  const pendingBeforeExpiry = await latestPending(env, groupId, userId);
+  if (pendingBeforeExpiry) {
+    try {
+      await requireAuthorizedLineGroup(env, {
+        organizationId: pendingBeforeExpiry.organizationId,
+        groupId,
+        lineUserId: userId,
+      });
+    } catch {
+      return `${botName(accountName)}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。`;
+    }
+  }
   await expirePending(env, groupId, userId);
   const pending = await latestPending(env, groupId, userId);
   if (!pending) return null;
@@ -384,6 +406,11 @@ export async function handleLineAbnormalPendingInput(env: LineAbnormalEnv, event
 export async function handleLineAbnormalInput(env: LineAbnormalEnv, event: LineAbnormalEvent, rawText: string, eventId: string, groupId: string, organizationId: string, state: LineAbnormalState, accountName: string): Promise<string> {
   const userId = event.source?.userId;
   if (!userId) return `${botName(accountName)}\n⚠️ 找不到操作者，沒有寫入。`;
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return `${botName(accountName)}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。`;
+  }
   const receivedAt = new Date(event.timestamp ?? Date.now()).toISOString();
   const timing = parseAbnormalTiming(rawText, receivedAt);
   const target = await targetFarm(env, organizationId, rawText, groupId, userId, state.farmId);

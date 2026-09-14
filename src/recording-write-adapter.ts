@@ -30,6 +30,7 @@ import type {
   CanonicalLifecycleScope,
 } from "./canonical-lifecycle-read-model";
 import { requireProvisionedOperatorScope } from "./operator-scope";
+import { LineGroupAuthorizationError, requireAuthorizedLineGroup } from "./line-group-authorization";
 
 /**
  * The only D1 write boundary for a canonical RecordCommand.
@@ -61,6 +62,8 @@ export interface CanonicalWriteContext {
   expectedSourceChannel?: RecordingSourceChannel;
   /** Require an explicit provisioned identity/scope before this write. */
   operatorScopeRequired?: boolean;
+  /** Use the authorized LINE group as the normal operational trust boundary. */
+  lineGroupAuthorizationRequired?: boolean;
   now?: string;
 }
 
@@ -217,7 +220,10 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
       LIMIT 1`,
   ).bind(farmId, organizationId).first<CanonicalFarm>();
   if (!farm || farm.active !== 1) fail("CANONICAL_SCOPE_INVALID", "farmId");
-  const expectedEnvironment = context.environment ?? "production";
+  const expectedEnvironment = context.lineGroupAuthorizationRequired
+    ? context.environment
+    : context.environment ?? "production";
+  if (!expectedEnvironment) fail("CANONICAL_ENVIRONMENT_SCOPE_REQUIRED", "environment");
   if (farm.environment !== expectedEnvironment) fail("CANONICAL_ENVIRONMENT_SCOPE_INVALID", "environment");
 
   const requestedHouseId = record.houseId === undefined || record.houseId === null ? null : String(record.houseId);
@@ -270,6 +276,20 @@ async function requireOperatorScopeIfNeeded(
   context: CanonicalWriteContext,
   scope: CanonicalScope,
 ): Promise<void> {
+  if (context.lineGroupAuthorizationRequired) {
+    if (context.actorType !== "line_user") fail("CANONICAL_LINE_GROUP_AUTH_CONTEXT_INVALID");
+    try {
+      await requireAuthorizedLineGroup(env, {
+        organizationId: context.organizationId,
+        groupId: context.lineGroupId,
+        lineUserId: context.lineUserId ?? context.actorId,
+      });
+    } catch (error) {
+      if (error instanceof LineGroupAuthorizationError) fail(error.code);
+      throw error;
+    }
+    return;
+  }
   if (!context.operatorScopeRequired) return;
   await requireProvisionedOperatorScope(env, {
     organizationId: context.organizationId,

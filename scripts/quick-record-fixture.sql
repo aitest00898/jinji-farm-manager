@@ -2,6 +2,13 @@
 INSERT OR IGNORE INTO line_groups (group_id, status, organization_id)
 VALUES ('local-quick-record-group', 'unbound', 'org-mafu-investment');
 
+-- Explicit local authorization for canonical LINE runtime tests. Production
+-- groups are never auto-authorized by the migration.
+UPDATE line_groups
+   SET operational_authorized = 1
+ WHERE group_id = 'local-quick-record-group'
+   AND organization_id = 'org-mafu-investment';
+
 INSERT OR IGNORE INTO farms
   (id, organization_id, name, active, farm_total_equity_fraction,
    player_group_equity_fraction, environment, farm_structure_mode, note)

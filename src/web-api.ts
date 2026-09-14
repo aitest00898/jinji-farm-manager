@@ -2915,6 +2915,7 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
     `SELECT group_id AS groupId,
             substr(group_id, 1, 4) || '…' || substr(group_id, -4) AS groupIdShort,
             status, farm_name AS farmName, farm_id AS farmId,
+            COALESCE(operational_authorized, 0) AS operationalAuthorized,
             COALESCE(conversation_v2_enabled, 0) AS conversationV2Enabled
        FROM line_groups
       WHERE organization_id = ?
@@ -2975,6 +2976,7 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
       status: String(row.status),
       farmName: row.farmName ? String(row.farmName) : null,
       farmId: row.farmId ? String(row.farmId) : null,
+      operationalAuthorized: Number(row.operationalAuthorized ?? 0) === 1,
       conversationV2Enabled: Number(row.conversationV2Enabled ?? 0) === 1,
       operatorBindings: bindingsByGroup.get(String(row.groupId)) ?? [],
     })),

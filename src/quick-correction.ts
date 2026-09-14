@@ -1,4 +1,4 @@
-import { normalize } from "./core";
+import { botName, normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmCandidate, type FarmRecord } from "./farm-resolver";
 import { effectiveOperationalEventPredicate, normalizedHouseName } from "./master-data";
 import {
@@ -7,6 +7,7 @@ import {
 } from "./canonical-lineage-service";
 import type { LegacyAbnormalEventRow, LegacyOperationalEventRow } from "./recording-runtime-bridge";
 import type { QuickItemDraft, QuickLineEvent, QuickRecordEnv, QuickFarm } from "./quick-record";
+import { requireAuthorizedLineGroup } from "./line-group-authorization";
 
 export type CorrectionIntent =
   | { kind: "quantity"; oldQuantity: number | null; newQuantity: number }
@@ -221,6 +222,7 @@ export async function listQuickCorrectionTargets(
   organizationId: string,
   kind: "quantity" | "cancel",
 ): Promise<QuickCorrectionTarget[]> {
+  await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
   const rows = await latestItems(env, groupId, userId, organizationId);
   const filtered = kind === "quantity"
     ? rows.filter((row) => row.itemType === "operational" && row.intent === "mortality")
@@ -238,6 +240,7 @@ export async function applyQuickCorrectionTarget(
   requestId: string,
   newQuantity?: number,
 ): Promise<QuickCorrectionResult> {
+  await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
   const rows = await latestItems(env, groupId, userId, organizationId);
   const row = rows.find((candidate) => candidate.itemId === itemId);
   if (!row) return { handled: true, reply: "⚠️ 這筆更正候選已失效，請重新輸入完整更正。" };
@@ -525,6 +528,11 @@ export async function handleGroupCorrectionInput(
 ): Promise<QuickCorrectionResult> {
   const userId = event.source?.userId;
   if (!userId) return { handled: false };
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return { handled: true, reply: `${botName("金雞協會助理Ai")}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。` };
+  }
   const intents = parseQuickCorrections(text);
   if (!intents?.length) return { handled: false };
   const rows = await latestItems(env, groupId, null, organizationId);
@@ -616,6 +624,11 @@ export function correctionLooksRelevant(text: string): boolean {
 export async function handleQuickCorrectionInput(env: QuickRecordEnv, event: QuickLineEvent, text: string, eventId: string, groupId: string, organizationId: string): Promise<QuickCorrectionResult> {
   const userId = event.source?.userId;
   if (!userId) return { handled: false };
+  try {
+    await requireAuthorizedLineGroup(env, { organizationId, groupId, lineUserId: userId });
+  } catch {
+    return { handled: true, reply: `${botName("金雞協會助理Ai")}\n⚠️ 這個 LINE 群組尚未獲授權執行營運操作，沒有讀取或寫入正式資料。` };
+  }
   const session = await loadSession(env, groupId, userId);
   if (!session || session.organizationId !== organizationId) return { handled: false };
   const pendingCorrection = parseJson<{ intent: CorrectionIntent; candidates: string[] } | null>(session.pendingCorrectionJson, null);
