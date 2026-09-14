@@ -4876,3 +4876,43 @@ MAIN_MERGE = NO
 
 Latest receipt:
 `forensics/canonical-recording-v1-stock-repair-2026-09-10.md`.
+
+## 2026-09-14 — Chapter 2 authorized LINE group operational trust
+
+Chapter 2 is complete on the feature branch. Normal LINE operational trust
+now starts from an additive `line_groups.operational_authorized` flag plus
+organization/group validation. It no longer depends on a per-user farm scope
+for the normal LINE operational path. Farm, house, flock, environment,
+canonical entity, stock, idempotency, correction/reversal, and actor audit
+validation remain in their existing canonical boundaries. Existing operator,
+scope, and binding rows were retained and remain available to legacy/Web
+paths; they are not silently reinterpreted as group authorization.
+
+```text
+CHAPTER_2_AUTHORIZED_GROUP_TRUST = PASS_LOCAL
+CHAPTER_2_SOURCE_BASE_SHA = 7045ea743df8083596d1942b30f6a6bb5bb4966c
+CHAPTER_2_SOURCE_COMMIT = 7a3c716ef02d05ccd5ea35eb204346833df586ea
+CHAPTER_2_MIGRATION = 0041_authorized_line_group_operational_trust.sql
+AUTHORIZED_ORDINARY_MEMBER_WRITE = PASS
+AUTHORIZED_GROUP_MULTI_FARM = PASS
+UNAUTHORIZED_GROUP_DENIED = PASS
+DM_FORMAL_OPERATION_DENIED = PASS
+LEGACY_SCOPE_BYPASS = DENIED
+LOCAL_CANONICAL_RUNTIME = 18/18
+FOCUSED_TESTS = 39/39
+BROAD_TESTS = 916 passed / 11 skipped
+DIFF_CHECK = PASS
+LOCAL_D1_BUSINESS_WRITES = ISOLATED_HARNESS_ONLY
+TEST_D1_BUSINESS_WRITES = 0
+PRODUCTION_D1_BUSINESS_WRITES = 0
+PRODUCTION_DEPLOYMENT = NO
+FINANCE_MUTATION = 0
+AI_CALLS = 0
+```
+
+Migration 0041 defaults existing groups to unauthorized. Authorization is an
+explicit administrative provisioning step; this Chapter does not authorize a
+Production group, deploy the Worker, or change Production data. Safe rollout
+ordering is migration 0041 first, then the compatible Worker release. The
+next operational boundary is an approved deployment/provisioning procedure,
+not a new runtime authority.
