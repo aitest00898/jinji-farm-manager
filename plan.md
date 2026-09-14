@@ -151,3 +151,49 @@ input is the name/identity of the real Production LINE group; do not select
 the Test group or the synthetic Web registration. The procedure must remain
 un-deployed and 0041 must remain unapplied until the approved Chapter 3
 transition order is explicitly authorized.
+
+## Chapter 3B — machine preparation for real Production group identification
+
+The documentation-only alignment correction is prepared together with the
+machine-side handoff. Wrangler remote authentication remains valid. The
+current deployed Worker version is healthy: `/health` reports `ok=true` and
+canonical write hold `OFF`; `/ready` is normal with no unfinished, stalled,
+retryable, retained-open, or reply-failure work. Remote D1 remains applied
+through 0040 and reports 0041 pending; no migration was applied.
+
+The remote baseline still has two registered rows. The known human-confirmed
+Test group has 798 reply-completed LINE events and remains Test-only. The
+other row has no LINE events and remains a synthetic Web registration. No
+Production group is inferred from either row.
+
+Source inspection selected the harmless verification phrase `正式群組驗證`.
+It contains none of the reviewed deterministic mutation/query/control or
+canonical recording markers, so it is suitable only to attribute one new
+real LINE event and cannot be used as a business record request.
+
+```text
+CHAPTER_3B_MACHINE_PREPARATION = COMPLETE
+WRANGLER_REMOTE_AUTH = VERIFIED
+CURRENT_DEPLOYED_WORKER = f4bd4c6c-8cd0-46a2-9278-f8fc00810bde
+HEALTH = PASS
+READY = PASS
+REMOTE_D1_LATEST_APPLIED = 0040_line_group_operator_scope_binding.sql
+MIGRATION_0041_REMOTE_STATE = NOT_APPLIED
+REGISTERED_LINE_GROUP_COUNT = 2
+INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
+SAFE_VERIFICATION_PHRASE = 正式群組驗證
+PRODUCTION_MIGRATION = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+PRODUCTION_BUSINESS_WRITE = 0
+FINANCE_MUTATION = 0
+AI_CALLS = 0
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+CHAPTER_3 = BLOCKED
+NEXT_HUMAN_ACTION = 在真正 Production LINE 群組邀請機器人後，送出一次正式群組驗證
+```
+
+No raw provider group identifier is stored in this plan. After the single
+human action, the new event must be attributed by timestamp, group metadata,
+organization, and exclusion of the Test/synthetic rows before any group can
+be considered Production.
