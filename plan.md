@@ -17,15 +17,54 @@ GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALWAYS_ON
 ## Chapter 3 blocked conditions
 
 ```text
-WRANGLER_REMOTE_AUTH = UNAVAILABLE
+WRANGLER_REMOTE_AUTH = VERIFIED
 INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
-MIGRATION_0041_REMOTE_STATE = NOT_VERIFIED
+MIGRATION_0041_REMOTE_STATE = NOT_APPLIED; remote latest is 0040
 AUTHENTICATED_GROUP_AUTHORIZATION_PROCEDURE = NOT_VERIFIED
 ```
 
 The public health and readiness endpoints were available, but they do not
 replace authenticated D1, deployment, or authorization readback. The Test
 group is not a Production target and must not be promoted implicitly.
+
+## Chapter 3 read-only checkpoint — 2026-09-14
+
+Wrangler OAuth was completed by the human operator. Authenticated read-only
+checks then established that the remote D1 migration tracker contains
+0001–0040 and has no pending migration; migration 0041 has not been applied.
+The current deployed Worker readback is the 100% deployment version
+`f4bd4c6c-8cd0-46a2-9278-f8fc00810bde`; public health and readiness are both
+normal and canonical write hold is OFF.
+
+The remote `line_groups` schema still has no `operational_authorized` column,
+and the current organization has two registered groups. Both are `unbound`,
+have no farm binding, and neither can be uniquely identified as the intended
+Production group from authoritative metadata. No raw group id is stored in
+this durable plan.
+
+```text
+WRANGLER_REMOTE_AUTH = VERIFIED
+CURRENT_DEPLOYED_WORKER = f4bd4c6c-8cd0-46a2-9278-f8fc00810bde
+REMOTE_D1_LATEST_MIGRATION = 0040_line_group_operator_scope_binding.sql
+MIGRATION_0041_REMOTE_STATE = NOT_APPLIED
+REGISTERED_LINE_GROUP_COUNT = 2
+INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
+AUTHENTICATED_GROUP_AUTHORIZATION_PROCEDURE = NOT_VERIFIED
+PRODUCTION_MIGRATION = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+LINE_SEND = 0
+PRODUCTION_SYNTHETIC_BUSINESS_WRITE = 0
+FINANCE_MUTATION = 0
+STOCK_UNINTENDED_DELTA = 0
+STOP_REASON = STOP_1_INTENDED_PRODUCTION_GROUP_NOT_UNIQUELY_IDENTIFIED
+```
+
+The only missing human-supplied fact for Phase A is the exact intended
+Production LINE group identity (human-confirmed label plus its provider group
+identity). The two unbound rows must not be promoted by inference. Chapter 3
+remains blocked; no migration, deployment, authorization, LINE send, or
+business-data mutation is permitted until that identity is confirmed.
 
 ## Fixed Chapter 3 transition order
 

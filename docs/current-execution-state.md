@@ -4954,3 +4954,37 @@ apply migration 0041; read back schema/data; deploy the approved Worker;
 authorize only the intended group; read back authorization; perform safe real
 LINE acceptance; compare integrity deltas; then PASS or rollback. The Test
 group must not be promoted implicitly, and no later feature chapter is ready.
+
+## 2026-09-14 — Chapter 3 read-only checkpoint after Wrangler login
+
+The human completed the normal Wrangler OAuth flow. This cleared only the
+remote-authentication blocker; it did not authorize a migration, deployment,
+group authorization, LINE send, or Production business write.
+
+```text
+WRANGLER_REMOTE_AUTH = VERIFIED
+CURRENT_DEPLOYED_WORKER = f4bd4c6c-8cd0-46a2-9278-f8fc00810bde
+REMOTE_D1_LATEST_MIGRATION = 0040_line_group_operator_scope_binding.sql
+MIGRATION_0041_REMOTE_STATE = NOT_APPLIED
+REGISTERED_LINE_GROUP_COUNT = 2
+REMOTE_LINE_GROUP_STATUS = 2_UNBOUND_NO_FARM_BINDING
+REMOTE_OPERATIONAL_AUTHORIZATION_COLUMN = ABSENT_BEFORE_0041
+INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
+AUTHENTICATED_GROUP_AUTHORIZATION_PROCEDURE = NOT_VERIFIED
+HEALTH = PASS
+READY = PASS
+CANONICAL_WRITE_HOLD = OFF
+PRODUCTION_MIGRATION = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+LINE_SEND = 0
+PRODUCTION_SYNTHETIC_BUSINESS_WRITE = 0
+FINANCE_MUTATION = 0
+STOCK_UNINTENDED_DELTA = 0
+```
+
+The remote group inventory is not sufficient to identify the intended
+Production group: both registered rows are unbound and have no farm context.
+The exact provider group identity must be human-confirmed before Phase A can
+close. No raw group id is written to this state document. Chapter 3 therefore
+remains `BLOCKED` under STOP 1, and the fixed transition order is unchanged.
