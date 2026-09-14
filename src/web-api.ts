@@ -2983,6 +2983,140 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
   });
 }
 
+export async function claimLineGroupOrganization(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  groupId: string,
+): Promise<Response> {
+  const targetGroupId = stringValue(groupId, 200);
+  if (!targetGroupId) return errorResponse(request, 400, "invalid_group_id", "LINE 群組識別無效。");
+
+  let group: {
+    groupId: string;
+    organizationId: string | null;
+    status: string;
+  } | null;
+  try {
+    group = await env.DB.prepare(
+      `SELECT group_id AS groupId, organization_id AS organizationId, status
+         FROM line_groups
+        WHERE group_id = ?
+        LIMIT 1`,
+    ).bind(targetGroupId).first<typeof group>();
+  } catch {
+    return errorResponse(request, 503, "line_group_claim_unavailable", "群組歸屬資料尚未可用，沒有變更資料。");
+  }
+  if (!group) return errorResponse(request, 404, "not_found", "找不到這個 LINE 群組。");
+  if (group.status === "left") return errorResponse(request, 409, "group_left", "這個群組已離開，不能建立 organization 歸屬。");
+  if (group.organizationId && group.organizationId !== session.organizationId) {
+    return errorResponse(request, 404, "not_found", "找不到這個 LINE 群組。");
+  }
+
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) {
+    return errorResponse(request, 400, "confirmation_required", "群組 organization 歸屬需要明確確認。");
+  }
+  const reason = stringValue(body.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "群組 organization 歸屬需要填寫原因。");
+
+  const before = { organizationId: group.organizationId, status: group.status };
+  if (group.organizationId === session.organizationId) {
+    await writeAuditLog(env, {
+      organizationId: session.organizationId,
+      source: "web",
+      actorType: "web_admin",
+      actorId: session.id,
+      action: "claim",
+      entityType: "line_group_organization_claim",
+      entityId: targetGroupId,
+      before,
+      after: before,
+      changedFields: [],
+      reason,
+      requestId: requestId(request),
+    });
+    return response(request, {
+      ok: true,
+      changed: false,
+      claimed: true,
+      organizationId: session.organizationId,
+      message: "這個 LINE 群組已屬於目前 organization，沒有重複變更。",
+    });
+  }
+  if (group.status !== "unbound" || group.organizationId !== null) {
+    return errorResponse(request, 409, "group_not_claimable", "這個 LINE 群組不是可安全 claim 的未綁定狀態。");
+  }
+
+  try {
+    const update = await env.DB.prepare(
+      `UPDATE line_groups
+          SET organization_id = ?
+        WHERE group_id = ?
+          AND organization_id IS NULL
+          AND status = 'unbound'`,
+    ).bind(session.organizationId, targetGroupId).run();
+    if (!update.meta.changes) {
+      const current = await env.DB.prepare(
+        `SELECT group_id AS groupId, organization_id AS organizationId, status
+           FROM line_groups
+          WHERE group_id = ?
+          LIMIT 1`,
+      ).bind(targetGroupId).first<typeof group>();
+      if (current?.organizationId === session.organizationId && current.status !== "left") {
+        await writeAuditLog(env, {
+          organizationId: session.organizationId,
+          source: "web",
+          actorType: "web_admin",
+          actorId: session.id,
+          action: "claim",
+          entityType: "line_group_organization_claim",
+          entityId: targetGroupId,
+          before: current,
+          after: current,
+          changedFields: [],
+          reason,
+          requestId: requestId(request),
+        });
+        return response(request, { ok: true, changed: false, claimed: true, organizationId: session.organizationId });
+      }
+      return errorResponse(request, 409, "group_claim_conflict", "群組狀態已改變，沒有寫入 organization 歸屬。");
+    }
+    await writeAuditLog(env, {
+      organizationId: session.organizationId,
+      source: "web",
+      actorType: "web_admin",
+      actorId: session.id,
+      action: "claim",
+      entityType: "line_group_organization_claim",
+      entityId: targetGroupId,
+      before,
+      after: { organizationId: session.organizationId, status: group.status },
+      changedFields: ["organizationId"],
+      reason,
+      requestId: requestId(request),
+    });
+    const readback = await env.DB.prepare(
+      `SELECT group_id AS groupId, organization_id AS organizationId, status
+         FROM line_groups
+        WHERE group_id = ?
+        LIMIT 1`,
+    ).bind(targetGroupId).first<typeof group>();
+    if (!readback || readback.organizationId !== session.organizationId || readback.status === "left") {
+      return errorResponse(request, 503, "line_group_claim_readback_failed", "群組 organization 歸屬結果無法確認，維持安全狀態後再查詢。");
+    }
+    return response(request, {
+      ok: true,
+      changed: true,
+      claimed: true,
+      organizationId: session.organizationId,
+      message: "已將這個 LINE 群組歸屬至目前 organization；尚未綁定 farm 或 operator scope。",
+    });
+  } catch {
+    return errorResponse(request, 503, "line_group_claim_unavailable", "群組 organization 歸屬未完成，沒有可確認的變更結果。");
+  }
+}
+
 export async function setLineGroupOperationalAuthorization(
   request: Request,
   env: WebApiEnv,
@@ -3591,6 +3725,10 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
       return createOperatorScope(request, env, session, decodeURIComponent(operatorScopeMatch[1]));
     }
     if (url.pathname === "/api/line-groups" && request.method === "GET") return lineGroups(request, env, session);
+    const lineGroupOrganizationClaimMatch = /^\/api\/line-groups\/([^/]+)\/organization-claim$/u.exec(url.pathname);
+    if (lineGroupOrganizationClaimMatch && request.method === "POST") {
+      return claimLineGroupOrganization(request, env, session, decodeURIComponent(lineGroupOrganizationClaimMatch[1]));
+    }
     const lineGroupOperationalAuthorizationMatch = /^\/api\/line-groups\/([^/]+)\/operational-authorization$/u.exec(url.pathname);
     if (lineGroupOperationalAuthorizationMatch && request.method === "PATCH") {
       return setLineGroupOperationalAuthorization(request, env, session, decodeURIComponent(lineGroupOperationalAuthorizationMatch[1]));

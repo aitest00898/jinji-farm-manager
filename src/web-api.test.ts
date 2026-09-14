@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addOperationalEnvironmentFilter,
+  claimLineGroupOrganization,
   DEFAULT_OPERATIONAL_ENVIRONMENT,
   isAllowedWebOrigin,
   operationalEnvironmentFor,
@@ -63,6 +64,56 @@ function authorizationDb(input: {
         if (statement.sql?.includes("INSERT INTO audit_logs")) state.auditCount += 1;
       }
       return [];
+    },
+    state,
+  };
+  return db as unknown as D1Database & { state: typeof state };
+}
+
+function organizationClaimDb(input: {
+  organizationId: string | null;
+  status: string;
+  exists?: boolean;
+}) {
+  const state = { ...input, exists: input.exists ?? true, auditCount: 0, updateCount: 0 };
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async first<T>() {
+              if (sql.includes("SELECT group_id AS groupId, organization_id AS organizationId, status")) {
+                if (!state.exists || values[0] !== "group-1") return null;
+                return {
+                  groupId: "group-1",
+                  organizationId: state.organizationId,
+                  status: state.status,
+                } as T;
+              }
+              return null;
+            },
+            async run() {
+              if (sql.includes("INSERT INTO audit_logs")) state.auditCount += 1;
+              if (sql.includes("UPDATE line_groups")) {
+                const canClaim = state.exists
+                  && state.organizationId === null
+                  && state.status === "unbound"
+                  && values[1] === "group-1";
+                if (canClaim) {
+                  state.organizationId = String(values[0]);
+                  state.updateCount += 1;
+                  return { success: true, meta: { changes: 1 } };
+                }
+                return { success: true, meta: { changes: 0 } };
+              }
+              return { success: true, meta: { changes: 1 } };
+            },
+          };
+        },
+        async all() {
+          return { results: [] };
+        },
+      };
     },
     state,
   };
@@ -179,5 +230,78 @@ describe("Web API boundary", () => {
     await expect(repeated.json()).resolves.toMatchObject({ changed: false, operationalAuthorized: false });
     expect(db.state.updateCount).toBe(1);
     expect(db.state.auditCount).toBe(2);
+  });
+
+  it("claims one existing unbound group for the authenticated organization with audit and readback", async () => {
+    const db = organizationClaimDb({ organizationId: null, status: "unbound" });
+    const result = await claimLineGroupOrganization(
+      new Request("https://example.test/api/line-groups/group-1/organization-claim", {
+        method: "POST",
+        body: JSON.stringify({ confirm: true, reason: "verified real Production group" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { DB: db },
+      adminSession,
+      "group-1",
+    );
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toMatchObject({ ok: true, changed: true, claimed: true, organizationId: "org-1" });
+    expect(db.state.organizationId).toBe("org-1");
+    expect(db.state.updateCount).toBe(1);
+    expect(db.state.auditCount).toBe(1);
+  });
+
+  it("is idempotent for the same organization and never claims foreign, left, or bound groups", async () => {
+    const claimed = organizationClaimDb({ organizationId: "org-1", status: "unbound" });
+    const request = () => new Request("https://example.test/api/line-groups/group-1/organization-claim", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, reason: "repeat verified claim" }),
+      headers: { "content-type": "application/json" },
+    });
+    const repeated = await claimLineGroupOrganization(request(), { DB: claimed }, adminSession, "group-1");
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toMatchObject({ changed: false, claimed: true, organizationId: "org-1" });
+    expect(claimed.state.updateCount).toBe(0);
+    expect(claimed.state.auditCount).toBe(1);
+
+    for (const [input, expectedStatus] of [
+      [{ organizationId: "org-other", status: "unbound" }, 404],
+      [{ organizationId: null, status: "left" }, 409],
+      [{ organizationId: null, status: "bound" }, 409],
+    ] as const) {
+      const db = organizationClaimDb(input);
+      const rejected = await claimLineGroupOrganization(request(), { DB: db }, adminSession, "group-1");
+      expect(rejected.status).toBe(expectedStatus);
+      expect(db.state.updateCount).toBe(0);
+    }
+  });
+
+  it("fails closed for unknown targets or missing explicit confirmation", async () => {
+    const unknown = organizationClaimDb({ organizationId: null, status: "unbound", exists: false });
+    const unknownResult = await claimLineGroupOrganization(
+      new Request("https://example.test/api/line-groups/group-1/organization-claim", {
+        method: "POST",
+        body: JSON.stringify({ confirm: true, reason: "verified real Production group" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { DB: unknown },
+      adminSession,
+      "group-1",
+    );
+    expect(unknownResult.status).toBe(404);
+
+    const missingConfirmation = organizationClaimDb({ organizationId: null, status: "unbound" });
+    const confirmationResult = await claimLineGroupOrganization(
+      new Request("https://example.test/api/line-groups/group-1/organization-claim", {
+        method: "POST",
+        body: JSON.stringify({ reason: "missing confirmation" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { DB: missingConfirmation },
+      adminSession,
+      "group-1",
+    );
+    expect(confirmationResult.status).toBe(400);
+    expect(missingConfirmation.state.updateCount).toBe(0);
   });
 });

@@ -27,6 +27,7 @@ describe("canonical write hold", () => {
     expect(canonicalWebMutationRequiresHold("/api/records/record-1/reverse", "POST")).toBe(true);
     expect(canonicalWebMutationRequiresHold("/api/operators", "POST")).toBe(true);
     expect(canonicalWebMutationRequiresHold("/api/line-groups/group-1/operator-bindings", "POST")).toBe(true);
+    expect(canonicalWebMutationRequiresHold("/api/line-groups/group-1/organization-claim", "POST")).toBe(true);
     expect(canonicalWebMutationRequiresHold("/api/line-groups/group-1/operational-authorization", "PATCH")).toBe(true);
     expect(canonicalWebMutationRequiresHold("/api/dashboard", "GET")).toBe(false);
     expect(canonicalWebMutationRequiresHold("/api/records", "GET")).toBe(false);
