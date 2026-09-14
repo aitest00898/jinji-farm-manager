@@ -4916,3 +4916,41 @@ Production group, deploy the Worker, or change Production data. Safe rollout
 ordering is migration 0041 first, then the compatible Worker release. The
 next operational boundary is an approved deployment/provisioning procedure,
 not a new runtime authority.
+
+## 2026-09-14 — Chapter 3 controlled Production transition blocked
+
+This is a documentation-alignment state, not a feature chapter. Chapter 3
+stopped before any Production mutation because the remote Wrangler/Cloudflare
+credential path was unavailable, no intended Production LINE group had been
+identified, the remote migration state could not be read back, and no
+authenticated procedure for changing `operational_authorized` was verified.
+
+```text
+CHAPTER_1_ARCHITECTURE_RECONCILIATION = PASS
+CHAPTER_2_AUTHORIZED_GROUP_TRUST = PASS_LOCAL
+CHAPTER_2_APPROVED_SOURCE = 6e5b2660813046ad6b6d1cc20ebd53c182d67fb8
+CHAPTER_2_PRODUCTION_ACCEPTANCE = NOT_YET_ACCEPTED
+CHAPTER_3_PRODUCTION_TRANSITION = BLOCKED
+PRODUCTION_CHAPTER_2_AUTHORITY = NOT_ACCEPTED
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+WRANGLER_REMOTE_AUTH = UNAVAILABLE
+INTENDED_PRODUCTION_LINE_GROUP = NOT_IDENTIFIED
+MIGRATION_0041_REMOTE_STATE = NOT_VERIFIED
+AUTHENTICATED_GROUP_AUTHORIZATION_PROCEDURE = NOT_VERIFIED
+PRODUCTION_MIGRATION = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+LINE_SEND = 0
+PRODUCTION_SYNTHETIC_BUSINESS_WRITE = 0
+FINANCE_MUTATION = 0
+STOCK_UNINTENDED_DELTA = 0
+HEALTH = PASS
+READY = PASS
+```
+
+The fixed transition order remains: identify the intended Production group;
+establish authenticated remote access; capture the authoritative baseline;
+apply migration 0041; read back schema/data; deploy the approved Worker;
+authorize only the intended group; read back authorization; perform safe real
+LINE acceptance; compare integrity deltas; then PASS or rollback. The Test
+group must not be promoted implicitly, and no later feature chapter is ready.
