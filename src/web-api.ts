@@ -2983,6 +2983,114 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
   });
 }
 
+export async function setLineGroupOperationalAuthorization(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  groupId: string,
+): Promise<Response> {
+  const targetGroupId = stringValue(groupId, 200);
+  if (!targetGroupId) return errorResponse(request, 400, "invalid_group_id", "LINE 群組識別無效。");
+
+  let group: {
+    groupId: string;
+    organizationId: string | null;
+    status: string;
+    operationalAuthorized: number;
+  } | null;
+  try {
+    group = await env.DB.prepare(
+      `SELECT group_id AS groupId, organization_id AS organizationId,
+              status, COALESCE(operational_authorized, 0) AS operationalAuthorized
+         FROM line_groups
+        WHERE group_id = ?
+        LIMIT 1`,
+    ).bind(targetGroupId).first<typeof group>();
+  } catch {
+    return errorResponse(request, 503, "line_group_authorization_unavailable", "群組授權資料尚未可用，沒有變更資料。");
+  }
+  if (!group || group.organizationId !== session.organizationId) {
+    return errorResponse(request, 404, "not_found", "找不到這個 LINE 群組。");
+  }
+  if (group.status === "left") {
+    return errorResponse(request, 409, "group_left", "這個群組已離開，不能調整營運授權。");
+  }
+
+  const body = await bodyJson(request);
+  if (typeof body?.authorized !== "boolean") {
+    return errorResponse(request, 400, "invalid_authorization", "請明確指定 authorized=true 或 authorized=false。");
+  }
+  if (body.confirm !== true) {
+    return errorResponse(request, 400, "confirmation_required", "群組營運授權變更需要再次確認。");
+  }
+  const reason = stringValue(body.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "群組營運授權變更需要填寫原因。");
+
+  const authorized = body.authorized ? 1 : 0;
+  const before = Number(group.operationalAuthorized ?? 0) === 1;
+  const after = authorized === 1;
+  const action = after ? "authorize" : "revoke";
+  try {
+    if (before !== after) {
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE line_groups
+              SET operational_authorized = ?
+            WHERE group_id = ? AND organization_id = ?`,
+        ).bind(authorized, targetGroupId, session.organizationId),
+        auditLogStatement(env, {
+          organizationId: session.organizationId,
+          source: "web",
+          actorType: "web_admin",
+          actorId: session.id,
+          action,
+          entityType: "line_group_operational_authorization",
+          entityId: targetGroupId,
+          before: { operationalAuthorized: before },
+          after: { operationalAuthorized: after },
+          changedFields: ["operationalAuthorized"],
+          reason,
+          requestId: requestId(request),
+        }),
+      ]);
+    } else {
+      await writeAuditLog(env, {
+        organizationId: session.organizationId,
+        source: "web",
+        actorType: "web_admin",
+        actorId: session.id,
+        action,
+        entityType: "line_group_operational_authorization",
+        entityId: targetGroupId,
+        before: { operationalAuthorized: before },
+        after: { operationalAuthorized: after },
+        changedFields: [],
+        reason,
+        requestId: requestId(request),
+      });
+    }
+    const readback = await env.DB.prepare(
+      `SELECT group_id AS groupId,
+              COALESCE(operational_authorized, 0) AS operationalAuthorized
+         FROM line_groups
+        WHERE group_id = ? AND organization_id = ?
+        LIMIT 1`,
+    ).bind(targetGroupId, session.organizationId).first<{ groupId: string; operationalAuthorized: number }>();
+    if (!readback || Number(readback.operationalAuthorized ?? 0) !== authorized) {
+      return errorResponse(request, 503, "line_group_authorization_readback_failed", "群組授權結果無法確認，請維持安全狀態後再查詢。");
+    }
+    return response(request, {
+      ok: true,
+      changed: before !== after,
+      groupId: targetGroupId,
+      operationalAuthorized: after,
+      message: after ? "已授權這個 LINE 群組進行營運操作。" : "已撤銷這個 LINE 群組的營運授權。",
+    });
+  } catch {
+    return errorResponse(request, 503, "line_group_authorization_unavailable", "群組授權未完成，沒有可確認的變更結果。");
+  }
+}
+
 interface LineGroupBindingReadbackRow {
   bindingId: string;
   groupId: string;
@@ -3483,6 +3591,10 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
       return createOperatorScope(request, env, session, decodeURIComponent(operatorScopeMatch[1]));
     }
     if (url.pathname === "/api/line-groups" && request.method === "GET") return lineGroups(request, env, session);
+    const lineGroupOperationalAuthorizationMatch = /^\/api\/line-groups\/([^/]+)\/operational-authorization$/u.exec(url.pathname);
+    if (lineGroupOperationalAuthorizationMatch && request.method === "PATCH") {
+      return setLineGroupOperationalAuthorization(request, env, session, decodeURIComponent(lineGroupOperationalAuthorizationMatch[1]));
+    }
     const lineGroupOperatorBindingMatch = /^\/api\/line-groups\/([^/]+)\/operator-bindings$/u.exec(url.pathname);
     if (lineGroupOperatorBindingMatch && request.method === "POST") {
       return bindLineGroupOperatorScope(request, env, session, decodeURIComponent(lineGroupOperatorBindingMatch[1]));
