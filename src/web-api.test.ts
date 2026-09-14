@@ -4,6 +4,7 @@ import {
   claimLineGroupOrganization,
   DEFAULT_OPERATIONAL_ENVIRONMENT,
   isAllowedWebOrigin,
+  lineGroupClaimCandidates,
   operationalEnvironmentFor,
   setLineGroupOperationalAuthorization,
 } from "./web-api";
@@ -88,6 +89,7 @@ function organizationClaimDb(input: {
                   groupId: "group-1",
                   organizationId: state.organizationId,
                   status: state.status,
+                  hasLineEvidence: 1,
                 } as T;
               }
               return null;
@@ -230,6 +232,30 @@ describe("Web API boundary", () => {
     await expect(repeated.json()).resolves.toMatchObject({ changed: false, operationalAuthorized: false });
     expect(db.state.updateCount).toBe(1);
     expect(db.state.auditCount).toBe(2);
+  });
+
+  it("lists only unbound groups with observed LINE events as read-only claim candidates", async () => {
+    let sql = "";
+    const db = {
+      prepare(statement: string) {
+        sql = statement;
+        return {
+          bind() {
+            return {
+              async all<T>() {
+                return { results: [{ groupId: "group-1", groupIdShort: "grou…up-1", status: "unbound", farmName: null, joinedAt: "2026-09-14T00:00:00Z", lastObservedAt: "2026-09-14T00:01:00Z", observedEventCount: 2 }] as T[] };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const result = await lineGroupClaimCandidates(new Request("https://example.test/api/line-groups/claim-candidates"), { DB: db }, adminSession);
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toMatchObject({ readOnly: true, claimCandidates: [{ groupId: "group-1", observedEventCount: 2 }] });
+    expect(sql).toContain("JOIN line_events");
+    expect(sql).toContain("g.organization_id IS NULL");
+    expect(sql).toContain("g.status = 'unbound'");
   });
 
   it("claims one existing unbound group for the authenticated organization with audit and readback", async () => {

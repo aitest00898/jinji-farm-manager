@@ -2983,6 +2983,39 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
   });
 }
 
+export async function lineGroupClaimCandidates(request: Request, env: WebApiEnv, _session: SessionRow): Promise<Response> {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT g.group_id AS groupId,
+              substr(g.group_id, 1, 4) || '…' || substr(g.group_id, -4) AS groupIdShort,
+              g.status, g.farm_name AS farmName, g.joined_at AS joinedAt,
+              MAX(e.received_at) AS lastObservedAt,
+              COUNT(e.event_id) AS observedEventCount
+         FROM line_groups g
+         JOIN line_events e ON e.group_id = g.group_id
+        WHERE g.organization_id IS NULL
+          AND g.status = 'unbound'
+        GROUP BY g.group_id, g.status, g.farm_name, g.joined_at
+        ORDER BY lastObservedAt DESC, g.group_id
+        LIMIT 20`,
+    ).bind().all<Record<string, unknown>>();
+    return response(request, {
+      claimCandidates: rows.results.map((row) => ({
+        groupId: String(row.groupId),
+        groupIdShort: String(row.groupIdShort),
+        status: String(row.status),
+        farmName: row.farmName ? String(row.farmName) : null,
+        joinedAt: row.joinedAt ?? null,
+        lastObservedAt: row.lastObservedAt ?? null,
+        observedEventCount: Number(row.observedEventCount ?? 0),
+      })),
+      readOnly: true,
+    });
+  } catch {
+    return errorResponse(request, 503, "line_group_claim_candidates_unavailable", "無法讀取可認領的 LINE 群組，沒有變更資料。");
+  }
+}
+
 export async function claimLineGroupOrganization(
   request: Request,
   env: WebApiEnv,
@@ -2996,10 +3029,12 @@ export async function claimLineGroupOrganization(
     groupId: string;
     organizationId: string | null;
     status: string;
+    hasLineEvidence: number;
   } | null;
   try {
     group = await env.DB.prepare(
-      `SELECT group_id AS groupId, organization_id AS organizationId, status
+      `SELECT group_id AS groupId, organization_id AS organizationId, status,
+              EXISTS (SELECT 1 FROM line_events e WHERE e.group_id = line_groups.group_id) AS hasLineEvidence
          FROM line_groups
         WHERE group_id = ?
         LIMIT 1`,
@@ -3012,6 +3047,7 @@ export async function claimLineGroupOrganization(
   if (group.organizationId && group.organizationId !== session.organizationId) {
     return errorResponse(request, 404, "not_found", "找不到這個 LINE 群組。");
   }
+  if (Number(group.hasLineEvidence ?? 0) !== 1) return errorResponse(request, 404, "not_found", "找不到可驗證的 LINE 群組。");
 
   const body = await bodyJson(request);
   if (body?.confirm !== true) {
@@ -3725,6 +3761,7 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
       return createOperatorScope(request, env, session, decodeURIComponent(operatorScopeMatch[1]));
     }
     if (url.pathname === "/api/line-groups" && request.method === "GET") return lineGroups(request, env, session);
+    if (url.pathname === "/api/line-groups/claim-candidates" && request.method === "GET") return lineGroupClaimCandidates(request, env, session);
     const lineGroupOrganizationClaimMatch = /^\/api\/line-groups\/([^/]+)\/organization-claim$/u.exec(url.pathname);
     if (lineGroupOrganizationClaimMatch && request.method === "POST") {
       return claimLineGroupOrganization(request, env, session, decodeURIComponent(lineGroupOrganizationClaimMatch[1]));
