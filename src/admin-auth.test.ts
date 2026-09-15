@@ -3,6 +3,7 @@ import {
   ADMIN_MAX_FAILED_ATTEMPTS,
   ADMIN_PBKDF2_ITERATIONS,
   adminSessionIsActive,
+  isLineSystemAdminUser,
   nextAdminFailureState,
   verifyAdminPassword,
 } from "./admin-auth";
@@ -62,5 +63,13 @@ describe("farm admin authentication", () => {
   it("enforces the short-lived session boundary", () => {
     expect(adminSessionIsActive("2026-08-19T00:05:00.000Z", "2026-08-19T00:04:59.000Z")).toBe(true);
     expect(adminSessionIsActive("2026-08-19T00:05:00.000Z", "2026-08-19T00:05:00.000Z")).toBe(false);
+  });
+
+  it("requires an exact protected singleton LINE identity", () => {
+    expect(isLineSystemAdminUser("U-admin", "U-admin")).toBe(true);
+    expect(isLineSystemAdminUser(" U-admin ", "U-admin")).toBe(true);
+    expect(isLineSystemAdminUser("U-admin", "U-other")).toBe(false);
+    expect(isLineSystemAdminUser(undefined, "U-admin")).toBe(false);
+    expect(isLineSystemAdminUser("U-admin", undefined)).toBe(false);
   });
 });

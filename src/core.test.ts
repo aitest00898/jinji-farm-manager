@@ -75,6 +75,14 @@ describe("LINE command parser", () => {
     expect(classifyInput("新增批次 金雞測試場 測試1舍 TEST-BATCH 入雛 2026-08-20 12000")).toBe("ADMIN");
   });
 
+  it("parses the narrow current-group authorization bootstrap commands", () => {
+    expect(parseCommand("授權目前群組")).toEqual({ kind: "authorize_current_group", confirm: false });
+    expect(parseCommand("確認授權目前群組")).toEqual({ kind: "authorize_current_group", confirm: true });
+    expect(parseCommand("授權本LINE群組")).toEqual({ kind: "authorize_current_group", confirm: false });
+    expect(classifyInput("授權目前群組")).toBe("ADMIN");
+    expect(classifyInput("確認授權目前群組")).toBe("ADMIN");
+  });
+
   it("classifies control commands separately from pending responses", () => {
     expect(classifyCommand(parseCommand("取消"))).toBe("CONTROL");
     expect(classifyInput("確認")).toBe("PENDING_RESPONSE");

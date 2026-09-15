@@ -5233,3 +5233,46 @@ GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
 ```
 
 No raw provider group identifier is stored here. Chapter 5 was not started.
+
+## 2026-09-15 — Chapter 5 LINE singleton administrator boundary
+
+Chapter 5 implementation is complete locally but is not activated because the
+protected singleton LINE administrator identity is not provisioned in the
+current Worker runtime. LINE admin actions now require the exact protected
+`LINE_SYSTEM_ADMIN_USER_ID`; legacy LINE password verification and
+`admin_sessions` cannot grant LINE admin authority. Web password/session auth
+remains separate. The explicit current-group bootstrap is fail-closed,
+single-group, unbound-only, confirmation-gated, atomic, audited, idempotent,
+and read-back verified. Admin postbacks also use the existing operational group
+trust boundary.
+
+```text
+CHAPTER_5 = TRUE_HUMAN_BLOCKED
+SINGLETON_SYSTEM_ADMIN = PASS_BY_SINGLE_PROTECTED_BINDING
+FIXED_LINE_ADMIN_IDENTITY = NOT_PROVISIONED
+ADMIN_IDENTITY_PROTECTED = PASS_BY_RUNTIME_CONFIG_DESIGN
+LEGACY_LINE_ADMIN_PASSWORD_AS_AUTHORITY = NO
+LEGACY_LINE_ADMIN_SESSION_AS_AUTHORITY = NO
+AUTHORIZED_GROUP_NORMAL_MEMBER_BEHAVIOR_UNCHANGED = PASS_LOCAL
+UNAUTHORIZED_GROUP_ADMIN_BOOTSTRAP = PASS_LOCAL
+BOOTSTRAP_SCOPE_ESCALATION = 0
+ORDINARY_MEMBER_ADMIN_ESCALATION = 0
+AUDIT_ADMIN_ATTRIBUTION = PASS_LOCAL
+TEST_PRODUCTION_ISOLATION = PASS
+USER_REACHABLE_LEGACY_ADMIN_AUTHORITY_DIVERGENCE = 0
+FOCUSED_TESTS = PASS_36_OF_36
+FULL_REGRESSION = PASS_930_PASSED_11_SKIPPED
+LOCAL_MENU_RUNTIME = PASS_71_OF_71
+LOCAL_PREVIEW_RUNTIME = PASS_11_OF_11
+PRODUCTION_UNEXPECTED_DELTA = 0
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_GROUP_AUTHORIZATION = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+BLOCKER = PROTECTED_LINE_SYSTEM_ADMIN_USER_ID_NOT_PROVISIONED
+```
+
+The secret-name inventory was read without reading values and contained no
+`LINE_SYSTEM_ADMIN_USER_ID`. No Production deploy, LINE mutation, business
+write, stock mutation, Finance mutation, or group authorization was performed
+for Chapter 5. Do not store the protected identity in source, durable docs,
+client code, logs, or chat. Chapter 6 is not started.

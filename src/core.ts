@@ -35,6 +35,7 @@ export type ParsedCommand =
   | { kind: "system_status" }
   | { kind: "ambient_digest_now" }
   | { kind: "pending_ambient_preview" }
+  | { kind: "authorize_current_group"; confirm: boolean }
   | { kind: "cancel" }
   | { kind: "bind"; farmName: string }
   | { kind: "mortality"; house: string; amount: number }
@@ -104,6 +105,8 @@ export function classifyCommand(command: ParsedCommand): CommandClass {
       return "UNKNOWN";
     case "pending_ambient_preview":
       return "CONTROL";
+    case "authorize_current_group":
+      return "ADMIN";
     case "bind":
     case "create_test_farm":
     case "archive_test_farm":
@@ -303,6 +306,12 @@ export function parseCommand(input: string): ParsedCommand {
   if (/^開發選單$/iu.test(text)) return { kind: "menu_developer" };
   if (/^系統狀態$/iu.test(text)) return { kind: "system_status" };
   if (/^顯示待摘要訊息$/iu.test(text)) return { kind: "pending_ambient_preview" };
+  if (/^(?:授權|授权)(?:目前|這個|这个|本)(?:LINE)?群組$/iu.test(text)) {
+    return { kind: "authorize_current_group", confirm: false };
+  }
+  if (/^(?:確認授權|确认授权)(?:目前|這個|这个|本)(?:LINE)?群組$/iu.test(text)) {
+    return { kind: "authorize_current_group", confirm: true };
+  }
   if (/^待確認資料$/iu.test(text)) return { kind: "menu_pending_candidates" };
   if (/^摘要$/iu.test(text)) return { kind: "ambient_digest_now" };
   if (/^(?:取消|不要|算了)$/iu.test(text)) return { kind: "cancel" };

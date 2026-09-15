@@ -4,6 +4,20 @@ export const ADMIN_SESSION_TTL_MS = 5 * 60 * 1000;
 export const ADMIN_LOCKOUT_MS = 15 * 60 * 1000;
 export const ADMIN_MAX_FAILED_ATTEMPTS = 5;
 /**
+ * Opaque audit actor for the singleton LINE system administrator. The real
+ * LINE user identity is supplied only through protected runtime config and is
+ * never copied into source, audit rows, or operator-facing replies.
+ */
+export const LINE_SYSTEM_ADMIN_ACTOR_ID = "line-system-admin";
+
+export function isLineSystemAdminUser(
+  configuredUserId: string | undefined,
+  lineUserId: string | null | undefined,
+): boolean {
+  const configured = configuredUserId?.trim();
+  return Boolean(configured && lineUserId && configured === lineUserId);
+}
+/**
  * Security compatibility exception: this fixed value is currently used
  * because Node and Cloudflare Worker verification was experimentally
  * compatible at 100,000 iterations, while higher tested counts diverged.

@@ -12,6 +12,8 @@ const dedupeOtherUserId = `${prefix}-dedupe-other`;
 const shortcutUser = `${prefix}-shortcut-user`;
 const navigationUser = `${prefix}-navigation-user`;
 const firstUseGroupId = `${prefix}-first-use-group`;
+const bootstrapGroupId = `${prefix}-bootstrap-group`;
+const restrictedGroupId = `${prefix}-restricted-group`;
 const botMention = "@金雞協會助理Ai";
 let sequence = 0;
 const checks = [];
@@ -45,7 +47,7 @@ function messageEvent(label, text, user = userId, timestamp = Date.now(), group 
   };
 }
 
-function postbackEvent(label, data, user = userId, timestamp = Date.now()) {
+function postbackEvent(label, data, user = userId, timestamp = Date.now(), group = groupId) {
   const eventId = `${prefix}-${label}`;
   sequence += 1;
   return {
@@ -53,7 +55,7 @@ function postbackEvent(label, data, user = userId, timestamp = Date.now()) {
     webhookEventId: eventId,
     timestamp: timestamp + sequence,
     replyToken: `${eventId}-reply`,
-    source: { type: "group", groupId, userId: user },
+    source: { type: "group", groupId: group, userId: user },
     postback: { data },
   };
 }
@@ -119,6 +121,7 @@ async function main() {
   const worker = spawn("npx", [
     "wrangler", "dev", "--local", "--port", String(port),
     "--var", `RUNTIME_TEST_TOKEN:${token}`,
+    "--var", `LINE_SYSTEM_ADMIN_USER_ID:${userId}`,
     "--var", "LINE_CHANNEL_SECRET:local-only-secret",
     "--var", "LINE_CHANNEL_ACCESS_TOKEN:local-only-token",
   ], { stdio: "ignore" });
@@ -268,6 +271,20 @@ async function main() {
     check("DEVELOPER-TYPED-UNAUTHORIZED", firstMessage(unauthorizedTypedDeveloper)?.type === "text" && firstMessage(unauthorizedTypedDeveloper).text.includes("只有管理者") && !firstMessage(unauthorizedTypedDeveloper).text.includes("系統診斷"), firstMessage(unauthorizedTypedDeveloper)?.text);
     const unauthorizedStatus = await dispatch(messageEvent("status-unauthorized", "系統狀態", otherUserId));
     check("SYSTEM-STATUS-UNAUTHORIZED", firstMessage(unauthorizedStatus)?.type === "text" && firstMessage(unauthorizedStatus).text.includes("只有管理者"), firstMessage(unauthorizedStatus)?.text);
+    run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", `INSERT OR REPLACE INTO admin_sessions (id, line_group_id, line_user_id, expires_at) VALUES ('${prefix}-legacy-other-session', '${groupId}', '${otherUserId}', '2099-01-01T00:00:00.000Z');`]);
+    const legacySession = await dispatch(messageEvent("legacy-session-unauthorized", "管理功能", otherUserId));
+    check("LEGACY-SESSION-CANNOT-GRANT-ADMIN", firstMessage(legacySession)?.type === "text" && firstMessage(legacySession).text.includes("只有管理者"), firstMessage(legacySession)?.text);
+    const bootstrapPrompt = await dispatch(messageEvent("bootstrap-prompt", "授權目前群組", userId, Date.now(), bootstrapGroupId));
+    check("BOOTSTRAP-REQUIRES-EXPLICIT-CONFIRMATION", firstMessage(bootstrapPrompt)?.type === "text" && firstMessage(bootstrapPrompt).text.includes("確認授權目前群組"), firstMessage(bootstrapPrompt)?.text);
+    const bootstrapDenied = await dispatch(messageEvent("bootstrap-denied", "確認授權目前群組", otherUserId, Date.now(), bootstrapGroupId));
+    check("BOOTSTRAP-ORDINARY-MEMBER-DENIED", firstMessage(bootstrapDenied)?.type === "text" && firstMessage(bootstrapDenied).text.includes("只有管理者"), firstMessage(bootstrapDenied)?.text);
+    const bootstrapConfirmed = await dispatch(messageEvent("bootstrap-confirmed", "確認授權目前群組", userId, Date.now(), bootstrapGroupId));
+    check("BOOTSTRAP-FIXED-ADMIN-AUTHORIZES-CURRENT-GROUP", firstMessage(bootstrapConfirmed)?.type === "text" && firstMessage(bootstrapConfirmed).text.includes("授權成功") && firstMessage(bootstrapConfirmed).text.includes("readback"), firstMessage(bootstrapConfirmed)?.text);
+    const bootstrapRepeat = await dispatch(messageEvent("bootstrap-repeat", "確認授權目前群組", userId, Date.now(), bootstrapGroupId));
+    check("BOOTSTRAP-IDEMPOTENT", firstMessage(bootstrapRepeat)?.type === "text" && firstMessage(bootstrapRepeat).text.includes("已完成授權"), firstMessage(bootstrapRepeat)?.text);
+    run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", `INSERT OR REPLACE INTO line_groups (group_id, status, organization_id, operational_authorized) VALUES ('${restrictedGroupId}', 'unbound', 'org-mafu-investment', 0);`]);
+    const restrictedManagement = await dispatch(postbackEvent("management-restricted-group", "action=menu_management", userId, Date.now(), restrictedGroupId));
+    check("ADMIN-POSTBACK-REQUIRES-GROUP-TRUST", firstMessage(restrictedManagement)?.type === "text" && firstMessage(restrictedManagement).text.includes("尚未獲授權"), firstMessage(restrictedManagement)?.text);
     run("npx", ["wrangler", "d1", "execute", "DB", "--local", "--command", `INSERT OR REPLACE INTO admin_sessions (id, line_group_id, line_user_id, expires_at) VALUES ('${prefix}-admin-session', '${groupId}', '${userId}', '2099-01-01T00:00:00.000Z');`]);
     const typedManagement = await dispatch(messageEvent("management-typed-authorized", "管理功能", userId));
     check("MANAGEMENT-TYPED-AUTHORIZED", firstMessage(typedManagement)?.type === "flex" && firstMessage(typedManagement).altText.includes("管理功能"), firstMessage(typedManagement)?.altText);

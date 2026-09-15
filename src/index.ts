@@ -22,7 +22,10 @@ import {
   shouldPreferAiOverDeterministic,
   type UnifiedIntent,
 } from "./semantic";
-import { ADMIN_SESSION_TTL_MS, nextAdminFailureState, verifyAdminPassword } from "./admin-auth";
+import {
+  LINE_SYSTEM_ADMIN_ACTOR_ID,
+  isLineSystemAdminUser,
+} from "./admin-auth";
 import {
   deriveCurrentStock,
   effectiveOperationalEventPredicate,
@@ -35,7 +38,7 @@ import {
   type StockAdjustment,
 } from "./master-data";
 import { handleWebApi } from "./web-api";
-import { writeAuditLog } from "./domain";
+import { auditLogStatement, writeAuditLog } from "./domain";
 import {
   formatAbnormalReply,
   insertAbnormalEvent,
@@ -284,6 +287,8 @@ export interface Env {
   CONVERSATION_V2_MODE?: "off" | "shadow" | "test_farm" | "on";
   CONVERSATION_MODEL?: string;
   LINE_API_BASE?: string;
+  /** Protected singleton LINE user identity; never exposed to clients or replies. */
+  LINE_SYSTEM_ADMIN_USER_ID?: string;
   FARM_ADMIN_PASSWORD_HASH?: string;
   /** Temporary, non-secret runtime harness gate; absent in normal deploys. */
   RUNTIME_TEST_TOKEN?: string;
@@ -427,6 +432,7 @@ interface GroupState {
   farmName: string | null;
   organizationId: string | null;
   farmId: string | null;
+  operationalAuthorized?: number;
 }
 
 interface FarmRow {
@@ -654,13 +660,97 @@ async function groupState(env: Env, groupId: string): Promise<GroupState> {
     `SELECT status,
             farm_name AS farmName,
             organization_id AS organizationId,
-            farm_id AS farmId
+            farm_id AS farmId,
+            operational_authorized AS operationalAuthorized
        FROM line_groups
       WHERE group_id = ?`,
   )
     .bind(groupId)
     .first<GroupState>();
-  return row ?? { status: "unbound", farmName: null, organizationId: null, farmId: null };
+  return row ?? { status: "unbound", farmName: null, organizationId: null, farmId: null, operationalAuthorized: 0 };
+}
+
+function lineSystemAdminAuthorized(env: Env, event: LineEvent): boolean {
+  return isLineSystemAdminUser(env.LINE_SYSTEM_ADMIN_USER_ID, event.source?.userId);
+}
+
+function lineSystemAdminAuditActor(): { actorType: string; actorId: string } {
+  return { actorType: "system_admin_line", actorId: LINE_SYSTEM_ADMIN_ACTOR_ID };
+}
+
+async function activeLineOrganizationId(env: Env): Promise<string | null> {
+  const rows = await env.DB.prepare(
+    `SELECT id FROM organizations WHERE active = 1 ORDER BY id`,
+  ).all<{ id: string }>();
+  return rows.results.length === 1 ? rows.results[0].id : null;
+}
+
+async function handleCurrentGroupAuthorizationBootstrap(
+  env: Env,
+  event: LineEvent,
+  eventId: string,
+  groupId: string,
+  accountName: string,
+  confirm: boolean,
+): Promise<string> {
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
+  const state = await groupState(env, groupId);
+  if (state.status === "left") {
+    return `${botName(accountName)}\n⚠️ 這個 LINE 群組已離開，不能重新授權。`;
+  }
+  const organizationId = await activeLineOrganizationId(env);
+  if (!organizationId) {
+    return `${botName(accountName)}\n⚠️ 目前無法安全唯一確定系統管理組織，沒有變更群組授權。`;
+  }
+  if (state.organizationId && state.organizationId !== organizationId) {
+    return `${botName(accountName)}\n⚠️ 這個 LINE 群組已屬於其他組織，拒絕重新指派。`;
+  }
+  if (state.organizationId && state.operationalAuthorized === 1) {
+    return `${botName(accountName)}\n✅ 目前 LINE 群組已完成授權。`;
+  }
+  if (state.organizationId || state.status !== "unbound") {
+    return `${botName(accountName)}\n⚠️ 這個 LINE 群組不是可安全 bootstrap 的未綁定群組，沒有變更授權。`;
+  }
+  if (!confirm) {
+    return `${botName(accountName)}\n即將把目前這個 LINE 群組授權給系統管理組織。\n若確認，請回覆：確認授權目前群組`;
+  }
+
+  const auditActor = lineSystemAdminAuditActor();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE line_groups
+          SET organization_id = ?, operational_authorized = 1
+        WHERE group_id = ? AND status = 'unbound'
+          AND organization_id IS NULL AND operational_authorized = 0`,
+    ).bind(organizationId, groupId),
+    auditLogStatement(env, {
+      organizationId,
+      source: "line",
+      actorType: auditActor.actorType,
+      actorId: auditActor.actorId,
+      action: "authorize",
+      entityType: "line_group",
+      entityId: groupId,
+      before: { status: "unbound", organizationId: null, operationalAuthorized: 0 },
+      after: { status: "unbound", organizationId, operationalAuthorized: 1 },
+      changedFields: ["organization_id", "operational_authorized"],
+      reason: "singleton_line_system_admin_bootstrap",
+      requestId: eventId,
+    }),
+  ]);
+  const readback = await env.DB.prepare(
+    `SELECT status, organization_id AS organizationId,
+            operational_authorized AS operationalAuthorized
+       FROM line_groups WHERE group_id = ? LIMIT 1`,
+  ).bind(groupId).first<{ status: string; organizationId: string | null; operationalAuthorized: number }>();
+  if (
+    readback?.status !== "unbound"
+    || readback.organizationId !== organizationId
+    || readback.operationalAuthorized !== 1
+  ) {
+    return `${botName(accountName)}\n⚠️ 群組授權結果無法完成 authoritative readback，請勿進行營運操作。`;
+  }
+  return `${botName(accountName)}\n✅ 目前 LINE 群組授權成功，已完成組織歸屬與營運信任 readback。`;
 }
 
 function lineGroupAuthorizationDeniedReply(accountName: string): string {
@@ -2211,10 +2301,6 @@ async function hasRecentlyExpiredTestFarmAction(
   return Boolean(row);
 }
 
-function farmAdminNeedsPasswordReply(accountName: string): string {
-  return `${botName(accountName)}\n🔐 此操作需要管理權限。\n請輸入管理密碼。`;
-}
-
 function farmAdminConfirmation(accountName: string, intent: FarmAdminIntent, farmName: string, environment: FarmAdminEnvironment): string {
   const isCreate = intent === "create_farm" || intent === "create_test_farm";
   const isTest = environment === "test";
@@ -2369,6 +2455,7 @@ async function startOperationalAdminAction(
 ): Promise<string> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return safeRejectionReply(accountName);
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   const resolver = await loadFarmResolver(env, organizationId);
   const resolution = resolver.resolve(command.farmName);
   if (resolution.kind !== "direct" || !resolution.farm) {
@@ -2424,10 +2511,12 @@ async function startOperationalAdminAction(
   if (previous?.status === "completed") return `${botName(accountName)}\n✅ 上一筆主檔操作已完成，沒有重複寫入。`;
   if (previous) {
     const existing = await latestOperationalAdminAction(env, groupId, lineUserId);
-    return existing ? operationalAdminConfirmation(accountName, existing, farm) : safeRejectionReply(accountName);
+    if (!existing) return safeRejectionReply(accountName);
+    return existing.status === "waiting_password"
+      ? `${botName(accountName)}\n⚠️ 舊管理驗證流程已停用，請重新輸入完整管理指令。`
+      : operationalAdminConfirmation(accountName, existing, farm);
   }
 
-  const session = await activeAdminSession(env, groupId, lineUserId);
   const actionId = `operational-admin-action-${crypto.randomUUID()}`;
   await env.DB.prepare(
     `INSERT INTO operational_admin_actions
@@ -2449,14 +2538,14 @@ async function startOperationalAdminAction(
       chickInDate,
       initialCount,
       expectedShipmentDate,
-      session ? "waiting_confirmation" : "waiting_password",
+      "waiting_confirmation",
       new Date(Date.now() + PENDING_TTL_MS).toISOString(),
       eventId,
     )
     .run();
   const action = await latestOperationalAdminAction(env, groupId, lineUserId);
   if (!action) return safeRejectionReply(accountName);
-  return session ? operationalAdminConfirmation(accountName, action, farm) : farmAdminNeedsPasswordReply(accountName);
+  return operationalAdminConfirmation(accountName, action, farm);
 }
 
 async function completeOperationalAdminAction(
@@ -2509,8 +2598,7 @@ async function completeOperationalAdminAction(
     await writeAuditLog(env, {
       organizationId: action.organizationId,
       source: "line",
-      actorType: "line_user",
-      actorId: action.lineUserId,
+      ...lineSystemAdminAuditActor(),
       action: "create",
       entityType: "house",
       entityId: houseId,
@@ -2553,8 +2641,7 @@ async function completeOperationalAdminAction(
   await writeAuditLog(env, {
     organizationId: action.organizationId,
     source: "line",
-    actorType: "line_user",
-    actorId: action.lineUserId,
+    ...lineSystemAdminAuditActor(),
     action: "create",
     entityType: "flock",
     entityId: flockId,
@@ -2571,23 +2658,6 @@ async function completeOperationalAdminAction(
   return `${botName(accountName)}\n✅ 批次建立成功\n${farmDisplayName(farm)}｜${house.name}｜${action.batchCode}`;
 }
 
-async function activeAdminSession(
-  env: Env,
-  groupId: string,
-  lineUserId: string,
-  now = new Date().toISOString(),
-): Promise<{ id: string; expiresAt: string } | null> {
-  return env.DB.prepare(
-    `SELECT id, expires_at AS expiresAt
-       FROM admin_sessions
-      WHERE line_group_id = ? AND line_user_id = ? AND expires_at > ?
-      ORDER BY expires_at DESC, id DESC
-      LIMIT 1`,
-  )
-    .bind(groupId, lineUserId, now)
-    .first<{ id: string; expiresAt: string }>();
-}
-
 async function startFarmAdminAction(
   env: Env,
   event: LineEvent,
@@ -2600,6 +2670,7 @@ async function startFarmAdminAction(
 ): Promise<string> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return safeRejectionReply(accountName);
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   const farmName = normalize(requestedName);
   const nameError = testFarmNameError(farmName);
   if (nameError) return `${botName(accountName)}\n⚠️ 無法執行雞場管理操作：${nameError}`;
@@ -2639,14 +2710,13 @@ async function startFarmAdminAction(
     const existingAction = await latestFarmAdminAction(env, groupId, lineUserId, ["waiting_password", "waiting_confirmation"]);
     if (existingAction?.id === previous.id) {
       return existingAction.status === "waiting_password"
-        ? farmAdminNeedsPasswordReply(accountName)
+        ? `${botName(accountName)}\n⚠️ 舊管理驗證流程已停用，請重新輸入完整管理指令。`
         : farmAdminConfirmation(accountName, existingAction.intent, existingAction.farmName, existingAction.environment);
     }
   }
 
-  const session = await activeAdminSession(env, groupId, lineUserId);
   const actionId = `farm-admin-action-${crypto.randomUUID()}`;
-  const status: FarmAdminStatus = session ? "waiting_confirmation" : "waiting_password";
+  const status: FarmAdminStatus = "waiting_confirmation";
   const farmId = intent.startsWith("archive_") ? (await loadFarmResolver(env, organizationId)).resolve(farmName).farm?.id ?? null : null;
   await env.DB.prepare(
     `INSERT INTO farm_admin_actions
@@ -2668,107 +2738,7 @@ async function startFarmAdminAction(
       eventId,
     )
     .run();
-  return status === "waiting_password"
-    ? farmAdminNeedsPasswordReply(accountName)
-    : farmAdminConfirmation(accountName, intent, farmName, environment);
-}
-
-async function adminAuthAttemptState(
-  env: Env,
-  groupId: string,
-  lineUserId: string,
-): Promise<{ failedCount: number; lockedUntil: string | null } | null> {
-  return env.DB.prepare(
-    `SELECT failed_count AS failedCount, locked_until AS lockedUntil
-       FROM admin_auth_attempts WHERE line_group_id = ? AND line_user_id = ? LIMIT 1`,
-  )
-    .bind(groupId, lineUserId)
-    .first<{ failedCount: number; lockedUntil: string | null }>();
-}
-
-async function handleFarmAdminPasswordInput(
-  env: Env,
-  event: LineEvent,
-  groupId: string,
-  accountName: string,
-): Promise<string | null> {
-  const lineUserId = event.source?.userId;
-  if (!lineUserId) return null;
-  await expireFarmAdminActions(env, groupId, lineUserId);
-  const action = await latestFarmAdminAction(env, groupId, lineUserId, ["waiting_password"]);
-  const operationalAction = action ? null : await latestOperationalAdminAction(env, groupId, lineUserId, ["waiting_password"]);
-  if (!action && !operationalAction) return null;
-  const now = new Date().toISOString();
-  const attempts = await adminAuthAttemptState(env, groupId, lineUserId);
-  if (attempts?.lockedUntil && attempts.lockedUntil > now) {
-    return `${botName(accountName)}\n🔒 管理驗證失敗次數過多，請稍後再試。`;
-  }
-  const password = event.message?.text ?? "";
-  const valid = await verifyAdminPassword(password, env.FARM_ADMIN_PASSWORD_HASH);
-  if (!valid) {
-    const next = nextAdminFailureState(attempts, now);
-    const failedCount = next.failedCount;
-    const lockedUntil = next.lockedUntil;
-    await env.DB.prepare(
-      `INSERT INTO admin_auth_attempts (line_group_id, line_user_id, failed_count, locked_until)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(line_group_id, line_user_id) DO UPDATE SET
-         failed_count = excluded.failed_count,
-         locked_until = excluded.locked_until,
-         updated_at = CURRENT_TIMESTAMP`,
-    )
-      .bind(groupId, lineUserId, failedCount, lockedUntil)
-      .run();
-    return lockedUntil
-      ? `${botName(accountName)}\n🔒 管理驗證失敗次數過多，請稍後再試。`
-      : `${botName(accountName)}\n❌ 管理密碼錯誤。`;
-  }
-
-  const sessionId = `admin-session-${crypto.randomUUID()}`;
-  const expiresAt = new Date(Date.now() + ADMIN_SESSION_TTL_MS).toISOString();
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO admin_auth_attempts (line_group_id, line_user_id, failed_count, locked_until)
-       VALUES (?, ?, 0, NULL)
-       ON CONFLICT(line_group_id, line_user_id) DO UPDATE SET
-         failed_count = 0, locked_until = NULL, updated_at = CURRENT_TIMESTAMP`,
-    ).bind(groupId, lineUserId),
-    env.DB.prepare(
-      `INSERT INTO admin_sessions (id, line_group_id, line_user_id, expires_at)
-       VALUES (?, ?, ?, ?)`,
-    ).bind(sessionId, groupId, lineUserId, expiresAt),
-    env.DB.prepare(
-      `UPDATE farm_admin_actions
-          SET status = 'waiting_confirmation', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_password' AND expires_at > ?`,
-    ).bind(action?.id ?? "", groupId, lineUserId, now),
-    env.DB.prepare(
-      `UPDATE operational_admin_actions
-          SET status = 'waiting_confirmation', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_password' AND expires_at > ?`,
-    ).bind(operationalAction?.id ?? "", groupId, lineUserId, now),
-  ]);
-  if (action) {
-    const refreshed = await latestFarmAdminAction(env, groupId, lineUserId, ["waiting_confirmation"]);
-    if (!refreshed) return `${botName(accountName)}\n⚠️ 管理操作已逾時，請重新輸入完整指令。`;
-    return [
-      `${botName(accountName)}\n✅ 管理身份驗證成功。`,
-      farmAdminConfirmation(accountName, refreshed.intent, refreshed.farmName, refreshed.environment),
-    ].join("\n");
-  }
-  const refreshed = await latestOperationalAdminAction(env, groupId, lineUserId, ["waiting_confirmation"]);
-  if (!refreshed) return `${botName(accountName)}\n⚠️ 管理操作已逾時，請重新輸入完整指令。`;
-  const farm = await env.DB.prepare(
-    `SELECT id, name, active, environment FROM farms
-      WHERE id = ? AND organization_id = ? LIMIT 1`,
-  ).bind(refreshed.farmId, refreshed.organizationId).first<FarmRow>();
-  if (!farm) return safeRejectionReply(accountName);
-  return [
-    `${botName(accountName)}\n✅ 管理身份驗證成功。`,
-    operationalAdminConfirmation(accountName, refreshed, farm),
-  ].join("\n");
+  return farmAdminConfirmation(accountName, intent, farmName, environment);
 }
 
 async function completeFarmAdminAction(
@@ -2823,8 +2793,7 @@ async function completeFarmAdminAction(
     await writeAuditLog(env, {
       organizationId: action.organizationId,
       source: "line",
-      actorType: "line_user",
-      actorId: action.lineUserId,
+      ...lineSystemAdminAuditActor(),
       action: "create",
       entityType: "farm",
       entityId: farmId,
@@ -2859,8 +2828,7 @@ async function completeFarmAdminAction(
   await writeAuditLog(env, {
     organizationId: action.organizationId,
     source: "line",
-    actorType: "line_user",
-    actorId: action.lineUserId,
+    ...lineSystemAdminAuditActor(),
     action: "archive",
     entityType: "farm",
     entityId: action.farmId,
@@ -2880,6 +2848,7 @@ async function handleFarmAdminPendingInput(
 ): Promise<string | null> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return null;
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   await expireFarmAdminActions(env, groupId, lineUserId);
   const action = await latestFarmAdminAction(env, groupId, lineUserId, ["waiting_confirmation"]);
   const operationalAction = action ? null : await latestOperationalAdminAction(env, groupId, lineUserId, ["waiting_confirmation"]);
@@ -2938,6 +2907,7 @@ async function createTestFarmPendingAction(
 ): Promise<string> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return safeRejectionReply(accountName);
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   const farmName = normalize(requestedName);
   const nameError = testFarmNameError(farmName);
   if (nameError) return `${botName(accountName)}\n⚠️ 無法建立測試雞場：${nameError}`;
@@ -2995,6 +2965,7 @@ async function archiveTestFarmPendingAction(
 ): Promise<string> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return safeRejectionReply(accountName);
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   const resolver = await loadFarmResolver(env, organizationId);
   const resolution = resolver.resolve(requestedName);
   if (resolution.kind === "candidates") {
@@ -3087,8 +3058,7 @@ async function completeTestFarmAction(
       await writeAuditLog(env, {
         organizationId: action.organizationId,
         source: "line",
-        actorType: "line_user",
-        actorId: action.lineUserId,
+        ...lineSystemAdminAuditActor(),
         action: "create",
         entityType: "farm",
         entityId: farmId,
@@ -3127,8 +3097,7 @@ async function completeTestFarmAction(
     await writeAuditLog(env, {
       organizationId: action.organizationId,
       source: "line",
-      actorType: "line_user",
-      actorId: action.lineUserId,
+      ...lineSystemAdminAuditActor(),
       action: "archive",
       entityType: "farm",
       entityId: action.farmId,
@@ -3150,6 +3119,7 @@ async function handleTestFarmPendingInput(
 ): Promise<string | null> {
   const lineUserId = event.source?.userId;
   if (!lineUserId) return null;
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
   await expireTestFarmActions(env, groupId, lineUserId);
   const pending = await latestTestFarmAction(env, groupId, lineUserId);
   const normalized = normalize(text);
@@ -4093,24 +4063,10 @@ function menuActionForCommand(command: ParsedCommand): string | null {
   }
 }
 
-const LINE_OPERATIONAL_MENU_ACTIONS = new Set([
-  "menu_quick_record",
-  "menu_today_summary",
-  "menu_today_mortality",
-  "menu_recent_abnormal",
-  "menu_recent_abnormal_range",
-  "menu_correction_help",
-  "menu_pending_candidates",
-  "menu_finance",
-  "menu_audit",
-  "menu_farms",
-  "menu_farm_summary",
-  "menu_house_summary",
-  "menu_flock_summary",
-  "menu_current_farm_summary",
-  "menu_ai",
-  "ai_custom",
-  "ai_preset",
+const LINE_PRESENTATION_MENU_ACTIONS = new Set([
+  "menu_home",
+  "menu_more",
+  "menu_help",
 ]);
 
 function logAiObservation(
@@ -8470,9 +8426,8 @@ function lineAdminDeniedReply(accountName: string): LineTextMessage {
   return buildTextMessage(`${botName(accountName)}\n這個功能只有管理者可以使用。`);
 }
 
-async function hasLineAdminSession(env: Env, event: LineEvent, groupId: string): Promise<boolean> {
-  const userId = event.source?.userId;
-  return Boolean(userId && await activeAdminSession(env, groupId, userId));
+function hasLineAdminIdentity(env: Env, event: LineEvent): boolean {
+  return lineSystemAdminAuthorized(env, event);
 }
 
 function taipeiLineTime(value: string | null): string {
@@ -8579,7 +8534,7 @@ async function handleMenuAction(
   trace?: RuntimeTrace,
 ): Promise<LineReplyMessage[]> {
   if (!state.organizationId) return [buildTextMessage(unboundReply(accountName))];
-  if (LINE_OPERATIONAL_MENU_ACTIONS.has(action)) {
+  if (!LINE_PRESENTATION_MENU_ACTIONS.has(action)) {
     const authorizationReply = await requireLineGroupOperationalTrust(
       env,
       groupId,
@@ -8605,55 +8560,55 @@ async function handleMenuAction(
   if (action === "menu_pending_candidates") return linePendingCandidatesReply(env, groupId, state.organizationId);
   if (action === "menu_help") return [buildTextMessage(MENU_HELP_TEXT)];
   if (action === "menu_management") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildManagementMenuFlex()];
   }
   if (action === "menu_web") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [
       buildTextMessage("管理網頁\n請點下面按鈕開啟管理網頁。"),
       buildManagementWebLinkFlex(),
     ];
   }
   if (action === "menu_developer") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildDeveloperMenuFlex()];
   }
   if (action === "menu_system_status") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     const status = await getReliabilityStatus(env, state.organizationId);
     return [buildTextMessage(formatReliabilityStatusForLine(status), buildReliabilityStatusReplies(status))];
   }
   if (action === "menu_message_diagnostics") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildMessageDiagnosticsMenuFlex()];
   }
   if (action === "menu_pending_diagnostics") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildPendingDiagnosticsMenuFlex()];
   }
   if (action === "menu_pending_ambient_preview") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return runAmbientPreview(env, groupId, state.organizationId, new Date(event.timestamp ?? Date.now()));
   }
   if (action === "menu_unfinished_messages") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return lineUnfinishedMessagesReply(env, groupId, accountName);
   }
   if (action === "menu_test_tools") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildTestToolsMenuFlex()];
   }
   if (action === "menu_settings") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return [buildSettingsMenuFlex()];
   }
   if (action === "menu_line_receive_settings") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return lineReceiveSettingsReply(accountName);
   }
   if (action === "menu_technical_info") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     return lineTechnicalInfoReply(env, accountName);
   }
   if (action === "menu_finance") {
@@ -8661,14 +8616,13 @@ async function handleMenuAction(
   }
   if (action === "menu_audit") return [buildTextMessage(await menuAuditReply(env, state.organizationId, accountName))];
   if (action === "reliability_acknowledge") {
-    const userId = event.source?.userId;
-    if (!userId || !(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
-    const acknowledged = await acknowledgeRetainedLineEvents(env, userId, new Date(), state.organizationId, groupId, "line_admin");
+    if (!lineSystemAdminAuthorized(env, event)) return [lineAdminDeniedReply(accountName)];
+    const acknowledged = await acknowledgeRetainedLineEvents(env, LINE_SYSTEM_ADMIN_ACTOR_ID, new Date(), state.organizationId, groupId, "line_admin");
     await writeAuditLog(env, {
       organizationId: state.organizationId,
       source: "line",
-      actorType: "line_admin",
-      actorId: userId,
+      actorType: "system_admin_line",
+      actorId: LINE_SYSTEM_ADMIN_ACTOR_ID,
       action: "acknowledge",
       entityType: "line_event_recovery",
       entityId: groupId,
@@ -8683,7 +8637,7 @@ async function handleMenuAction(
     )];
   }
   if (action === "reliability_recover") {
-    if (!(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!hasLineAdminIdentity(env, event)) return [lineAdminDeniedReply(accountName)];
     const status = await getReliabilityStatus(env, state.organizationId);
     if (status.actionableUnfinishedCount <= 0) {
       return [buildTextMessage("目前沒有可以安全重新處理的訊息；已過期內容不能重新處理。")];
@@ -8694,15 +8648,14 @@ async function handleMenuAction(
     )];
   }
   if (action === "reliability_recover_confirm") {
-    const userId = event.source?.userId;
-    if (!userId || !(await hasLineAdminSession(env, event, groupId))) return [lineAdminDeniedReply(accountName)];
+    if (!lineSystemAdminAuthorized(env, event)) return [lineAdminDeniedReply(accountName)];
     if (params.get("decision") !== "confirm") return [buildTextMessage("已返回，沒有重新處理任何訊息。")];
-    const result = await manuallyRecoverLineEvents(env, userId, new Date(), 20, "line_admin");
+    const result = await manuallyRecoverLineEvents(env, LINE_SYSTEM_ADMIN_ACTOR_ID, new Date(), 20, "line_admin");
     await writeAuditLog(env, {
       organizationId: state.organizationId,
       source: "line",
-      actorType: "line_admin",
-      actorId: userId,
+      actorType: "system_admin_line",
+      actorId: LINE_SYSTEM_ADMIN_ACTOR_ID,
       action: "manual_recovery",
       entityType: "line_event_recovery",
       entityId: result.eventIds.join(",").slice(0, 200) || "none",
@@ -9105,6 +9058,20 @@ async function handleCommand(
   await ensureGroup(env, groupId);
   const state = await groupState(env, groupId);
 
+  // A fixed system-admin identity may perform only this exact, current-group
+  // bootstrap in an unbound group. All normal reads, writes, finance, and
+  // master-data commands still require the existing group trust boundary.
+  if (command.kind === "authorize_current_group") {
+    return handleCurrentGroupAuthorizationBootstrap(
+      env,
+      event,
+      eventId,
+      groupId,
+      accountName,
+      command.confirm,
+    );
+  }
+
   // The authorized group is the first operational trust boundary. Only
   // presentation-only help/menu/ping controls may remain available before it;
   // legacy admin sessions, remembered scope, pending state, and old bindings
@@ -9171,14 +9138,11 @@ async function handleCommand(
     if (entries.length > 1) return renderAmbientCandidateSelection(entries);
   }
   if (command.kind === "system_status") {
-    const lineUserId = event.source?.userId;
-    const admin = lineUserId ? await activeAdminSession(env, groupId, lineUserId) : null;
-    if (!admin) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
+    if (!hasLineAdminIdentity(env, event)) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
     return formatReliabilityStatusForLine(await getReliabilityStatus(env, state.organizationId));
   }
   if (command.kind === "pending_ambient_preview") {
-    const lineUserId = event.source?.userId;
-    if (!lineUserId || !(await activeAdminSession(env, groupId, lineUserId))) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
+    if (!hasLineAdminIdentity(env, event)) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
     if (!state.organizationId) return [buildTextMessage(unboundReply(accountName))];
     return runAmbientPreview(env, groupId, state.organizationId, new Date(event.timestamp ?? Date.now()));
   }
@@ -9207,13 +9171,6 @@ async function handleCommand(
   const lineUserId = event.source?.userId;
   const commandClass = classifyInput(messageText);
   const pendingResponse = commandClass === "UNKNOWN" || commandClass === "PENDING_RESPONSE";
-  // A password prompt is a security boundary: do not send an unknown
-  // password candidate to Workers AI. Known control or complete commands
-  // continue through the normal supersede/cancel path below.
-  const pendingAdminPassword = lineUserId && state.organizationId
-    ? (await latestFarmAdminAction(env, groupId, lineUserId, ["waiting_password"]))
-      ?? (await latestOperationalAdminAction(env, groupId, lineUserId, ["waiting_password"]))
-    : null;
   if (state.organizationId && lineUserId) {
     const reviewNow = new Date(event.timestamp ?? Date.now());
     let reviewContext = await loadActiveDailyReviewContext(
@@ -9376,11 +9333,6 @@ async function handleCommand(
     );
     if (universalCandidateReply) return universalCandidateReply;
   }
-  if (pendingAdminPassword && command.kind === "unknown") {
-    const adminPasswordReply = await handleFarmAdminPasswordInput(env, event, groupId, accountName);
-    if (adminPasswordReply) return adminPasswordReply;
-  }
-
   // Corrections must be classified before a new operational or abnormal
   // record. This keeps `死亡不是5，是3` from becoming a fresh death=3 row.
   if (state.organizationId && lineUserId && correctionLooksRelevant(messageText)) {
@@ -9481,8 +9433,6 @@ async function handleCommand(
   // candidate response. Only unknown messages that did not invoke/fail AI may
   // use the existing pending confirmation flow.
   if (!semanticCommand && !aiFailed && pendingResponse && state.organizationId && lineUserId) {
-    const adminPasswordReply = await handleFarmAdminPasswordInput(env, event, groupId, accountName);
-    if (adminPasswordReply) return adminPasswordReply;
     const farmAdminPendingReply = await handleFarmAdminPendingInput(env, event, messageText, groupId, accountName);
     if (farmAdminPendingReply) return farmAdminPendingReply;
     const testFarmPendingReply = await handleTestFarmPendingInput(
@@ -9572,8 +9522,7 @@ async function handleCommand(
   }
   if (command.kind === "test_farm_list") {
     if (!state.organizationId) return unboundReply(accountName);
-    const lineUserId = event.source?.userId;
-    if (!lineUserId || !(await activeAdminSession(env, groupId, lineUserId))) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
+    if (!hasLineAdminIdentity(env, event)) return `${botName(accountName)}\n這個功能只有管理者可以使用。`;
     return testFarmListReply(env, state.organizationId, accountName);
   }
 
@@ -9619,9 +9568,13 @@ async function processEvent(
   if (exactPendingAmbientPreviewText(event)) {
     const eventId = eventIdFor(event);
     const groupId = sourceGroupId(event);
-    const lineUserId = event.source?.userId;
-    const authorized = Boolean(groupId && lineUserId && await activeAdminSession(env, groupId, lineUserId));
     const state = groupId ? await groupState(env, groupId) : { organizationId: null } as GroupState;
+    const trustedGroup = Boolean(
+      groupId
+      && state.organizationId
+      && !await requireLineGroupOperationalTrust(env, groupId, state.organizationId, event.source?.userId, env.LINE_ACCOUNT_NAME),
+    );
+    const authorized = Boolean(groupId && lineSystemAdminAuthorized(env, event) && trustedGroup);
     const messages = !authorized
       ? [lineAdminDeniedReply(env.LINE_ACCOUNT_NAME)]
       : groupId && state.organizationId

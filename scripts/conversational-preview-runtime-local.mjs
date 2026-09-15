@@ -8,6 +8,7 @@ const groupId = "local-quick-record-group";
 const prefix = `codex-runtime-preview-${Date.now().toString(36)}`;
 const botMention = "@金雞協會助理Ai";
 const userId = `${prefix}-user`;
+const otherUserId = `${prefix}-other`;
 let sequence = 0;
 const checks = [];
 
@@ -21,7 +22,7 @@ function check(name, pass, detail = "") {
   console.log(`${pass ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
-function messageEvent(label, text, timestamp, mention = false) {
+function messageEvent(label, text, timestamp, mention = false, user = userId) {
   const eventId = `${prefix}-${label}`;
   sequence += 1;
   return {
@@ -29,7 +30,7 @@ function messageEvent(label, text, timestamp, mention = false) {
     webhookEventId: eventId,
     timestamp: Date.parse(timestamp) + sequence,
     replyToken: `${eventId}-reply`,
-    source: { type: "group", groupId, userId },
+    source: { type: "group", groupId, userId: user },
     message: {
       id: `${eventId}-message`,
       type: "text",
@@ -103,6 +104,7 @@ async function main() {
   const worker = spawn("npx", [
     "wrangler", "dev", "--local", "--port", String(port),
     "--var", `RUNTIME_TEST_TOKEN:${token}`,
+    "--var", `LINE_SYSTEM_ADMIN_USER_ID:${userId}`,
     "--var", "LINE_CHANNEL_SECRET:local-only-secret",
     "--var", "LINE_CHANNEL_ACCESS_TOKEN:local-only-token",
   ], { stdio: "ignore" });
@@ -111,7 +113,7 @@ async function main() {
     await waitForHealth();
     await dispatch(messageEvent("death", "死亡5", baseTime));
     await dispatch(messageEvent("caretaker", "林志騰", "2035-01-01T00:00:01.000Z"));
-    const unauthorizedPreview = await dispatch(messageEvent("preview-unauthorized", "顯示待摘要訊息", "2035-01-01T00:00:30.000Z"));
+    const unauthorizedPreview = await dispatch(messageEvent("preview-unauthorized", "顯示待摘要訊息", "2035-01-01T00:00:30.000Z", false, otherUserId));
     const unauthorizedText = unauthorizedPreview.reply.messages.map((message) => message.text ?? "").join("\n");
     check("PREVIEW-ADMIN-AUTHORIZATION", unauthorizedText.includes("只有管理者") && !unauthorizedText.includes("尚待整理訊息"), unauthorizedText);
     executeSql(`INSERT OR REPLACE INTO admin_sessions (id, line_group_id, line_user_id, expires_at) VALUES ('${sqlEscape(prefix)}-admin-session', '${sqlEscape(groupId)}', '${sqlEscape(userId)}', '2099-01-01T00:00:00.000Z');`);

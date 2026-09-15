@@ -335,3 +335,51 @@ GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
 
 No raw provider group identifier is stored in this plan. Chapter 5 was not
 started.
+
+## 2026-09-15 — Chapter 5 LINE singleton administrator boundary
+
+Chapter 5 implementation is complete locally but cannot be activated safely
+until the protected singleton LINE administrator identity is provisioned. The
+runtime now uses only the exact `LINE_SYSTEM_ADMIN_USER_ID` protected binding
+for LINE admin actions; legacy LINE password verification and `admin_sessions`
+are no longer LINE authorization sources. Web password/session authentication
+remains a separate Web transport path. The narrow bootstrap command requires
+the fixed identity, explicit confirmation, an existing unbound current group,
+one active organization, an atomic claim/authorization update, and
+authoritative readback. All non-presentation postbacks use the existing group
+trust boundary before any operation, including admin menus.
+
+Local evidence: focused admin/parser tests PASS (36/36), full TypeScript/Vitest
+regression PASS (85 files; 930 passed, 11 skipped), local menu runtime PASS
+(71/71), local conversational preview runtime PASS (11/11), and `git diff
+--check` PASS. The protected runtime secret-name inventory contains no
+`LINE_SYSTEM_ADMIN_USER_ID`; no secret value was read. No Production deploy,
+LINE mutation, business write, stock mutation, Finance mutation, or group
+authorization was performed for Chapter 5.
+
+```text
+CHAPTER_5 = TRUE_HUMAN_BLOCKED
+SINGLETON_SYSTEM_ADMIN = PASS_BY_SINGLE_PROTECTED_BINDING
+FIXED_LINE_ADMIN_IDENTITY = NOT_PROVISIONED
+ADMIN_IDENTITY_PROTECTED = PASS_BY_RUNTIME_CONFIG_DESIGN
+LEGACY_LINE_ADMIN_PASSWORD_AS_AUTHORITY = NO
+LEGACY_LINE_ADMIN_SESSION_AS_AUTHORITY = NO
+AUTHORIZED_GROUP_NORMAL_MEMBER_BEHAVIOR_UNCHANGED = PASS_LOCAL
+ADMIN_ONLY_CAPABILITIES = PASS_LOCAL_BOUNDARY
+UNAUTHORIZED_GROUP_ADMIN_BOOTSTRAP = PASS_LOCAL
+BOOTSTRAP_SCOPE_ESCALATION = 0
+ORDINARY_MEMBER_ADMIN_ESCALATION = 0
+AUDIT_ADMIN_ATTRIBUTION = PASS_LOCAL
+TEST_PRODUCTION_ISOLATION = PASS
+USER_REACHABLE_LEGACY_ADMIN_AUTHORITY_DIVERGENCE = 0
+FULL_REGRESSION = PASS_930_PASSED_11_SKIPPED
+PRODUCTION_UNEXPECTED_DELTA = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+BLOCKER = PROTECTED_LINE_SYSTEM_ADMIN_USER_ID_NOT_PROVISIONED
+```
+
+The remaining action is a protected configuration operation by an authorized
+human who controls the real LINE administrator identity. Do not place the raw
+identity in source, documentation, client code, logs, or chat. After that
+configuration is present, Chapter 5 can be rechecked without changing the
+normal authorized-group boundary; Chapter 6 is not started.
