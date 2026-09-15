@@ -5183,3 +5183,53 @@ PRODUCTION_CHAPTER_2_AUTHORITY = ACCEPTED
 READY_FOR_NEXT_FEATURE_CHAPTER = YES
 GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
 ```
+
+## 2026-09-15 — Chapter 4 normal LINE operations authority unification
+
+Chapter 4 is closed after a complete source authority inventory of the
+user-reachable normal LINE paths. All normal operational reads, canonical
+writes, lifecycle/context resolution, multi-farm selection, correction/
+reversal, and legacy quick/query paths use the authorized LINE group as their
+trust boundary; farm, house, and flock remain entity context. Ordinary group
+members do not require operator identity or per-user farm scope. The one
+remaining legacy `bind` command no longer mutates `line_groups`; it returns a
+safe no-write explanation. The reliability redisplay postback now performs the
+existing group trust check before reading or pushing a retained reply.
+
+The legacy operator-scope schema remains for Web compatibility and audit only.
+The source inventory found no other user-reachable normal LINE call using
+`operatorScopeRequired` or `requireProvisionedOperatorScope`. System leave
+bookkeeping and Web admin operator management are not normal LINE operator
+authorization paths.
+
+Evidence: focused authority tests PASS (6/6), canonical LINE local runtime
+PASS (18/18), taxonomy parity PASS, migration rehearsal PASS, and full
+TypeScript/Vitest regression PASS (85 files; 928 passed, 11 skipped).
+`git diff --check` PASS. The existing quick-record local harness remains a
+known unrelated 11/25 result caused by its pre-existing fixture/time
+assumptions; it does not cover either changed route. No Production data,
+Finance, Queue, AI, LINE settings, or deployment was touched.
+
+```text
+CHAPTER_4 = PASS
+NORMAL_LINE_AUTHORITY_UNIFIED = PASS
+USER_REACHABLE_LEGACY_AUTHORITY_DIVERGENCE = 0
+ORDINARY_MEMBER_EQUAL_TRUST = PASS
+MULTI_FARM_OPERATION = PASS
+DM_DENIED = PASS
+UNAUTHORIZED_GROUP_DENIED = PASS
+ENTITY_RESOLUTION = PASS
+LINEAGE_INTEGRITY = PASS
+STOCK_INTEGRITY = PASS
+ENVIRONMENT_ISOLATION = PASS
+FOCUSED_TESTS = PASS
+CANONICAL_LINE_RUNTIME = PASS_18_OF_18
+FULL_REGRESSION = PASS_928_PASSED_11_SKIPPED
+DIFF_CHECK = PASS
+SOURCE_COMMIT = 24c1e06d81bfa7421765e474e2961816d8678dc9
+PRODUCTION_UNEXPECTED_DELTA = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = PENDING_DOC_COMMIT_AND_REMOTE_READBACK
+```
+
+No raw provider group identifier is stored here. Chapter 5 was not started.

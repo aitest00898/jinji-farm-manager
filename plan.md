@@ -290,3 +290,48 @@ CHAPTER_3 = PASS
 PRODUCTION_CHAPTER_2_AUTHORITY = ACCEPTED
 READY_FOR_NEXT_FEATURE_CHAPTER = YES
 ```
+
+## 2026-09-15 — Chapter 4 normal LINE operations authority unification
+
+The normal LINE source inventory found two reachable authority divergences.
+The legacy `bind` command could still rewrite the group farm context through a
+direct `line_groups` update, and the reliability `重新顯示` postback could
+redisplay a retained reply before the authorized-group trust check. The legacy
+LINE binding mutation is now retired with a safe no-write response, and
+reliability redisplay reuses the existing canonical group authorization seam.
+Legacy operator identity/scope tables remain for Web compatibility and audit,
+but are not a prerequisite for normal LINE operations. Web admin-only paths and
+system join/leave bookkeeping remain outside this normal operator boundary.
+
+The focused source-contract tests, existing authorized-group tests, canonical
+LINE local runtime (18/18), taxonomy parity, migration rehearsal, and full
+TypeScript/Vitest suite passed. The older quick-record harness was also run;
+its unrelated pre-existing fixture/time assumptions reported 11/25 checks and
+did not exercise either changed route, so it is not used as Chapter 4 evidence.
+No Production action, LINE send, AI call, business write, stock mutation, or
+Finance mutation was performed.
+
+```text
+CHAPTER_4 = PASS
+NORMAL_LINE_AUTHORITY_UNIFIED = PASS
+USER_REACHABLE_LEGACY_AUTHORITY_DIVERGENCE = 0
+ORDINARY_MEMBER_EQUAL_TRUST = PASS
+MULTI_FARM_OPERATION = PASS
+DM_DENIED = PASS
+UNAUTHORIZED_GROUP_DENIED = PASS
+ENTITY_RESOLUTION = PASS
+LINEAGE_INTEGRITY = PASS
+STOCK_INTEGRITY = PASS
+ENVIRONMENT_ISOLATION = PASS
+FOCUSED_TESTS = PASS
+CANONICAL_LINE_RUNTIME = PASS_18_OF_18
+FULL_REGRESSION = PASS_928_PASSED_11_SKIPPED
+DIFF_CHECK = PASS
+SOURCE_COMMIT = 24c1e06d81bfa7421765e474e2961816d8678dc9
+PRODUCTION_UNEXPECTED_DELTA = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = PENDING_DOC_COMMIT_AND_REMOTE_READBACK
+```
+
+No raw provider group identifier is stored in this plan. Chapter 5 was not
+started.
