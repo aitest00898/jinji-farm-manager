@@ -2,7 +2,7 @@
 
 > TRANSIENT DOCUMENT — NOT ARCHITECTURE SOURCE OF TRUTH
 
-Last reviewed: 2026-09-10 (Asia/Taipei)
+Last reviewed: 2026-09-15 (Asia/Taipei)
 
 This file records the latest evidence-backed execution state. It is separate
 from the non-executing target architecture and must not be read as permission
@@ -5326,4 +5326,49 @@ BLOCKER = NONE
 ```
 
 Chapter 6 is not started. No raw provider group or sender identifier is stored
+here.
+
+## 2026-09-15 — Chapter 6 unified Web access classes (latest)
+
+The Chapter 6 implementation is complete locally. Worker and Web now share a
+single route classification and access-class contract: PUBLIC, SHARED_EDIT,
+and ADMIN. Public requests use the canonical read projection without a
+password; shared sessions can perform approved operational writes and finance
+reads; admin-only routes and mutations remain independently enforced by the
+Worker. Unknown routes and malformed environment values fail closed. The Web
+client presents the matching access transition while the API remains the
+security boundary.
+
+```text
+CHAPTER_6 = PASS_LOCAL
+WEB_ACCESS_POLICY_UNIFIED = PASS
+UNCLASSIFIED_REACHABLE_WEB_ROUTES = 0
+PUBLIC_BOUNDARY = PASS
+SHARED_EDIT_BOUNDARY = PASS
+ADMIN_BOUNDARY = PASS
+PUBLIC_SENSITIVE_DATA_EXPOSURE = 0
+SHARED_EDIT_ADMIN_ESCALATION = 0
+DIRECT_API_ENFORCEMENT = PASS
+UI_API_POLICY_PARITY = PASS
+ENVIRONMENT_FAIL_CLOSED = PASS
+CANONICAL_LINEAGE_INTEGRITY = PASS
+STOCK_INTEGRITY = PASS
+AUDIT_ATTRIBUTION = PASS
+WORKER_FULL_REGRESSION = PASS_933_PASSED_11_SKIPPED
+WEB_FULL_REGRESSION = PASS
+WORKER_SOURCE_COMMIT = da1d7f90866fb9c02118b5c558a25c83b799910c
+WEB_SOURCE_COMMIT = 3b93c2733695b2f901e64702b1bff73e571c8487
+MIGRATION_0042 = CREATED_NOT_APPLIED
+PRODUCTION_UNEXPECTED_DELTA = 0
+AI_CALLS = 0
+FINANCE_MUTATION = 0
+SOURCE_CHANGE_SCOPE = CHAPTER_6_WEB_ACCESS_BOUNDARY_ONLY
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+BLOCKER = NONE
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+```
+
+No Production request, deployment, schema application, business write, stock
+mutation, Finance mutation, Queue activity, or AI call was performed for this
+local Chapter 6 work. No raw provider group or sender identifier is stored
 here.

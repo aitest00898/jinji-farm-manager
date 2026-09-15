@@ -1,6 +1,7 @@
 # Jinji Farm Manager — Commander Project Plan
 
-Status: Chapter 3 is blocked before any Production mutation.
+Status: Chapter 6 Web access unification is complete locally; no Production
+deployment, migration application, or business mutation was performed.
 
 ## Durable outcome
 
@@ -435,3 +436,51 @@ BLOCKER = NONE
 
 Chapter 6 is not started. No raw provider group or sender identifier is stored
 in this plan.
+
+## 2026-09-15 — Chapter 6 unified Web access classes (latest)
+
+Chapter 6 is complete in the local Worker and Web source. The reachable Web
+route inventory now has one enforced access policy with three classes:
+PUBLIC, SHARED_EDIT, and ADMIN. The Worker dispatch boundary rejects unknown
+routes and malformed environments, while the Web client exposes public read
+access and explicit shared/admin login transitions. Existing canonical read,
+write, correction, reversal, lifecycle, and audit paths are reused; no
+parallel business authority was introduced.
+
+```text
+CHAPTER_6 = PASS_LOCAL
+WEB_ACCESS_POLICY_UNIFIED = PASS
+UNCLASSIFIED_REACHABLE_WEB_ROUTES = 0
+PUBLIC_NO_PASSWORD = PASS
+PUBLIC_READ_ONLY = PASS
+PUBLIC_SENSITIVE_DATA_EXPOSURE = 0
+SHARED_EDIT_OPERATIONAL_WRITE = PASS
+SHARED_EDIT_FINANCE_READ = PASS
+SHARED_EDIT_ADMIN_ESCALATION = 0
+SHARED_EDIT_FINANCE_MUTATION = DENIED
+ADMIN_BOUNDARY = PASS
+DIRECT_API_POLICY_ENFORCEMENT = PASS
+UI_API_POLICY_PARITY = PASS
+UNKNOWN_ENVIRONMENT_FAIL_CLOSED = PASS
+TEST_PRODUCTION_ISOLATION = PASS
+CANONICAL_LINEAGE_INTEGRITY = PASS
+STOCK_INTEGRITY = PASS
+AUDIT_ATTRIBUTION = PASS
+SESSION_SECURITY = PASS
+WORKER_SOURCE_COMMIT = da1d7f90866fb9c02118b5c558a25c83b799910c
+WEB_SOURCE_COMMIT = 3b93c2733695b2f901e64702b1bff73e571c8487
+MIGRATION_0042 = CREATED_NOT_APPLIED
+PRODUCTION_DEPLOYMENT = 0
+PRODUCTION_UNEXPECTED_DELTA = 0
+AI_CALLS = 0
+FINANCE_MUTATION = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+BLOCKER = NONE
+```
+
+Worker npm run check passed with 933 passed and 11 skipped across 86 test
+files. Web npm run test:all passed static, unit (39/39), integration (34/34),
+finance, workflow, Chromium/WebKit E2E, visual pixel comparison, responsive
+checks, and security. The local Chapter 6 source and test changes are not
+deployed; migration 0042 remains unapplied remotely. No raw provider group or
+sender identifier is stored in this plan.
