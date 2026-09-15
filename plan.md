@@ -197,3 +197,44 @@ No raw provider group identifier is stored in this plan. After the single
 human action, the new event must be attributed by timestamp, group metadata,
 organization, and exclusion of the Test/synthetic rows before any group can
 be considered Production.
+
+## 2026-09-15 — Chapter 3 terminal human/environment block
+
+The minimum group-name status and Web revocation changes were implemented,
+tested, pushed, and the Worker was deployed. The controlled Pages workflow is
+now the only remaining transition dependency. GitHub reports the deploy job
+waiting for `github-pages` deployment approval; the environment has no
+reviewers, the current account cannot approve it, and the authenticated Safari
+job page exposes no `Review deployments` or `Approve` control. No environment
+policy was changed and the workflow was not cancelled or bypassed.
+
+```text
+CHAPTER_3 = TRUE_HUMAN_BLOCKED
+CHAPTER_3_BLOCKER = GITHUB_PAGES_ENVIRONMENT_APPROVAL_UNAVAILABLE
+CONTROLLED_PAGES_RUN = 34919937805
+CONTROLLED_PAGES_HEAD = 80b2b70f45ec093b12296c1e4fe3b32c77d99176
+CONTROLLED_PAGES_DEPLOYMENT = WAITING_FOR_APPROVAL
+WEB_PAGES_DEPLOYMENT_VERIFIED = NO
+PUBLIC_BUILD_SHA = LOCAL_UNBUILT
+WORKER_SOURCE = e001106506c5e62a86a1968f9b076e7d8d11319a
+WORKER_DEPLOYED = YES
+WORKER_HEALTH_READY = PASS
+PRODUCTION_GROUP = ++金雞Ai助手正式++
+GROUP_ORGANIZATION_CLAIM = NOT_EXECUTED
+TARGET_GROUP_AUTHORIZED = NOT_EXECUTED
+REVOCATION_UI_PRESENT = YES
+REVOCATION_CAPABILITY = PASS_BY_TEST_EVIDENCE
+UNIDENTIFIED_GROUP_ACTIONABLE = NO
+PRODUCTION_MIGRATION = 0
+PRODUCTION_BUSINESS_WRITE = 0
+STOCK_UNINTENDED_DELTA = 0
+FINANCE_MUTATION = 0
+TEST_PRODUCTION_CROSSOVER = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+```
+
+The exact Pages approval or environment-policy action must be completed by a
+GitHub account with the required repository/environment authority before the
+existing Chapter 3 transition can resume. No Production group claim,
+authorization, business write, stock mutation, or Finance mutation was made
+in this blocked state.
