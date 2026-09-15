@@ -8951,6 +8951,15 @@ async function handleLinePostback(
   const action = parsed.action;
 
   if (action === "reliability_redisplay") {
+    if (!state.organizationId) return [buildTextMessage(unboundReply(accountName))];
+    const authorizationReply = await requireLineGroupOperationalTrust(
+      env,
+      groupId,
+      state.organizationId,
+      event.source?.userId,
+      accountName,
+    );
+    if (authorizationReply) return [buildTextMessage(authorizationReply)];
     return handleReliabilityRedisplay(env, event, parsed.params.get("notice") ?? "", groupId);
   }
 
@@ -9569,21 +9578,7 @@ async function handleCommand(
   }
 
   if (command.kind === "bind") {
-    let farmId: string | null = null;
-    if (state.organizationId) {
-      const farm = await resolveFarm(env, state.organizationId, command.farmName);
-      if (!farm) return safeRejectionReply(accountName);
-      farmId = farm.id;
-    }
-    await env.DB.prepare(
-      `UPDATE line_groups
-          SET status = 'bound', farm_name = ?, farm_id = COALESCE(?, farm_id),
-              bound_at = CURRENT_TIMESTAMP, left_at = NULL
-        WHERE group_id = ?`,
-    )
-      .bind(command.farmName, farmId, groupId)
-      .run();
-    return `${botName(accountName)}\n✅ 已完成一次性雞場綁定：${command.farmName}`;
+    return `${botName(accountName)}\n⚠️ LINE 不再透過「綁定雞場」設定單一雞場權限。\n請使用已授權的群組，並在操作中明確指定雞場；本次沒有變更群組或正式資料。`;
   }
 
   if (!unifiedIntent || unifiedIntent.intent === "unknown") return safeRejectionReply(accountName);
