@@ -2505,6 +2505,42 @@ async function financeSummary(request: Request, env: WebApiEnv, session: Session
   return response(request, { totals: totals ?? { allocated: 0, expense: 0, net: 0, gross: 0 }, investors: investors.results, farms: farms.results, distributions: distributions.results, allocations: allocations.results, farmInvestorEquity: farmInvestorEquity.results });
 }
 
+interface DashboardPayloadInput {
+  asOf: string;
+  farms: number;
+  productionFarms: number;
+  testFarms: number | null;
+  caretakers: number | null;
+  activeFlocks: number;
+  stock: number;
+  today: Record<string, number>;
+  upcomingShipments: number;
+  finance: Record<string, unknown> | null;
+  warnings: string[];
+}
+
+export function dashboardPayload(publicRead: boolean, input: DashboardPayloadInput): Record<string, unknown> {
+  const counts: Record<string, unknown> = {
+    farms: input.farms,
+    productionFarms: input.productionFarms,
+    activeFlocks: input.activeFlocks,
+  };
+  if (!publicRead) {
+    counts.testFarms = input.testFarms ?? 0;
+    counts.caretakers = input.caretakers ?? 0;
+  }
+  const payload: Record<string, unknown> = {
+    asOf: input.asOf,
+    counts,
+    stock: input.stock,
+    today: input.today,
+    upcomingShipments: input.upcomingShipments,
+    dataHealth: { warnings: input.warnings },
+  };
+  if (!publicRead) payload.finance = input.finance ?? { net: 0 };
+  return payload;
+}
+
 async function dashboard(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const org = session.organizationId;
   const publicRead = sessionAccessClass(session) === "PUBLIC";
@@ -2522,15 +2558,19 @@ async function dashboard(request: Request, env: WebApiEnv, session: SessionRow):
   const warnings: string[] = [];
   if (!publicRead && (testFarms?.count ?? 0) > 0) warnings.push("目前含有測試雞場；財務統計已排除測試資料。");
   if ((activeFlocks?.count ?? 0) === 0) warnings.push("尚未建立進行中的批次。");
-  return response(request, {
+  return response(request, dashboardPayload(publicRead, {
     asOf: taipeiDate(),
-    counts: { farms: farms?.count ?? 0, productionFarms: productionFarms?.count ?? 0, testFarms: publicRead ? null : testFarms?.count ?? 0, caretakers: publicRead ? null : caretakers?.count ?? 0, activeFlocks: activeFlocks?.count ?? 0 },
+    farms: farms?.count ?? 0,
+    productionFarms: productionFarms?.count ?? 0,
+    testFarms: publicRead ? null : testFarms?.count ?? 0,
+    caretakers: publicRead ? null : caretakers?.count ?? 0,
+    activeFlocks: activeFlocks?.count ?? 0,
     stock: stockRows.results.reduce((sum, row) => sum + Math.max(0, Number(row.initialCount || 0) - Number(row.removed || 0)), 0),
     today: todayRows ?? { mortality: 0, cull: 0, feed: 0, water: 0 },
     upcomingShipments: shipments?.count ?? 0,
     finance: publicRead ? null : finance ?? { net: 0 },
-    dataHealth: { warnings },
-  });
+    warnings,
+  }));
 }
 
 type ChartGranularity = "daily" | "weekly" | "monthly";
