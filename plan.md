@@ -616,3 +616,67 @@ The D1 integrity readback showed no business, stock, Finance, Queue, or AI
 mutation; the only expected durable change is migration 0042's schema audit
 row. No raw provider identifier, secret value, password, or Chapter 7 work was
 stored or started.
+
+## 2026-09-15 — Chapter 6 Production access-boundary P1 repaired and accepted
+
+The confirmed public access-boundary P1 was repaired with the minimum source
+change: public farm responses now use an explicit safe projection and omit
+Finance-derived playerGroupEquityFraction, while protected farm responses
+retain the existing canonical fields. No second authority or parallel policy
+was introduced.
+
+The exact tested source b5326d6c816b8afb883c46464e1570873108871c passed the
+focused tests (23/23), TypeScript, the full Worker regression (939 passed,
+11 skipped across 88 files), and git diff --check. It was deployed as Worker
+version fffd4545-1a82-49dc-b3a0-80d4658520e9 at 100% traffic. The secret name
+FARM_SHARED_PASSWORD_HASH was verified as present without reading its value.
+Migration 0042 was already applied and no migration was changed.
+
+The post-deploy audit covered all 23 reachable public GET routes. No response
+contained Finance, audit, permission, admin-diagnostic, caretaker, investor,
+equity, profit, expense, allocation, token, or secret fields. Protected
+read/mutation checks remained fail-closed (protected reads/mutations returned
+401; malformed environment returned 400). The authenticated shared-edit
+Production session continued to read canonical records/lifecycle and Finance
+read data, while the LINE-admin route was denied. No Production business,
+stock, Finance, Queue, or AI mutation occurred.
+
+CHAPTER_6 = PASS
+WEB_ACCESS_POLICY_UNIFIED = PASS_PRODUCTION
+MIGRATION_0042 = APPLIED
+MIGRATION_0042_SCHEMA_READBACK = PASS
+WORKER_SOURCE_COMMIT = b5326d6c816b8afb883c46464e1570873108871c
+WORKER_DEPLOYMENT = PASS
+ACTIVE_WORKER_VERSION = fffd4545-1a82-49dc-b3a0-80d4658520e9
+WORKER_HEALTH_READY = PASS
+CANONICAL_WRITE_HOLD = OFF
+PUBLIC_BOUNDARY = PASS_PRODUCTION
+PUBLIC_FINANCE_EXPOSURE = 0
+PUBLIC_AUDIT_EXPOSURE = 0
+PUBLIC_PERMISSION_EXPOSURE = 0
+PUBLIC_ADMIN_DIAGNOSTIC_EXPOSURE = 0
+PUBLIC_SENSITIVE_EXPOSURE = 0
+SHARED_EDIT_BOUNDARY = PASS_PRODUCTION
+ADMIN_BOUNDARY = PASS_PRODUCTION
+DIRECT_API_ENFORCEMENT = PASS_PRODUCTION
+ENVIRONMENT_FAIL_CLOSED = PASS_PRODUCTION
+WORKER_FOCUSED_TESTS = PASS_23_OF_23
+WORKER_FULL_REGRESSION = PASS_939_PASSED_11_SKIPPED
+GIT_DIFF_CHECK = PASS
+PRODUCTION_UNEXPECTED_BUSINESS_DELTA = 0
+PRODUCTION_UNEXPECTED_STOCK_DELTA = 0
+FINANCE_UNEXPECTED_DELTA = 0
+LINE_AUTHORITY_REGRESSION = 0
+SINGLETON_LINE_ADMIN_REGRESSION = 0
+UNINTENDED_GROUP_AUTHORIZATION = 0
+ROLLBACK_READY = YES
+P0_COUNT = 0
+P1_COUNT = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+BLOCKER = NONE
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+
+Remote source readback matched the exact commit on
+feature/chapter-2-authorized-group-trust-20260914. Chapter 7 was not
+started. No raw identifier, credential value, or password was stored in this
+plan.
