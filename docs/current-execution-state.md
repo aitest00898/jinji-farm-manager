@@ -5400,3 +5400,58 @@ GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
 The remote Web commits were preserved without force push. No Production
 deployment, migration application, business write, stock mutation, Finance
 mutation, Queue activity, or AI call was performed.
+
+## 2026-09-15 — Chapter 6 Production activation terminal state
+
+The Production baseline was read before activation. D1 migration 0041 was the
+latest applied migration; the active Worker remained version
+`b4a472f0-8462-4825-9fa0-3121aa394f5c`, with `/health` and `/ready` passing and
+the canonical write hold OFF. Read-only integrity fingerprints were stable:
+three operational actions, 17 Finance rows, one active flock with initial
+count 1000, and one operational-authorized LINE group. The existing 83 Web
+sessions were preserved and, after migration, all remained `ADMIN`.
+
+Migration `0042_web_access_classes.sql` was applied through the Wrangler
+migration mechanism and read back successfully: `web_admin_sessions` has the
+additive `access_class` column, no migration remains pending, and its single
+schema audit row exists. No business, stock, Finance, Queue, or AI mutation
+was caused by the migration.
+
+The exact Web source `2264241009ba6c0c2c826a6977dd1b5993602298` passed the
+existing Lab CI rerun and controlled `Deploy Lab Pages` workflow; its public
+build SHA was read back exactly. The exact Worker source
+`da1d7f90866fb9c02118b5c558a25c83b799910c` was prepared from an immutable
+commit archive, but Wrangler safely refused deployment because the required
+secret `FARM_SHARED_PASSWORD_HASH` is not provisioned. The secret value was
+not read, generated, or reused from the admin credential. The prior approved
+Worker therefore remains active and no Chapter 6 server-side policy
+acceptance was claimed.
+
+```text
+CHAPTER_6 = TRUE_HUMAN_BLOCKED
+WEB_ACCESS_POLICY_UNIFIED = PASS_LOCAL_ONLY
+MIGRATION_0042 = APPLIED
+MIGRATION_0042_SCHEMA_READBACK = PASS
+WORKER_SOURCE_COMMIT = da1d7f90866fb9c02118b5c558a25c83b799910c
+WORKER_DEPLOYMENT = BLOCKED_REQUIRED_SECRET_MISSING
+ACTIVE_WORKER_VERSION = b4a472f0-8462-4825-9fa0-3121aa394f5c
+WORKER_HEALTH_READY = PASS
+CANONICAL_WRITE_HOLD = OFF
+WEB_SOURCE_COMMIT = 2264241009ba6c0c2c826a6977dd1b5993602298
+CONTROLLED_PAGES_DEPLOYMENT = PASS
+PUBLIC_BUILD_SHA = 2264241009ba6c0c2c826a6977dd1b5993602298
+PAGES_PUBLISHING_PATH = SINGLE_CONTROLLED_WORKFLOW
+SHARED_WEB_CREDENTIAL = NOT_PROVISIONED
+PRODUCTION_UNEXPECTED_BUSINESS_DELTA = 0
+PRODUCTION_UNEXPECTED_STOCK_DELTA = 0
+FINANCE_UNEXPECTED_DELTA = 0
+LINE_AUTHORITY_REGRESSION = 0
+AI_CALLS = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+BLOCKER = HUMAN_ONLY_PROVISION_FARM_SHARED_PASSWORD_HASH
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+```
+
+No raw provider group identifier, secret value, or password was stored. No
+Production business write, stock mutation, Finance mutation, Queue change, or
+AI call was performed. Chapter 7 is not started.
