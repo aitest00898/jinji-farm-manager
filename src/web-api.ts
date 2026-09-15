@@ -2911,9 +2911,25 @@ async function testTools(request: Request, env: WebApiEnv, session: SessionRow):
   });
 }
 
-async function lineGroupDisplayName(env: WebApiEnv, groupId: string): Promise<string | null> {
+type LineGroupDisplayNameStatus =
+  | "available"
+  | "provider_not_configured"
+  | "provider_unreachable"
+  | "provider_not_found"
+  | "provider_access_denied"
+  | "provider_unavailable"
+  | "provider_response_invalid"
+  | "provider_identity_mismatch"
+  | "provider_name_missing";
+
+interface LineGroupDisplayNameResult {
+  name: string | null;
+  status: LineGroupDisplayNameStatus;
+}
+
+async function lineGroupDisplayName(env: WebApiEnv, groupId: string): Promise<LineGroupDisplayNameResult> {
   const accessToken = typeof env.LINE_CHANNEL_ACCESS_TOKEN === "string" ? env.LINE_CHANNEL_ACCESS_TOKEN.trim() : "";
-  if (!accessToken) return null;
+  if (!accessToken) return { name: null, status: "provider_not_configured" };
   let providerResponse: Response;
   try {
     providerResponse = await fetch(`https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/summary`, {
@@ -2924,22 +2940,29 @@ async function lineGroupDisplayName(env: WebApiEnv, groupId: string): Promise<st
       },
     });
   } catch {
-    return null;
+    return { name: null, status: "provider_unreachable" };
   }
-  if (!providerResponse.ok) return null;
+  if (providerResponse.status === 404) return { name: null, status: "provider_not_found" };
+  if (providerResponse.status === 401 || providerResponse.status === 403) {
+    return { name: null, status: "provider_access_denied" };
+  }
+  if (!providerResponse.ok) return { name: null, status: "provider_unavailable" };
   let payload: unknown;
   try {
     payload = await providerResponse.json();
   } catch {
-    return null;
+    return { name: null, status: "provider_response_invalid" };
   }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { name: null, status: "provider_response_invalid" };
+  }
   const providerGroupId = (payload as { groupId?: unknown }).groupId;
-  if (providerGroupId !== groupId) return null;
-  return stringValue((payload as { groupName?: unknown }).groupName, 200);
+  if (providerGroupId !== groupId) return { name: null, status: "provider_identity_mismatch" };
+  const name = stringValue((payload as { groupName?: unknown }).groupName, 200);
+  return name ? { name, status: "available" } : { name: null, status: "provider_name_missing" };
 }
 
-async function lineGroupDisplayNames(env: WebApiEnv, groupIds: string[]): Promise<Map<string, string | null>> {
+async function lineGroupDisplayNames(env: WebApiEnv, groupIds: string[]): Promise<Map<string, LineGroupDisplayNameResult>> {
   const uniqueGroupIds = [...new Set(groupIds)];
   const entries = await Promise.all(uniqueGroupIds.map(async (groupId) => [groupId, await lineGroupDisplayName(env, groupId)] as const));
   return new Map(entries);
@@ -3009,7 +3032,8 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
     groups: rows.results.map((row) => ({
       groupId: String(row.groupId),
       groupIdShort: String(row.groupIdShort),
-      groupName: displayNames.get(String(row.groupId)) ?? null,
+      groupName: displayNames.get(String(row.groupId))?.name ?? null,
+      groupNameStatus: displayNames.get(String(row.groupId))?.status ?? "provider_unavailable",
       status: String(row.status),
       farmName: row.farmName ? String(row.farmName) : null,
       farmId: row.farmId ? String(row.farmId) : null,
@@ -3041,7 +3065,8 @@ export async function lineGroupClaimCandidates(request: Request, env: WebApiEnv,
       claimCandidates: rows.results.map((row) => ({
         groupId: String(row.groupId),
         groupIdShort: String(row.groupIdShort),
-        groupName: displayNames.get(String(row.groupId)) ?? null,
+        groupName: displayNames.get(String(row.groupId))?.name ?? null,
+        groupNameStatus: displayNames.get(String(row.groupId))?.status ?? "provider_unavailable",
         status: String(row.status),
         farmName: row.farmName ? String(row.farmName) : null,
         joinedAt: row.joinedAt ?? null,

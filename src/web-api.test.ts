@@ -283,8 +283,38 @@ describe("Web API boundary", () => {
         { DB: db, LINE_CHANNEL_ACCESS_TOKEN: "unit-test-token" },
         adminSession,
       );
-      const payload = await result.json() as { claimCandidates: Array<{ groupName: string | null }> };
+      const payload = await result.json() as { claimCandidates: Array<{ groupName: string | null; groupNameStatus: string }> };
       expect(payload.claimCandidates[0]?.groupName).toBe("真正 Production 群組");
+      expect(payload.claimCandidates[0]?.groupNameStatus).toBe("available");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("exposes a safe reason when LINE cannot provide a group name", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ message: "not found" }), { status: 404 }));
+    const db = {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async all<T>() {
+                return { results: [{ groupId: "group-1", groupIdShort: "grou…up-1", status: "unbound", farmName: null, joinedAt: null, lastObservedAt: null, observedEventCount: 1 }] as T[] };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    try {
+      const result = await lineGroupClaimCandidates(
+        new Request("https://example.test/api/line-groups/claim-candidates"),
+        { DB: db, LINE_CHANNEL_ACCESS_TOKEN: "unit-test-token" },
+        adminSession,
+      );
+      const payload = await result.json() as { claimCandidates: Array<{ groupName: string | null; groupNameStatus: string }> };
+      expect(payload.claimCandidates[0]?.groupName).toBeNull();
+      expect(payload.claimCandidates[0]?.groupNameStatus).toBe("provider_not_found");
     } finally {
       vi.unstubAllGlobals();
     }
