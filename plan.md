@@ -567,3 +567,52 @@ GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
 No raw provider group identifier, secret value, or password was stored. No
 Production business write, stock mutation, Finance mutation, Queue change, or
 AI call was performed. Chapter 7 is not started.
+
+## 2026-09-15 — Chapter 6 Production activation safety rollback
+
+The human-only shared-edit credential entry completed through the local hidden
+prompt. The protected secret name `FARM_SHARED_PASSWORD_HASH` is now present;
+its value was never read or persisted by Codex. Migration 0042 remained
+applied and the exact Worker source `da1d7f90866fb9c02118b5c558a25c83b799910c`
+was deployed as version `374ab181-f1c8-4d90-92cc-c77227c6467a`.
+
+Production acceptance found a confirmed access-boundary defect before any
+shared/admin acceptance could be completed: unauthenticated
+`/api/ai/live-status` returned an analysis context containing Finance data and
+19 audit-summary entries, contrary to the Chapter 6 public boundary. The
+runtime was immediately rolled back to the prior approved Worker version
+`b4a472f0-8462-4825-9fa0-3121aa394f5c`; no source or migration rollback was
+performed. Post-rollback health/readiness passed with the canonical write hold
+OFF, and unauthenticated dashboard, AI live-status, and Finance requests were
+denied.
+
+```text
+CHAPTER_6 = BLOCKED_BY_CONFIRMED_ACCESS_BOUNDARY_P1
+MIGRATION_0042 = APPLIED
+MIGRATION_0042_SCHEMA_READBACK = PASS
+FARM_SHARED_PASSWORD_HASH = PROVISIONED_NAME_ONLY
+TARGET_WORKER_SOURCE_COMMIT = da1d7f90866fb9c02118b5c558a25c83b799910c
+TARGET_WORKER_VERSION = 374ab181-f1c8-4d90-92cc-c77227c6467a
+TARGET_WORKER_DEPLOYMENT = ACCEPTANCE_BLOCKED_AND_ROLLED_BACK
+ACTIVE_WORKER_VERSION = b4a472f0-8462-4825-9fa0-3121aa394f5c
+ROLLBACK = SAFE
+WORKER_HEALTH_READY = PASS
+CANONICAL_WRITE_HOLD = OFF
+PUBLIC_AI_LIVE_STATUS_BOUNDARY = FAIL_RESTRICTED_CONTEXT_EXPOSED
+SHARED_EDIT_ACCEPTANCE = NOT_COMPLETED_AFTER_ROLLBACK
+PRODUCTION_UNEXPECTED_BUSINESS_DELTA = 0
+PRODUCTION_UNEXPECTED_STOCK_DELTA = 0
+FINANCE_UNEXPECTED_DELTA = 0
+LINE_AUTHORITY_REGRESSION = 0
+AI_CALLS = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = NO
+P0_COUNT = 0
+P1_COUNT = 1
+BLOCKER = MINIMUM_SOURCE_FIX_REQUIRED_FOR_PUBLIC_AI_LIVE_STATUS_BOUNDARY
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = PENDING_TERMINAL_DOC_COMMIT
+```
+
+The D1 integrity readback showed no business, stock, Finance, Queue, or AI
+mutation; the only expected durable change is migration 0042's schema audit
+row. No raw provider identifier, secret value, password, or Chapter 7 work was
+stored or started.
