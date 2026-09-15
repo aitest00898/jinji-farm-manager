@@ -132,7 +132,7 @@ export function assertCanonicalWritesOpen(env: { CANONICAL_WRITE_HOLD?: string }
 export function canonicalWebMutationRequiresHold(pathname: string, method: string): boolean {
   if (!pathname.startsWith("/api/")) return false;
   if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
-  if (pathname === "/api/web/auth/login" || pathname === "/api/web/auth/logout") return false;
+  if (pathname === "/api/web/auth/login" || pathname === "/api/web/auth/shared-login" || pathname === "/api/web/auth/logout") return false;
   return true;
 }
 

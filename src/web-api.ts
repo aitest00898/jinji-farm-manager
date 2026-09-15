@@ -1,4 +1,4 @@
-import { verifyAdminPassword } from "./admin-auth";
+import { ADMIN_LOCKOUT_MS, ADMIN_MAX_FAILED_ATTEMPTS, nextAdminFailureState, verifyAdminPassword } from "./admin-auth";
 import { insertAbnormalEvent, parseAbnormalTiming, validateAbnormalRawText } from "./abnormal";
 import { PRODUCTION_AI_MODEL } from "./analysis";
 import {
@@ -80,12 +80,14 @@ import {
   resolveRetainedLineEvent,
   type ReliabilityStatus,
 } from "./reliability";
+import { classifyWebRoute, webAccessClassAllows, type WebAccessClass } from "./web-access-policy";
 
 export interface WebApiEnv {
   DB: D1Database;
   EVENTS?: { send(message: unknown): Promise<unknown> };
   AI?: Ai;
   FARM_ADMIN_PASSWORD_HASH?: string;
+  FARM_SHARED_PASSWORD_HASH?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_ACCOUNT_NAME?: string;
   CONVERSATION_V2_MODE?: string;
@@ -109,11 +111,15 @@ export const DEFAULT_OPERATIONAL_ENVIRONMENT: OperationalEnvironment = "producti
 /**
  * Operational and analytics reads are Production-scoped unless an operator
  * explicitly asks for the bounded Test view.  The value is deliberately
- * reduced to two known environments; unknown query values fail closed to the
- * Production default rather than widening the result set.
+ * reduced to two known environments; unknown query values fail closed with a
+ * client error rather than widening the result set or falling back to
+ * Production.
  */
 export function operationalEnvironmentFor(url: URL): OperationalEnvironment {
-  return url.searchParams.get("environment") === "test" ? "test" : DEFAULT_OPERATIONAL_ENVIRONMENT;
+  const value = url.searchParams.get("environment");
+  if (!value || value === "production") return DEFAULT_OPERATIONAL_ENVIRONMENT;
+  if (value === "test") return "test";
+  throw new Error("invalid_operational_environment");
 }
 
 export function addOperationalEnvironmentFilter(
@@ -355,6 +361,7 @@ interface SessionRow {
   organizationId: string;
   expiresAt: string;
   revokedAt: string | null;
+  accessClass?: WebAccessClass;
 }
 
 interface FarmRow {
@@ -554,19 +561,88 @@ async function activeOrganization(env: WebApiEnv): Promise<OrganizationRow | nul
   ).first<OrganizationRow>();
 }
 
+function sessionAccessClass(session: Pick<SessionRow, "accessClass">): WebAccessClass {
+  return session.accessClass === "SHARED_EDIT" ? "SHARED_EDIT" : "ADMIN";
+}
+
+function authClientAddress(request: Request): string {
+  const cloudflareAddress = request.headers.get("cf-connecting-ip")?.trim();
+  if (cloudflareAddress) return cloudflareAddress;
+  const forwardedAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwardedAddress || "unknown";
+}
+
+async function authAttemptScope(request: Request, accessClass: Exclude<WebAccessClass, "PUBLIC">): Promise<string> {
+  return hashWebSessionToken(`web-auth:${accessClass}:${authClientAddress(request)}`);
+}
+
+interface AuthAttemptRow {
+  scopeId: string;
+  failedCount: number;
+  lockedUntil: string | null;
+}
+
+async function authAttemptFor(
+  request: Request,
+  env: WebApiEnv,
+  accessClass: Exclude<WebAccessClass, "PUBLIC">,
+): Promise<{ scopeId: string; state: AuthAttemptRow | null }> {
+  const scopeId = await authAttemptScope(request, accessClass);
+  const state = await env.DB.prepare(
+    `SELECT scope_id AS scopeId, failed_count AS failedCount, locked_until AS lockedUntil
+       FROM web_auth_attempts WHERE scope_id = ? LIMIT 1`,
+  ).bind(scopeId).first<AuthAttemptRow>();
+  return { scopeId, state };
+}
+
+async function auditAuthEvent(
+  request: Request,
+  env: WebApiEnv,
+  accessClass: Exclude<WebAccessClass, "PUBLIC">,
+  action: string,
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  const organization = await activeOrganization(env);
+  if (!organization) return;
+  await writeAuditLog(env, {
+    organizationId: organization.id,
+    source: "web",
+    actorType: "web_auth",
+    actorId: `web-auth-${accessClass.toLowerCase()}`,
+    action,
+    entityType: "web_auth_boundary",
+    entityId: `web-auth-${accessClass.toLowerCase()}`,
+    after: { accessClass, ...details },
+    requestId: requestId(request),
+  });
+}
+
 async function sessionFor(request: Request, env: WebApiEnv): Promise<SessionRow | null> {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return null;
   const token = header.slice(7).trim();
   if (!/^[A-Za-z0-9_-]{32,100}$/u.test(token)) return null;
   const tokenHash = await hashWebSessionToken(token);
-  const session = await env.DB.prepare(
-    `SELECT s.id, s.organization_id AS organizationId, s.expires_at AS expiresAt,
-            s.revoked_at AS revokedAt
-       FROM web_admin_sessions s
-      WHERE s.token_hash = ?
-      LIMIT 1`,
-  ).bind(tokenHash).first<SessionRow>();
+  let session: SessionRow | null;
+  try {
+    session = await env.DB.prepare(
+      `SELECT s.id, s.organization_id AS organizationId, s.expires_at AS expiresAt,
+              s.revoked_at AS revokedAt, s.access_class AS accessClass
+         FROM web_admin_sessions s
+        WHERE s.token_hash = ?
+        LIMIT 1`,
+    ).bind(tokenHash).first<SessionRow>();
+  } catch {
+    // Admin sessions remain readable during the migration-first transition;
+    // a shared session cannot be created without the new column.
+    session = await env.DB.prepare(
+      `SELECT s.id, s.organization_id AS organizationId, s.expires_at AS expiresAt,
+              s.revoked_at AS revokedAt
+         FROM web_admin_sessions s
+        WHERE s.token_hash = ?
+        LIMIT 1`,
+    ).bind(tokenHash).first<SessionRow>();
+  }
   if (!session || session.revokedAt || !webSessionIsActive(session.expiresAt)) return null;
   await env.DB.prepare(
     `UPDATE web_admin_sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL`,
@@ -579,33 +655,102 @@ async function requireSession(request: Request, env: WebApiEnv): Promise<Session
   return session ?? errorResponse(request, 401, "unauthorized", "請先登入管理介面。");
 }
 
-async function authLogin(request: Request, env: WebApiEnv): Promise<Response> {
-  const body = await bodyJson(request);
-  const password = typeof body?.password === "string" ? body.password : "";
-  if (!password || password.length > 200) return errorResponse(request, 400, "invalid_credentials", "登入資料無效。");
-  const valid = await verifyAdminPassword(password, env.FARM_ADMIN_PASSWORD_HASH);
-  if (!valid) return errorResponse(request, 401, "invalid_credentials", "管理密碼錯誤。");
-  const org = await activeOrganization(env);
-  if (!org) return errorResponse(request, 503, "organization_unavailable", "目前沒有可用的組織。");
+async function createWebSession(
+  request: Request,
+  env: WebApiEnv,
+  organization: OrganizationRow,
+  accessClass: Exclude<WebAccessClass, "PUBLIC">,
+): Promise<Response> {
   const rawToken = randomWebSessionToken();
   const tokenHash = await hashWebSessionToken(rawToken);
   const id = `web-session-${crypto.randomUUID()}`;
   const expiresAt = new Date(Date.now() + WEB_SESSION_TTL_MS).toISOString();
-  await env.DB.prepare(
-    `INSERT INTO web_admin_sessions (id, organization_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`,
-  ).bind(id, org.id, tokenHash, expiresAt).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO web_admin_sessions (id, organization_id, token_hash, expires_at, access_class)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).bind(id, organization.id, tokenHash, expiresAt, accessClass).run();
+  } catch {
+    if (accessClass !== "ADMIN") throw new Error("web_shared_access_schema_unavailable");
+    await env.DB.prepare(
+      `INSERT INTO web_admin_sessions (id, organization_id, token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`,
+    ).bind(id, organization.id, tokenHash, expiresAt).run();
+  }
   await writeAuditLog(env, {
-    organizationId: org.id,
+    organizationId: organization.id,
     source: "web",
     actorType: "web_admin",
     actorId: id,
     action: "login",
     entityType: "web_session",
     entityId: id,
+    after: { accessClass },
     requestId: requestId(request),
   });
-  return response(request, { authenticated: true, token: rawToken, expiresAt, organization: org });
+  return response(request, { authenticated: true, token: rawToken, expiresAt, accessClass, organization });
+}
+
+async function authLoginForClass(
+  request: Request,
+  env: WebApiEnv,
+  accessClass: Exclude<WebAccessClass, "PUBLIC">,
+  verifier: string | undefined,
+  invalidMessage: string,
+): Promise<Response> {
+  const body = await bodyJson(request);
+  const password = typeof body?.password === "string" ? body.password : "";
+  if (!password || password.length > 200) return errorResponse(request, 400, "invalid_credentials", "登入資料無效。");
+  const { scopeId, state } = await authAttemptFor(request, env, accessClass);
+  const now = new Date().toISOString();
+  if (state?.lockedUntil && state.lockedUntil > now) {
+    return response(request, {
+      error: "auth_rate_limited",
+      message: "登入嘗試過多，請稍後再試。",
+      retryAfterSeconds: Math.ceil(ADMIN_LOCKOUT_MS / 1000),
+    }, 429);
+  }
+  const valid = await verifyAdminPassword(password, verifier);
+  if (!valid) {
+    const next = nextAdminFailureState(state, now);
+    await env.DB.prepare(
+      `INSERT INTO web_auth_attempts (scope_id, failed_count, locked_until, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(scope_id) DO UPDATE SET failed_count = excluded.failed_count,
+         locked_until = excluded.locked_until, updated_at = CURRENT_TIMESTAMP`,
+    ).bind(scopeId, next.failedCount, next.lockedUntil).run();
+    await auditAuthEvent(request, env, accessClass, "login_failed", { failedCount: next.failedCount });
+    if (next.failedCount >= ADMIN_MAX_FAILED_ATTEMPTS) {
+      await auditAuthEvent(request, env, accessClass, "auth_lock", { failedCount: next.failedCount });
+    }
+    return errorResponse(request, 401, "invalid_credentials", invalidMessage);
+  }
+  const org = await activeOrganization(env);
+  if (!org) return errorResponse(request, 503, "organization_unavailable", "目前沒有可用的組織。");
+  if (state?.failedCount || state?.lockedUntil) {
+    await env.DB.prepare(
+      `UPDATE web_auth_attempts SET failed_count = 0, locked_until = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE scope_id = ?`,
+    ).bind(scopeId).run();
+    if (state.lockedUntil && state.lockedUntil <= now) await auditAuthEvent(request, env, accessClass, "auth_unlock");
+  }
+  try {
+    return await createWebSession(request, env, org, accessClass);
+  } catch (error) {
+    if (error instanceof Error && error.message === "web_shared_access_schema_unavailable") {
+      return errorResponse(request, 503, "shared_access_not_ready", "共享編輯登入尚未完成資料結構切換。 ");
+    }
+    throw error;
+  }
+}
+
+async function authLogin(request: Request, env: WebApiEnv): Promise<Response> {
+  return authLoginForClass(request, env, "ADMIN", env.FARM_ADMIN_PASSWORD_HASH, "管理密碼錯誤。");
+}
+
+async function authSharedLogin(request: Request, env: WebApiEnv): Promise<Response> {
+  if (!env.FARM_SHARED_PASSWORD_HASH) return errorResponse(request, 503, "shared_access_not_configured", "共享編輯登入尚未配置。");
+  return authLoginForClass(request, env, "SHARED_EDIT", env.FARM_SHARED_PASSWORD_HASH, "共享編輯密碼錯誤。");
 }
 
 async function authLogout(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -622,18 +767,31 @@ async function authSession(request: Request, env: WebApiEnv): Promise<Response> 
   return response(request, {
     authenticated: true,
     expiresAt: session.expiresAt,
+    accessClass: sessionAccessClass(session),
     organization: org,
   });
 }
 
-async function farmById(env: WebApiEnv, organizationId: string, id: string): Promise<FarmRow | null> {
+async function publicReadSession(env: WebApiEnv): Promise<SessionRow | null> {
+  const organization = await activeOrganization(env);
+  return organization ? {
+    id: "public-read",
+    organizationId: organization.id,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    revokedAt: null,
+    accessClass: "PUBLIC",
+  } : null;
+}
+
+async function farmById(env: WebApiEnv, organizationId: string, id: string, activeOnly = false): Promise<FarmRow | null> {
+  const activeClause = activeOnly ? " AND active = 1" : "";
   return env.DB.prepare(
     `SELECT id, organization_id AS organizationId, name, site_name AS siteName,
             latitude, longitude,
             active, environment, farm_structure_mode AS structureMode, note, version,
             player_group_equity_fraction AS playerGroupEquityFraction,
             created_at AS createdAt, updated_at AS updatedAt
-       FROM farms WHERE id = ? AND organization_id = ? LIMIT 1`,
+       FROM farms WHERE id = ? AND organization_id = ?${activeClause} LIMIT 1`,
   ).bind(id, organizationId).first<FarmRow>();
 }
 
@@ -688,13 +846,14 @@ async function listFarms(request: Request, env: WebApiEnv, session: SessionRow):
   const url = new URL(request.url);
   const environment = operationalEnvironmentFor(url);
   const active = url.searchParams.get("active");
+  const publicRead = sessionAccessClass(session) === "PUBLIC";
   const clauses = ["organization_id = ?"];
   const bindings: unknown[] = [session.organizationId];
   clauses.push("environment = ?");
   bindings.push(environment);
-  if (active === "true" || active === "false") {
+  if (publicRead || active === "true" || active === "false") {
     clauses.push("active = ?");
-    bindings.push(active === "true" ? 1 : 0);
+    bindings.push(publicRead || active === "true" ? 1 : 0);
   }
   const rows = await env.DB.prepare(
     `SELECT id, organization_id AS organizationId, name, site_name AS siteName,
@@ -1125,6 +1284,7 @@ async function listHouses(request: Request, env: WebApiEnv, session: SessionRow)
   }
   const clauses = ["f.organization_id = ?", "f.environment = ?"];
   const bindings: unknown[] = [session.organizationId, environment];
+  if (sessionAccessClass(session) === "PUBLIC") clauses.push("f.active = 1", "h.active = 1");
   if (farmId) { clauses.push("h.farm_id = ?"); bindings.push(farmId); }
   const rows = await env.DB.prepare(
     `SELECT h.id, h.farm_id AS farmId, h.name, h.normalized_name AS normalizedName,
@@ -1195,6 +1355,7 @@ async function listFlocks(request: Request, env: WebApiEnv, session: SessionRow)
   }
   const clauses = ["f.organization_id = ?", "f.environment = ?"];
   const bindings: unknown[] = [session.organizationId, environment];
+  if (sessionAccessClass(session) === "PUBLIC") clauses.push("f.active = 1", "h.active = 1", "k.status = 'active'");
   if (farmId) { clauses.push("k.farm_id = ?"); bindings.push(farmId); }
   if (houseId) { clauses.push("k.house_id = ?"); bindings.push(houseId); }
   const rows = await env.DB.prepare(
@@ -2346,27 +2507,28 @@ async function financeSummary(request: Request, env: WebApiEnv, session: Session
 
 async function dashboard(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const org = session.organizationId;
+  const publicRead = sessionAccessClass(session) === "PUBLIC";
   const [farms, productionFarms, testFarms, caretakers, activeFlocks, stockRows, todayRows, shipments, finance] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'production'").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'production'").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'test'").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM caretakers WHERE organization_id = ? AND active = 1").bind(org).first<{ count: number }>(),
+    publicRead ? Promise.resolve(null) : env.DB.prepare("SELECT COUNT(*) AS count FROM farms WHERE organization_id = ? AND active = 1 AND environment = 'test'").bind(org).first<{ count: number }>(),
+    publicRead ? Promise.resolve(null) : env.DB.prepare("SELECT COUNT(*) AS count FROM caretakers WHERE organization_id = ? AND active = 1").bind(org).first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active'").bind(org).first<{ count: number }>(),
     env.DB.prepare(`SELECT k.initial_count AS initialCount, k.farm_id AS farmId, COALESCE(SUM(CASE WHEN e.intent IN ('mortality', 'cull', 'shipment') THEN e.quantity ELSE 0 END), 0) AS removed FROM flocks k JOIN farms f ON f.id = k.farm_id LEFT JOIN operational_events e ON e.flock_id = k.id AND ${effectiveOperationalEventPredicate("e")} WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' GROUP BY k.id`).bind(org).all<{ initialCount: number; farmId: string; removed: number }>(),
     env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN e.intent = 'mortality' THEN e.quantity ELSE 0 END), 0) AS mortality, COALESCE(SUM(CASE WHEN e.intent = 'cull' THEN e.quantity ELSE 0 END), 0) AS cull, COALESCE(SUM(CASE WHEN e.intent = 'feed' THEN e.quantity ELSE 0 END), 0) AS feed, COALESCE(SUM(CASE WHEN e.intent = 'water' THEN e.quantity ELSE 0 END), 0) AS water FROM operational_events e JOIN farms f ON f.id = e.farm_id WHERE e.organization_id = ? AND f.environment = 'production' AND e.event_date = ? AND ${effectiveOperationalEventPredicate("e")}`).bind(org, taipeiDate()).first<Record<string, number>>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM flocks k JOIN farms f ON f.id = k.farm_id WHERE f.organization_id = ? AND f.environment = 'production' AND k.status = 'active' AND k.expected_shipment_date IS NOT NULL AND k.expected_shipment_date <= date('now', '+7 day')").bind(org).first<{ count: number }>(),
-    env.DB.prepare("SELECT COALESCE(SUM(d.net_income), 0) AS net FROM profit_distributions d JOIN farms f ON f.id = d.farm_id WHERE d.organization_id = ? AND f.environment = 'production'").bind(org).first<{ net: number }>(),
+    publicRead ? Promise.resolve(null) : env.DB.prepare("SELECT COALESCE(SUM(d.net_income), 0) AS net FROM profit_distributions d JOIN farms f ON f.id = d.farm_id WHERE d.organization_id = ? AND f.environment = 'production'").bind(org).first<{ net: number }>(),
   ]);
   const warnings: string[] = [];
-  if ((testFarms?.count ?? 0) > 0) warnings.push("目前含有測試雞場；財務統計已排除測試資料。");
+  if (!publicRead && (testFarms?.count ?? 0) > 0) warnings.push("目前含有測試雞場；財務統計已排除測試資料。");
   if ((activeFlocks?.count ?? 0) === 0) warnings.push("尚未建立進行中的批次。");
   return response(request, {
     asOf: taipeiDate(),
-    counts: { farms: farms?.count ?? 0, productionFarms: productionFarms?.count ?? 0, testFarms: testFarms?.count ?? 0, caretakers: caretakers?.count ?? 0, activeFlocks: activeFlocks?.count ?? 0 },
+    counts: { farms: farms?.count ?? 0, productionFarms: productionFarms?.count ?? 0, testFarms: publicRead ? null : testFarms?.count ?? 0, caretakers: publicRead ? null : caretakers?.count ?? 0, activeFlocks: activeFlocks?.count ?? 0 },
     stock: stockRows.results.reduce((sum, row) => sum + Math.max(0, Number(row.initialCount || 0) - Number(row.removed || 0)), 0),
     today: todayRows ?? { mortality: 0, cull: 0, feed: 0, water: 0 },
     upcomingShipments: shipments?.count ?? 0,
-    finance: finance ?? { net: 0 },
+    finance: publicRead ? null : finance ?? { net: 0 },
     dataHealth: { warnings },
   });
 }
@@ -3777,10 +3939,30 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
   if (request.headers.has("origin") && !originFor(request)) return errorResponse(request, 403, "origin_not_allowed", "此來源未獲授權。");
   try {
     if (url.pathname === "/api/web/auth/login" && request.method === "POST") return authLogin(request, env);
+    if (url.pathname === "/api/web/auth/shared-login" && request.method === "POST") return authSharedLogin(request, env);
     if (url.pathname === "/api/web/auth/session" && request.method === "GET") return authSession(request, env);
-    const session = await requireSession(request, env);
-    if (session instanceof Response) return session;
-    if (url.pathname === "/api/web/auth/logout" && request.method === "POST") return authLogout(request, env, session);
+    if (url.pathname === "/api/web/auth/logout" && request.method === "POST") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) return session;
+      return authLogout(request, env, session);
+    }
+    const requiredAccess = classifyWebRoute(url.pathname, request.method);
+    if (!requiredAccess) return errorResponse(request, 404, "not_found", "Not found");
+    const rawEnvironment = url.searchParams.get("environment");
+    if (rawEnvironment !== null && rawEnvironment !== "production" && rawEnvironment !== "test") {
+      return errorResponse(request, 400, "invalid_environment", "environment 必須是 production 或 test。");
+    }
+    const authenticatedSession = await sessionFor(request, env);
+    const session = authenticatedSession
+      ?? (requiredAccess === "PUBLIC" ? await publicReadSession(env) : null);
+    if (!session) return errorResponse(request, 401, "unauthorized", "請先登入管理介面。");
+    const actualAccess = sessionAccessClass(session);
+    if (!webAccessClassAllows(actualAccess, requiredAccess)) {
+      return errorResponse(request, 403, "forbidden", "目前登入層級無法使用這項功能。");
+    }
+    if (requiredAccess === "PUBLIC" && !authenticatedSession && rawEnvironment === "test") {
+      return errorResponse(request, 403, "test_scope_auth_required", "Test scope 必須先登入後明確選取。");
+    }
     if (canonicalWriteHoldState(env) !== "OFF" && canonicalWebMutationRequiresHold(url.pathname, request.method)) {
       const state = canonicalWriteHoldState(env);
       return errorResponse(
@@ -3858,7 +4040,7 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const farmCaretakerMatch = /^\/api\/farms\/([^/]+)\/caretakers$/u.exec(url.pathname);
     if (farmCaretakerMatch && request.method === "POST") return assignCaretaker(request, env, session, farmCaretakerMatch[1]);
     if (farmMatch && request.method === "GET") {
-      const farm = await farmById(env, session.organizationId, farmMatch[1]);
+      const farm = await farmById(env, session.organizationId, farmMatch[1], actualAccess === "PUBLIC");
       return farm ? response(request, { farm: toFarm(farm) }) : errorResponse(request, 404, "not_found", "找不到雞場。");
     }
     if (farmMatch && request.method === "PATCH") return updateFarm(request, env, session, farmMatch[1]);

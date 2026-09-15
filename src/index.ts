@@ -290,6 +290,7 @@ export interface Env {
   /** Protected singleton LINE user identity; never exposed to clients or replies. */
   LINE_SYSTEM_ADMIN_USER_ID?: string;
   FARM_ADMIN_PASSWORD_HASH?: string;
+  FARM_SHARED_PASSWORD_HASH?: string;
   /** Temporary, non-secret runtime harness gate; absent in normal deploys. */
   RUNTIME_TEST_TOKEN?: string;
   /** Development-only Ambient command gate; production defaults to disabled. */

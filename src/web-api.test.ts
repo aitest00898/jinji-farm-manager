@@ -143,11 +143,12 @@ describe("Web API boundary", () => {
     expect(isAllowedWebOrigin("https://aitest00898.github.io.evil.example")).toBe(false);
   });
 
-  it("defaults operational reads to Production and only exposes Test explicitly", () => {
+  it("defaults operational reads to Production and rejects unknown environments", () => {
     expect(DEFAULT_OPERATIONAL_ENVIRONMENT).toBe("production");
     expect(operationalEnvironmentFor(new URL("https://example.test/api/events"))).toBe("production");
     expect(operationalEnvironmentFor(new URL("https://example.test/api/events?environment=test"))).toBe("test");
-    expect(operationalEnvironmentFor(new URL("https://example.test/api/events?environment=all"))).toBe("production");
+    expect(() => operationalEnvironmentFor(new URL("https://example.test/api/events?environment=all"))).toThrow("invalid_operational_environment");
+    expect(() => operationalEnvironmentFor(new URL("https://example.test/api/events?environment=staging"))).toThrow("invalid_operational_environment");
   });
 
   it("adds a bounded farm environment predicate without accepting a free-form SQL value", () => {
