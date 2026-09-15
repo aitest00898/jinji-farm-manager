@@ -383,3 +383,55 @@ human who controls the real LINE administrator identity. Do not place the raw
 identity in source, documentation, client code, logs, or chat. After that
 configuration is present, Chapter 5 can be rechecked without changing the
 normal authorized-group boundary; Chapter 6 is not started.
+
+## 2026-09-15 — Chapter 5 activated and accepted
+
+The sole administrator sender identity was uniquely established from the
+post-cutoff real Production LINE verification event in the verified Production
+group and stored only in the protected `LINE_SYSTEM_ADMIN_USER_ID` runtime
+secret. Its value was never read back or stored in source, documentation,
+client code, logs, or chat. The exact tested Worker source
+`b90a556bba40ade1ab570cd8ab091ea1c0c92980` was deployed as the approved
+runtime. Health/readiness passed with the canonical write hold OFF, and the
+protected secret-name inventory confirmed the binding exists.
+
+One harmless Production `系統狀態` read produced a visible outgoing message
+and Bot response, proving the fixed identity can use an admin-only read in the
+authorized Production group. Existing local boundary tests cover non-admin
+denial, unauthorized-group bootstrap denial, legacy LINE password/session
+non-authority, ordinary-member behavior, and opaque audit attribution. No real
+business record was created.
+
+```text
+CHAPTER_5 = PASS
+SINGLETON_SYSTEM_ADMIN = PASS
+FIXED_LINE_ADMIN_IDENTITY = PASS
+ADMIN_IDENTITY_PROTECTED = PASS_BY_RUNTIME_SECRET
+PRODUCTION_HEALTH_READY = PASS
+PRODUCTION_GROUP_AUTHORIZATION_READBACK = PASS
+CORRECT_LINE_ADMIN_STATUS_READ = PASS
+NON_ADMIN_LINE_ADMIN_DENIED = PASS_LOCAL
+UNAUTHORIZED_GROUP_ADMIN_BOOTSTRAP = PASS_LOCAL
+BOOTSTRAP_SCOPE_ESCALATION = 0
+ORDINARY_MEMBER_ADMIN_ESCALATION = 0
+LEGACY_LINE_ADMIN_PASSWORD_AS_AUTHORITY = NO
+LEGACY_LINE_ADMIN_SESSION_AS_AUTHORITY = NO
+AUDIT_ADMIN_ATTRIBUTION = PASS_LOCAL
+TEST_PRODUCTION_ISOLATION = PASS
+FOCUSED_TESTS = PASS_36_OF_36
+FULL_REGRESSION = PASS_930_PASSED_11_SKIPPED
+LOCAL_MENU_RUNTIME = PASS_71_OF_71
+LOCAL_PREVIEW_RUNTIME = PASS_11_OF_11
+PRODUCTION_UNEXPECTED_BUSINESS_DELTA = 0
+PRODUCTION_UNEXPECTED_STOCK_DELTA = 0
+PRODUCTION_UNEXPECTED_FINANCE_DELTA = 0
+RAW_LINE_USER_ID_IN_DURABLE_DOCS = 0
+SOURCE_COMMIT = b90a556bba40ade1ab570cd8ab091ea1c0c92980
+DEPLOYED_WORKER_VERSION = b4a472f0-8462-4825-9fa0-3121aa394f5c
+PRODUCTION_UNEXPECTED_DELTA = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+BLOCKER = NONE
+```
+
+Chapter 6 is not started. No raw provider group or sender identifier is stored
+in this plan.
