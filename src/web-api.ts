@@ -86,6 +86,7 @@ export interface WebApiEnv {
   EVENTS?: { send(message: unknown): Promise<unknown> };
   AI?: Ai;
   FARM_ADMIN_PASSWORD_HASH?: string;
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_ACCOUNT_NAME?: string;
   CONVERSATION_V2_MODE?: string;
   CONVERSATION_MODEL?: string;
@@ -2910,6 +2911,40 @@ async function testTools(request: Request, env: WebApiEnv, session: SessionRow):
   });
 }
 
+async function lineGroupDisplayName(env: WebApiEnv, groupId: string): Promise<string | null> {
+  const accessToken = typeof env.LINE_CHANNEL_ACCESS_TOKEN === "string" ? env.LINE_CHANNEL_ACCESS_TOKEN.trim() : "";
+  if (!accessToken) return null;
+  let providerResponse: Response;
+  try {
+    providerResponse = await fetch(`https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/summary`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        accept: "application/json",
+      },
+    });
+  } catch {
+    return null;
+  }
+  if (!providerResponse.ok) return null;
+  let payload: unknown;
+  try {
+    payload = await providerResponse.json();
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const providerGroupId = (payload as { groupId?: unknown }).groupId;
+  if (providerGroupId !== groupId) return null;
+  return stringValue((payload as { groupName?: unknown }).groupName, 200);
+}
+
+async function lineGroupDisplayNames(env: WebApiEnv, groupIds: string[]): Promise<Map<string, string | null>> {
+  const uniqueGroupIds = [...new Set(groupIds)];
+  const entries = await Promise.all(uniqueGroupIds.map(async (groupId) => [groupId, await lineGroupDisplayName(env, groupId)] as const));
+  return new Map(entries);
+}
+
 async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const rows = await env.DB.prepare(
     `SELECT group_id AS groupId,
@@ -2921,6 +2956,7 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
       WHERE organization_id = ?
       ORDER BY status, group_id`,
   ).bind(session.organizationId).all<Record<string, unknown>>();
+  const displayNames = await lineGroupDisplayNames(env, rows.results.map((row) => String(row.groupId)));
   const bindings = await env.DB.prepare(
     `SELECT gb.id AS bindingId, gb.line_group_id AS groupId,
             gb.operator_id AS operatorId, i.identity_type AS identityType,
@@ -2973,6 +3009,7 @@ async function lineGroups(request: Request, env: WebApiEnv, session: SessionRow)
     groups: rows.results.map((row) => ({
       groupId: String(row.groupId),
       groupIdShort: String(row.groupIdShort),
+      groupName: displayNames.get(String(row.groupId)) ?? null,
       status: String(row.status),
       farmName: row.farmName ? String(row.farmName) : null,
       farmId: row.farmId ? String(row.farmId) : null,
@@ -2999,10 +3036,12 @@ export async function lineGroupClaimCandidates(request: Request, env: WebApiEnv,
         ORDER BY lastObservedAt DESC, g.group_id
         LIMIT 20`,
     ).bind().all<Record<string, unknown>>();
+    const displayNames = await lineGroupDisplayNames(env, rows.results.map((row) => String(row.groupId)));
     return response(request, {
       claimCandidates: rows.results.map((row) => ({
         groupId: String(row.groupId),
         groupIdShort: String(row.groupIdShort),
+        groupName: displayNames.get(String(row.groupId)) ?? null,
         status: String(row.status),
         farmName: row.farmName ? String(row.farmName) : null,
         joinedAt: row.joinedAt ?? null,

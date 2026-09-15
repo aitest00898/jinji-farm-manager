@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addOperationalEnvironmentFilter,
   claimLineGroupOrganization,
@@ -256,6 +256,38 @@ describe("Web API boundary", () => {
     expect(sql).toContain("JOIN line_events");
     expect(sql).toContain("g.organization_id IS NULL");
     expect(sql).toContain("g.status = 'unbound'");
+  });
+
+  it("enriches a verified candidate with the LINE provider group name without making it durable", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.line.me/v2/bot/group/group-1/summary");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer unit-test-token");
+      return new Response(JSON.stringify({ groupId: "group-1", groupName: "真正 Production 群組" }), { status: 200 });
+    });
+    const db = {
+      prepare(statement: string) {
+        return {
+          bind() {
+            return {
+              async all<T>() {
+                return { results: [{ groupId: "group-1", groupIdShort: "grou…up-1", status: "unbound", farmName: null, joinedAt: "2026-09-14T00:00:00Z", lastObservedAt: "2026-09-14T00:01:00Z", observedEventCount: 2 }] as T[] };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    try {
+      const result = await lineGroupClaimCandidates(
+        new Request("https://example.test/api/line-groups/claim-candidates"),
+        { DB: db, LINE_CHANNEL_ACCESS_TOKEN: "unit-test-token" },
+        adminSession,
+      );
+      const payload = await result.json() as { claimCandidates: Array<{ groupName: string | null }> };
+      expect(payload.claimCandidates[0]?.groupName).toBe("真正 Production 群組");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("claims one existing unbound group for the authenticated organization with audit and readback", async () => {
