@@ -5373,3 +5373,30 @@ No Production request, deployment, schema application, business write, stock
 mutation, Finance mutation, Queue activity, or AI call was performed for this
 local Chapter 6 work. No raw provider group or sender identifier is stored
 here.
+
+## 2026-09-15 — Chapter 6 final state after safe Web reconciliation (latest)
+
+The Web source was reconciled with the remote group-name and revocation UI
+commits through normal non-force merges. The final local Web tip was tested
+after that reconciliation; the Chapter 6 access boundary and the pre-existing
+administrative flows both remain intact.
+
+```text
+CHAPTER_6 = PASS_LOCAL
+WORKER_SOURCE_COMMIT = da1d7f90866fb9c02118b5c558a25c83b799910c
+WEB_CHAPTER_6_COMMIT = 3b93c2733695b2f901e64702b1bff73e571c8487
+WEB_SOURCE_HEAD_AFTER_REMOTE_RECONCILIATION = 2264241009ba6c0c2c826a6977dd1b5993602298
+WORKER_FULL_REGRESSION = PASS_933_PASSED_11_SKIPPED
+WEB_FULL_REGRESSION = PASS
+GIT_DIFF_CHECK = PASS
+PRODUCTION_DEPLOYMENT = 0
+MIGRATION_0042 = CREATED_NOT_APPLIED
+PRODUCTION_UNEXPECTED_DELTA = 0
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+BLOCKER = NONE
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+```
+
+The remote Web commits were preserved without force push. No Production
+deployment, migration application, business write, stock mutation, Finance
+mutation, Queue activity, or AI call was performed.
