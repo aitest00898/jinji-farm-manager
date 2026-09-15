@@ -5130,3 +5130,56 @@ No raw provider group identifier is stored here. The existing Chapter 3
 transition can resume after the exact GitHub Pages approval/environment
 authority is available; the Test group and synthetic registration remain
 ineligible for promotion.
+
+## 2026-09-15 — Chapter 3 terminal evidence closure
+
+Chapter 3 is closed from authoritative evidence rather than Web UI state
+alone. The current authenticated Web readback identifies
+`++金雞Ai助手正式++` as the sole organization-owned and operationally
+authorized group. Read-only D1 audit correlation to that current authorized
+row found one organization-claim audit at `2026-09-15 01:01:27` UTC with
+organization `NULL -> SET`, and one operational-authorization audit at
+`2026-09-15 01:01:34` UTC with `operational_authorized 0 -> 1`. No claim or
+authorization mutation was repeated.
+
+The exact deployed Worker source is
+`e001106506c5e62a86a1968f9b076e7d8d11319a`; health/readiness pass and the
+0041 authorization schema is readable. The controlled Pages build is public
+at exact Web SHA `80b2b70f45ec093b12296c1e4fe3b32c77d99176`, with public
+build-SHA readback matching.
+
+The authorized Production group passed a bounded, harmless real-LINE read:
+`今日狀況` was visibly replied to by the Bot. The authoritative event receipt
+was `reply_completed`, `reply_status=sent`, HTTP 200, and
+`business_status=completed`. Deployed-source tests and the shared
+authorization boundary cover ordinary group-member trust, direct-message
+formal-operation denial, and fail-closed missing/left/cross-organization or
+unauthorized groups.
+
+The bounded operation produced no stock, canonical business, Finance, AI, or
+Test/Production crossover delta. Production write acceptance remains
+`DEFERRED_UNTIL_REAL_BUSINESS_EVENT`. No raw provider group identifier is
+stored here.
+
+```text
+CLAIM_AUDIT = PASS
+CLAIM_READBACK = PASS
+AUTHORIZATION_AUDIT = PASS
+AUTHORIZATION_READBACK = PASS
+AUTHORIZED_READ = PASS
+ORDINARY_MEMBER_GROUP_TRUST = PASS
+DM_DENIED = PASS
+UNAUTHORIZED_BOUNDARY = PASS
+WRITE_ACCEPTANCE = DEFERRED_UNTIL_REAL_BUSINESS_EVENT
+STOCK_DELTA = 0
+CANONICAL_BUSINESS_DELTA = 0
+FINANCE_DELTA = 0
+TEST_PRODUCTION_CROSSOVER = 0
+TEST_GROUP_AUTHORIZATION = 0
+SYNTHETIC_GROUP_AUTHORIZATION = 0
+UNINTENDED_GROUP_AUTHORIZATION = 0
+CHAPTER_3 = PASS
+PRODUCTION_CHAPTER_2_AUTHORITY = ACCEPTED
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+GITHUB_DEVELOPMENT_PROGRESS_ALIGNMENT = ALIGNED
+```

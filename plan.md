@@ -238,3 +238,55 @@ GitHub account with the required repository/environment authority before the
 existing Chapter 3 transition can resume. No Production group claim,
 authorization, business write, stock mutation, or Finance mutation was made
 in this blocked state.
+
+## 2026-09-15 — Chapter 3 terminal evidence closure (latest)
+
+This latest section supersedes the earlier environment-block entry. The
+previously completed Production transition now has authoritative read-only
+evidence. The current Web readback identifies `++金雞Ai助手正式++` as the
+sole organization-owned, operationally authorized group. D1 audit correlation
+to that current authorized row found one immutable organization-claim audit at
+`2026-09-15 01:01:27` UTC with organization `NULL -> SET`, and one immutable
+operational-authorization audit at `2026-09-15 01:01:34` UTC with
+`operational_authorized 0 -> 1`. No mutation was repeated to manufacture
+evidence.
+
+The controlled Pages workflow is verified on the exact tested Web SHA
+`80b2b70f45ec093b12296c1e4fe3b32c77d99176`; public build-SHA readback matches,
+and the Worker source `e001106506c5e62a86a1968f9b076e7d8d11319a` is deployed
+and healthy. Migration 0041 and its schema readback are present.
+
+Safe real-LINE boundary evidence is complete without a business write. In the
+authorized Production group, `今日狀況` produced a visible Bot reply; its
+authoritative event receipt is `reply_completed`, `reply_status=sent`, HTTP
+200, and `business_status=completed`. The deployed source and existing tests
+prove ordinary group members are accepted by group authorization, direct
+messages have no group context and cannot enter formal operations, and
+missing/left/cross-organization/unauthorized groups fail closed.
+
+The bounded read-only operation produced zero stock, canonical business,
+Finance, AI, Test/Production crossover, and unintended authorization deltas.
+Production write acceptance remains deferred until a real business event.
+No raw provider group identifier is stored in this plan.
+
+```text
+CLAIM_AUDIT = PASS
+CLAIM_READBACK = PASS
+AUTHORIZATION_AUDIT = PASS
+AUTHORIZATION_READBACK = PASS
+AUTHORIZED_READ = PASS
+ORDINARY_MEMBER_GROUP_TRUST = PASS
+DM_DENIED = PASS
+UNAUTHORIZED_BOUNDARY = PASS
+WRITE_ACCEPTANCE = DEFERRED_UNTIL_REAL_BUSINESS_EVENT
+STOCK_DELTA = 0
+CANONICAL_BUSINESS_DELTA = 0
+FINANCE_DELTA = 0
+TEST_PRODUCTION_CROSSOVER = 0
+TEST_GROUP_AUTHORIZATION = 0
+SYNTHETIC_GROUP_AUTHORIZATION = 0
+UNINTENDED_GROUP_AUTHORIZATION = 0
+CHAPTER_3 = PASS
+PRODUCTION_CHAPTER_2_AUTHORITY = ACCEPTED
+READY_FOR_NEXT_FEATURE_CHAPTER = YES
+```
