@@ -561,7 +561,8 @@ async function activeOrganization(env: WebApiEnv): Promise<OrganizationRow | nul
   ).first<OrganizationRow>();
 }
 
-function sessionAccessClass(session: Pick<SessionRow, "accessClass">): WebAccessClass {
+export function sessionAccessClass(session: Pick<SessionRow, "accessClass">): WebAccessClass {
+  if (session.accessClass === "PUBLIC") return "PUBLIC";
   return session.accessClass === "SHARED_EDIT" ? "SHARED_EDIT" : "ADMIN";
 }
 

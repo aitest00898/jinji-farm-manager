@@ -6,6 +6,7 @@ import {
   isAllowedWebOrigin,
   lineGroupClaimCandidates,
   operationalEnvironmentFor,
+  sessionAccessClass,
   setLineGroupOperationalAuthorization,
 } from "./web-api";
 
@@ -157,6 +158,12 @@ describe("Web API boundary", () => {
     expect(addOperationalEnvironmentFilter(new URL("https://example.test/api/events"), clauses, bindings, "farm")).toBe("production");
     expect(clauses).toEqual(["farm.environment = ?"]);
     expect(bindings).toEqual(["production"]);
+  });
+
+  it("preserves the public access class for the unauthenticated read session", () => {
+    expect(sessionAccessClass({ accessClass: "PUBLIC" })).toBe("PUBLIC");
+    expect(sessionAccessClass({ accessClass: "SHARED_EDIT" })).toBe("SHARED_EDIT");
+    expect(sessionAccessClass({ accessClass: undefined })).toBe("ADMIN");
   });
 
   it("authorizes one explicit organization-owned group with audit and readback", async () => {
