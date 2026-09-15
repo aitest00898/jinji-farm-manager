@@ -21,6 +21,7 @@ export interface PhaseApiEnv extends AbnormalEnv, AnalysisEnv {}
 export interface PhaseSession {
   id: string;
   organizationId: string;
+  accessClass?: "PUBLIC" | "SHARED_EDIT" | "ADMIN";
 }
 
 type Responder = (body: unknown, status?: number, extra?: HeadersInit) => Response;
@@ -310,7 +311,22 @@ async function aiLiveStatus(request: Request, env: PhaseApiEnv, session: PhaseSe
   const scope = validateAnalysisScope({ type: url.searchParams.get("scopeType") ?? "organization", id: url.searchParams.get("scopeId") ?? "organization" });
   if (!scope) return fail(400, "invalid_analysis_scope", "分析範圍無效。");
   try {
-    const context = await buildAnalysisContext(env, session.organizationId, scope);
+    const publicRequest = session.accessClass === "PUBLIC";
+    const context = await buildAnalysisContext(env, session.organizationId, scope, { includeRestrictedData: !publicRequest });
+    if (publicRequest) {
+      const publicContext = {
+        asOf: context.asOf,
+        scope: context.scope,
+        scopeEntity: context.scopeEntity,
+        liveStatus: context.liveStatus,
+        flocks: context.flocks,
+        operations: context.operations,
+        abnormalities: context.abnormalities,
+        weather: context.weather,
+        toolsUsed: context.toolsUsed,
+      };
+      return respond({ context: publicContext, aiInvoked: false });
+    }
     return respond({ context, aiInvoked: false });
   } catch {
     return fail(404, "analysis_scope_not_found", "找不到分析範圍。");

@@ -62,6 +62,10 @@ export interface AnalysisEnv {
   AI?: Ai;
 }
 
+export interface AnalysisContextOptions {
+  includeRestrictedData?: boolean;
+}
+
 export interface AnalysisRunResult {
   report: StructuredAnalysis;
   cached: boolean;
@@ -214,9 +218,15 @@ function scopedClause(resolution: ScopeResolution, alias: string): { sql: string
   return { sql: "", bindings: [] };
 }
 
-export async function buildAnalysisContext(env: AnalysisEnv, organizationId: string, scope: AnalysisScope): Promise<AnalysisContext> {
+export async function buildAnalysisContext(
+  env: AnalysisEnv,
+  organizationId: string,
+  scope: AnalysisScope,
+  options: AnalysisContextOptions = {},
+): Promise<AnalysisContext> {
   const resolved = await resolveScope(env, organizationId, scope);
   if (!resolved) throw new Error("analysis_scope_not_found");
+  const includeRestrictedData = options.includeRestrictedData !== false;
   const operationScope = scopedClause(resolved, "e");
   const abnormalScope = scopedClause(resolved, "a");
   const flockScope = resolved.flockId
@@ -231,7 +241,7 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
   const fromDate = from.toISOString().slice(0, 10);
   const today = taipeiDate();
 
-  const [live, flocks, operations, abnormalities, weather, finance, audit] = await Promise.all([
+  const [live, flocks, operations, abnormalities, weather] = await Promise.all([
     env.DB.prepare(
       `SELECT
          COALESCE(SUM(CASE WHEN e.intent = 'mortality' AND e.event_date = ? THEN e.quantity ELSE 0 END), 0) AS todayMortality,
@@ -277,21 +287,36 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
           AND w.fetch_status IN ('captured', 'backfilled')
         ORDER BY w.weather_date DESC LIMIT 100`,
     ).bind(fromDate, today).all<Record<string, unknown>>(),
-    env.DB.prepare(
-      `SELECT COALESCE(SUM(d.allocated_profit_loss), 0) AS allocated,
-              COALESCE(SUM(d.expense), 0) AS expense,
-              COALESCE(SUM(d.net_income), 0) AS net
-         FROM profit_distributions d JOIN farms f ON f.id = d.farm_id
-        WHERE d.organization_id = ? AND f.environment = 'production'${resolved.farmId ? " AND d.farm_id = ?" : ""}`,
-    ).bind(organizationId, ...(resolved.farmId ? [resolved.farmId] : [])).first<Record<string, number>>(),
-    env.DB.prepare(
-      `SELECT action, entity_type AS entityType, COUNT(*) AS count
-         FROM audit_logs WHERE organization_id = ? AND created_at >= datetime('now', '-30 days')
-        GROUP BY action, entity_type ORDER BY count DESC LIMIT 20`,
-    ).bind(organizationId).all<Record<string, unknown>>(),
   ]);
+  let finance: Record<string, number> | null = null;
+  let audit: Array<Record<string, unknown>> = [];
+  if (includeRestrictedData) {
+    const [financeRow, auditRows] = await Promise.all([
+      env.DB.prepare(
+        `SELECT COALESCE(SUM(d.allocated_profit_loss), 0) AS allocated,
+                COALESCE(SUM(d.expense), 0) AS expense,
+                COALESCE(SUM(d.net_income), 0) AS net
+           FROM profit_distributions d JOIN farms f ON f.id = d.farm_id
+          WHERE d.organization_id = ? AND f.environment = 'production'${resolved.farmId ? " AND d.farm_id = ?" : ""}`,
+      ).bind(organizationId, ...(resolved.farmId ? [resolved.farmId] : [])).first<Record<string, number>>(),
+      env.DB.prepare(
+        `SELECT action, entity_type AS entityType, COUNT(*) AS count
+           FROM audit_logs WHERE organization_id = ? AND created_at >= datetime('now', '-30 days')
+          GROUP BY action, entity_type ORDER BY count DESC LIMIT 20`,
+      ).bind(organizationId).all<Record<string, unknown>>(),
+    ]);
+    finance = financeRow ?? null;
+    audit = auditRows.results;
+  }
   const abnormalCount = abnormalities.results.length;
   const liveStatus = { ...(live ?? {}), recentAbnormalEvents: abnormalCount, activeFlocks: flocks.results.filter((row) => row.status === "active").length };
+  const toolsUsed: AnalysisToolName[] = [
+    resolved.flockId ? "get_flock_summary" : resolved.houseId ? "get_house_summary" : resolved.farmId ? "get_farm_summary" : "get_kpi_trends",
+    "get_operational_events",
+    "get_abnormal_events",
+    "get_weather_daily",
+  ];
+  if (includeRestrictedData) toolsUsed.push("get_finance_summary", "get_audit_summary");
   return {
     asOf: new Date().toISOString(),
     scope,
@@ -301,16 +326,9 @@ export async function buildAnalysisContext(env: AnalysisEnv, organizationId: str
     operations: operations.results,
     abnormalities: abnormalities.results.map((row) => ({ ...row, tags: typeof row.tagsJson === "string" ? jsonValue(row.tagsJson) : [] })),
     weather: weather.results,
-    finance: finance ?? null,
-    audit: audit.results,
-    toolsUsed: [
-      resolved.flockId ? "get_flock_summary" : resolved.houseId ? "get_house_summary" : resolved.farmId ? "get_farm_summary" : "get_kpi_trends",
-      "get_operational_events",
-      "get_abnormal_events",
-      "get_weather_daily",
-      "get_finance_summary",
-      "get_audit_summary",
-    ],
+    finance,
+    audit,
+    toolsUsed,
   };
 }
 
