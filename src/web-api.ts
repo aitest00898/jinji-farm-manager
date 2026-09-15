@@ -519,6 +519,23 @@ function toFarm(row: FarmRow): Record<string, unknown> {
   };
 }
 
+export function publicFarmPayload(row: FarmRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    name: row.name,
+    siteName: row.siteName,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    active: row.active === 1,
+    environment: row.environment,
+    structureMode: row.structureMode,
+    note: row.note,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function toHouse(row: HouseRow): Record<string, unknown> {
   return {
     id: row.id,
@@ -864,7 +881,7 @@ async function listFarms(request: Request, env: WebApiEnv, session: SessionRow):
             created_at AS createdAt, updated_at AS updatedAt
        FROM farms WHERE ${clauses.join(" AND ")} ORDER BY environment, name`,
   ).bind(...bindings).all<FarmRow>();
-  return response(request, { farms: rows.results.map(toFarm) });
+  return response(request, { farms: rows.results.map(publicRead ? publicFarmPayload : toFarm) });
 }
 
 async function createFarm(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -4082,7 +4099,9 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (farmCaretakerMatch && request.method === "POST") return assignCaretaker(request, env, session, farmCaretakerMatch[1]);
     if (farmMatch && request.method === "GET") {
       const farm = await farmById(env, session.organizationId, farmMatch[1], actualAccess === "PUBLIC");
-      return farm ? response(request, { farm: toFarm(farm) }) : errorResponse(request, 404, "not_found", "找不到雞場。");
+      return farm
+        ? response(request, { farm: actualAccess === "PUBLIC" ? publicFarmPayload(farm) : toFarm(farm) })
+        : errorResponse(request, 404, "not_found", "找不到雞場。");
     }
     if (farmMatch && request.method === "PATCH") return updateFarm(request, env, session, farmMatch[1]);
     if (url.pathname === "/api/caretakers" && request.method === "GET") return listCaretakers(request, env, session);

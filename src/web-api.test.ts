@@ -6,6 +6,7 @@ import {
   isAllowedWebOrigin,
   lineGroupClaimCandidates,
   operationalEnvironmentFor,
+  publicFarmPayload,
   sessionAccessClass,
   setLineGroupOperationalAuthorization,
 } from "./web-api";
@@ -164,6 +165,28 @@ describe("Web API boundary", () => {
     expect(sessionAccessClass({ accessClass: "PUBLIC" })).toBe("PUBLIC");
     expect(sessionAccessClass({ accessClass: "SHARED_EDIT" })).toBe("SHARED_EDIT");
     expect(sessionAccessClass({ accessClass: undefined })).toBe("ADMIN");
+  });
+
+  it("removes finance-derived equity fields from the public farm projection", () => {
+    const payload = publicFarmPayload({
+      id: "farm-1",
+      organizationId: "org-1",
+      name: "Production farm",
+      siteName: null,
+      latitude: null,
+      longitude: null,
+      active: 1,
+      environment: "production",
+      structureMode: "whole_farm",
+      note: null,
+      version: 1,
+      playerGroupEquityFraction: 0.25,
+      createdAt: "2026-09-15T00:00:00Z",
+      updatedAt: "2026-09-15T00:00:00Z",
+    });
+    expect(payload).not.toHaveProperty("playerGroupEquityFraction");
+    expect(payload).not.toHaveProperty("organizationId");
+    expect(payload).toMatchObject({ id: "farm-1", environment: "production", active: true });
   });
 
   it("authorizes one explicit organization-owned group with audit and readback", async () => {
