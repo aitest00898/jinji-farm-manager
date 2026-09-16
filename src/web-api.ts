@@ -92,6 +92,14 @@ import {
   type RecoveryRequest,
 } from "./audit-recovery-core";
 import {
+  applyFinanceRecovery,
+  discoverFinanceRecovery,
+  dryRunFinanceRecovery,
+  type FinanceRecoveryApplyRequest,
+  type FinanceRecoveryRequest,
+  type FinanceRecoveryTargetType,
+} from "./finance-recovery-core";
+import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
   markRetainedLineEventManuallyRecorded,
@@ -2885,6 +2893,25 @@ function recoveryMessage(code: string): string {
     PIT_ATOMIC_APPLY_FAILED: "PIT Recovery 群組未能原子套用，沒有安全確認。",
     PIT_REVERT: "PIT Recovery 目標無法安全回復。",
     PIT_PRESERVE_DEPENDENCY_CONFLICT: "PIT Recovery 的保留選擇與 lineage dependency 衝突。",
+    FINANCE_ADMIN_REQUIRED: "Finance recovery 只有管理者可以使用。",
+    FINANCE_ENVIRONMENT_INVALID: "Finance recovery 必須明確指定 production 或 test 範圍。",
+    FINANCE_ENVIRONMENT_SCOPE_INVALID: "Finance recovery 目標不在指定的環境範圍。",
+    FINANCE_AUDIT_NOT_FOUND: "找不到指定的 Finance 變更歷史。",
+    FINANCE_AUDIT_TARGET_MISMATCH: "Finance recovery 目標與歷史紀錄不一致。",
+    FINANCE_AUDIT_SNAPSHOT_MISSING: "Finance 歷史快照不完整，沒有寫入。",
+    FINANCE_AUDIT_SNAPSHOT_INVALID: "Finance 歷史快照無法安全驗證，沒有寫入。",
+    FINANCE_TARGET_NOT_FOUND: "找不到指定的 Finance 紀錄。",
+    FINANCE_TARGET_STATE_CONFLICT: "Finance 目前狀態與歷史紀錄不一致，請重新 Dry Run。",
+    FINANCE_EQUITY_CONSTRAINT_INVALID: "Finance 股權比例違反限制，沒有寫入。",
+    FINANCE_DERIVED_ALLOCATION_INCONSISTENT: "Finance 分配衍生結果不一致，沒有寫入。",
+    FINANCE_NET_INCOME_INCONSISTENT: "Finance 淨收益計算不一致，沒有寫入。",
+    FINANCE_ALLOCATION_TOTAL_INCONSISTENT: "Finance 分配合計不一致，沒有寫入。",
+    FINANCE_IDEMPOTENCY_READBACK_FAILED: "Finance recovery 重送 readback 不一致，沒有新增寫入。",
+    FINANCE_DERIVED_READBACK_MISMATCH: "Finance recovery 後衍生 readback 不一致，請停止後檢查。",
+    FINANCE_AUDIT_READBACK_FAILED: "Finance recovery audit readback 失敗。",
+    FINANCE_PLAN_TOKEN_MISMATCH: "Finance recovery 計畫與目前操作不一致，請重新 Dry Run。",
+    FINANCE_PLAN_NOT_ELIGIBLE: "Finance recovery 未通過安全 eligibility，沒有寫入。",
+    FINANCE_ATOMIC_APPLY_FAILED: "Finance recovery 未能原子套用，沒有安全確認。",
   } as Record<string, string>)[code.split(":", 1)[0]] ?? "Recovery 操作未完成，沒有安全確認。";
 }
 
@@ -2979,6 +3006,30 @@ function pitApplyRequestFromBody(
   });
   if (groups.some((group) => group === null)) return null;
   return { environment, groups: groups as PitRecoveryApplyRequest["groups"] };
+}
+
+function financeRecoveryRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): FinanceRecoveryRequest | null {
+  const auditId = stringValue(body?.auditId, 240);
+  const targetType = body?.targetType as FinanceRecoveryTargetType;
+  const targetId = stringValue(body?.targetId, 240);
+  const clientOperationId = stringValue(body?.clientOperationId, 240);
+  const reason = stringValue(body?.reason, 500);
+  if (!auditId || !targetId || !clientOperationId || !reason
+    || (targetType !== "farm_investor_equity" && targetType !== "profit_distribution")) return null;
+  return { environment, auditId, targetType, targetId, clientOperationId, reason };
+}
+
+function financeRecoveryApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): FinanceRecoveryApplyRequest | null {
+  const base = financeRecoveryRequestFromBody(body, environment);
+  const stateFingerprint = stringValue(body?.stateFingerprint, 128);
+  const dryRunToken = stringValue(body?.dryRunToken, 128);
+  return base && stateFingerprint && dryRunToken ? { ...base, stateFingerprint, dryRunToken } : null;
 }
 
 async function recoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -3102,6 +3153,66 @@ async function recoveryPitApply(request: Request, env: WebApiEnv, session: Sessi
       input,
     );
     return response(request, { recovery: result }, result.appliedGroupCount > 0 ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function recoveryFinanceDiscover(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Finance recovery 必須明確指定 production 或 test 範圍。");
+  const body = await bodyJson(request);
+  const targetTypeValue = body?.targetType;
+  const targetType = targetTypeValue === undefined ? undefined : targetTypeValue as FinanceRecoveryTargetType;
+  const targetId = body?.targetId === undefined ? undefined : stringValue(body.targetId, 240);
+  if ((targetType !== undefined && targetType !== "farm_investor_equity" && targetType !== "profit_distribution")
+    || (body?.targetId !== undefined && !targetId)) return errorResponse(request, 400, "recovery_input_invalid", "Finance recovery Discover 欄位無效。");
+  try {
+    const result = await discoverFinanceRecovery(
+      { DB: env.DB },
+      { organizationId: session.organizationId },
+      { environment, targetType, targetId: targetId ?? undefined },
+    );
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryFinanceDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Finance recovery 必須明確指定 production 或 test 範圍。");
+  const input = financeRecoveryRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Finance recovery Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunFinanceRecovery(
+      { DB: env.DB },
+      { organizationId: session.organizationId, actorType: "web_admin", actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryFinanceApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Finance recovery 必須明確指定 production 或 test 範圍。");
+  const input = financeRecoveryApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Finance recovery Apply 欄位不完整或無效。");
+  try {
+    const result = await applyFinanceRecovery(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorType: "web_admin", actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.applied ? 201 : 200);
   } catch (error) {
     if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
     const rejected = canonicalWriteErrorResponse(request, error);
@@ -4372,6 +4483,9 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/recovery/pit-discover" && request.method === "POST") return recoveryPitDiscover(request, env, session);
     if (url.pathname === "/api/recovery/pit-dry-run" && request.method === "POST") return recoveryPitDryRun(request, env, session);
     if (url.pathname === "/api/recovery/pit-apply" && request.method === "POST") return recoveryPitApply(request, env, session);
+    if (url.pathname === "/api/recovery/finance-discover" && request.method === "POST") return recoveryFinanceDiscover(request, env, session);
+    if (url.pathname === "/api/recovery/finance-dry-run" && request.method === "POST") return recoveryFinanceDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/finance-apply" && request.method === "POST") return recoveryFinanceApply(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "GET") return listOperators(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "POST") return createOperator(request, env, session);
     const operatorScopeMatch = /^\/api\/operators\/([^/]+)\/scopes$/u.exec(url.pathname);
