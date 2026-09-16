@@ -1,6 +1,6 @@
 # Jinji Farm Manager — Commander Project Plan
 
-Status: Chapter 6 is in terminal PASS. Chapter 7 remains reduced to Audit & Recovery Core and has not started.
+Status: Chapter 6 is in terminal PASS. The reduced Chapter 7 Audit & Recovery Core is complete locally; no Production deployment is included in this slice.
 
 ## Product direction
 
@@ -17,7 +17,7 @@ CHAPTER_3_PRODUCTION_TRANSITION = PASS
 CHAPTER_4_NORMAL_LINE_OPERATIONS = PASS
 CHAPTER_5_SINGLETON_LINE_ADMIN = PASS
 CHAPTER_6_WEB_ACCESS_POLICY = PASS
-CHAPTER_7_IMPLEMENTATION = NOT_STARTED
+CHAPTER_7_IMPLEMENTATION = PASS_LOCAL
 READY_FOR_NEXT_FEATURE_CHAPTER = YES
 
 ## Current deployed system
@@ -25,6 +25,8 @@ READY_FOR_NEXT_FEATURE_CHAPTER = YES
 WORKER_SOURCE_COMMIT = b5326d6c816b8afb883c46464e1570873108871c
 WORKER_DEPLOYED_VERSION = fffd4545-1a82-49dc-b3a0-80d4658520e9
 WORKER_BRANCH = feature/chapter-2-authorized-group-trust-20260914
+CHAPTER_7_SOURCE_COMMIT = fd6b6e8789308340bf53fd638bd6fd5aa9a9882a
+CHAPTER_7_PRODUCTION_DEPLOYMENT = NOT_REQUESTED
 WEB_SOURCE_SHA = 2264241009ba6c0c2c826a6977dd1b5993602298
 PAGES_BUILD_SHA = 2264241009ba6c0c2c826a6977dd1b5993602298
 PAGES_PUBLISHING_PATH = SINGLE_CONTROLLED_WORKFLOW
@@ -90,9 +92,9 @@ traceability, and diagnostics; they are not business authority.
 DEAD_OR_UNREACHABLE = Lab/Test fixture data on Production routes and retired
 legacy password/session privilege paths.
 
-## Chapter 7 reduced scope
+## Chapter 7 reduced scope and result
 
-Chapter 7 remains Audit & Recovery Core. Its implementation is limited to:
+Chapter 7 Audit & Recovery Core was implemented locally. Its bounded scope is:
 
 * audit lifecycle and the 120-day visibility boundary;
 * dependency model;
@@ -103,6 +105,21 @@ Chapter 7 remains Audit & Recovery Core. Its implementation is limited to:
 Full batch recovery, broad selective PIT recovery, broad Finance recovery,
 all-domain lifecycle recovery, and full recovery UI expansion are deferred.
 No 7A/7B/7C is created.
+
+CHAPTER_7_AUDIT_LIFECYCLE = PASS_LOCAL
+CHAPTER_7_AUDIT_ARCHIVE_VISIBILITY = PASS_LOCAL_120_DAY_BOUNDARY
+CHAPTER_7_DEPENDENCY_MODEL = PASS_LOCAL
+CHAPTER_7_DRY_RUN = PASS_LOCAL_ZERO_MUTATION
+CHAPTER_7_STALE_STATE_PROTECTION = PASS_LOCAL
+CHAPTER_7_REPRESENTATIVE_RESTORE = PASS_LOCAL_O6_RESULT_CORRECTION
+CHAPTER_7_LINEAGE_INTEGRITY = PASS_LOCAL
+CHAPTER_7_DERIVED_STATE_INTEGRITY = PASS_LOCAL
+CHAPTER_7_ACCESS_BOUNDARY = PASS_LOCAL_ADMIN_ONLY
+CHAPTER_7_FOCUSED_TESTS = PASS_34_TESTS
+CHAPTER_7_FULL_REGRESSION = PASS_944_PASSED_11_SKIPPED
+CHAPTER_7_PRODUCTION_APPLY = NOT_EXECUTED_BY_SCOPE
+NEW_MIGRATION_REQUIRED = NO
+NEW_GOVERNANCE_ARTIFACT = NO
 
 ## Complexity containment
 
