@@ -140,7 +140,7 @@ async function loadFarms(env: LineAbnormalEnv, organizationId: string): Promise<
        FROM farm_aliases a JOIN farms f ON f.id = a.farm_id
       WHERE f.organization_id = ? ORDER BY a.id`,
   ).bind(organizationId).all<{ farmId: string; alias: string; normalizedAlias: string; aliasType: "manual" | "short_name" | "homophone" | "learned"; status: "trusted" | "candidate" | "disabled" }>();
-  return { farms: farms.results.filter((farm) => farm.active !== 0), aliases: aliases.results };
+  return { farms: farms.results, aliases: aliases.results };
 }
 
 function cleanFarmFragment(rawText: string): string {
@@ -198,7 +198,7 @@ async function targetFarm(env: LineAbnormalEnv, organizationId: string, rawText:
 async function activeHouses(env: LineAbnormalEnv, farmId: string): Promise<HouseRow[]> {
   const rows = await env.DB.prepare(
     `SELECT h.id, h.farm_id AS farmId, h.name, h.normalized_name AS normalizedName, h.active
-       FROM houses h WHERE h.farm_id = ? AND h.active = 1 ORDER BY h.normalized_name, h.id`,
+       FROM houses h WHERE h.farm_id = ? ORDER BY h.normalized_name, h.id`,
   ).bind(farmId).all<HouseRow>();
   return rows.results;
 }
@@ -214,7 +214,7 @@ function houseFromText(text: string, houses: HouseRow[]): { specified: boolean; 
 async function scopeForFarm(env: LineAbnormalEnv, organizationId: string, farmId: string, rawText: string, contextHouseId: string | null, selectedHouseId: string | null = null): Promise<TargetScope> {
   const farm = await env.DB.prepare(
     `SELECT id, name, environment, farm_structure_mode AS structureMode
-       FROM farms WHERE id = ? AND organization_id = ? AND active = 1 LIMIT 1`,
+       FROM farms WHERE id = ? AND organization_id = ? LIMIT 1`,
   ).bind(farmId, organizationId).first<FarmRow>();
   if (!farm) return { scope: null, houseCandidates: [], invalidHouseText: null };
   const houses = await activeHouses(env, farm.id);

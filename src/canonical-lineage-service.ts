@@ -186,12 +186,14 @@ async function ensureLineageScope(
     `SELECT id, name, environment, active FROM farms
       WHERE id = ? AND organization_id = ? LIMIT 1`,
   ).bind(targetFarmId, organizationId).first<{ id: string; name: string; environment: string; active: number }>();
-  if (!farm || farm.active !== 1) throw new CanonicalWriteError("CANONICAL_SCOPE_INVALID", "farmId");
+  // Disabled master data remains addressable for append-only operational
+  // history; active controls discovery/lifecycle, not scope validity.
+  if (!farm) throw new CanonicalWriteError("CANONICAL_SCOPE_INVALID", "farmId");
   if (farm.environment !== expectedEnvironment) throw new CanonicalWriteError("CANONICAL_ENVIRONMENT_SCOPE_INVALID", "environment");
   let houseName: string | null = null;
   if (targetHouseId) {
     const house = await env.DB.prepare(
-      `SELECT id, name FROM houses WHERE id = ? AND farm_id = ? AND active = 1 LIMIT 1`,
+      `SELECT id, name FROM houses WHERE id = ? AND farm_id = ? LIMIT 1`,
     ).bind(targetHouseId, targetFarmId).first<{ id: string; name: string }>();
     if (!house) throw new CanonicalWriteError("CANONICAL_SCOPE_INVALID", "houseId");
     houseName = house.name;

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseQuickItemsForTest, parseQuickSegmentsForTest, quickRecordLooksRelevant, type QuickFarm } from "./quick-record";
 
@@ -52,5 +53,17 @@ describe("quick record parser", () => {
     expect(parsed.farmOnly).toBeNull();
     expect(parsed.segments[0]).toMatchObject({ farmId: "b" });
     expect(parsed.segments[0].items[0]).toMatchObject({ intent: "mortality", quantity: 5 });
+  });
+
+  it("keeps an ambiguous segment pending without stopping later segments", () => {
+    const source = readFileSync(new URL("./quick-record.ts", import.meta.url), "utf8");
+    const ambiguousStart = source.indexOf("if (segment.farmCandidates.length || segment.requiresConfirmation)");
+    const nextSegmentStart = source.indexOf("const farm = farms.find", ambiguousStart);
+    expect(ambiguousStart).toBeGreaterThanOrEqual(0);
+    expect(nextSegmentStart).toBeGreaterThan(ambiguousStart);
+    const ambiguousBranch = source.slice(ambiguousStart, nextSegmentStart);
+    expect(ambiguousBranch).toContain("pending.push(...segment.items)");
+    expect(ambiguousBranch).toContain("continue;");
+    expect(ambiguousBranch).not.toContain("return {");
   });
 });

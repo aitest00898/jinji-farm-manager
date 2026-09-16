@@ -219,7 +219,10 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
       WHERE id = ? AND organization_id = ?
       LIMIT 1`,
   ).bind(farmId, organizationId).first<CanonicalFarm>();
-  if (!farm || farm.active !== 1) fail("CANONICAL_SCOPE_INVALID", "farmId");
+  // A disabled farm remains a valid historical/operational scope. Active is a
+  // public-discovery and lifecycle flag, not a reason to reject a correctly
+  // scoped operational record.
+  if (!farm) fail("CANONICAL_SCOPE_INVALID", "farmId");
   const expectedEnvironment = context.lineGroupAuthorizationRequired
     ? context.environment
     : context.environment ?? "production";
@@ -234,7 +237,7 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
     const house = await env.DB.prepare(
       `SELECT h.id, h.name
          FROM houses h
-        WHERE h.id = ? AND h.farm_id = ? AND h.active = 1
+        WHERE h.id = ? AND h.farm_id = ?
         LIMIT 1`,
     ).bind(requestedHouseId, farm.id).first<{ id: string; name: string }>();
     if (!house) fail("CANONICAL_SCOPE_INVALID", "houseId");
@@ -254,7 +257,7 @@ async function resolveScope(env: CanonicalWriteEnv, record: RecordingDraft, cont
     if (houseId && flock.houseId !== houseId) fail("CANONICAL_SCOPE_INVALID", "flockId");
     if (!houseId) {
       houseId = flock.houseId;
-      const house = await env.DB.prepare("SELECT id, name FROM houses WHERE id = ? AND farm_id = ? AND active = 1 LIMIT 1").bind(houseId, farm.id).first<{ id: string; name: string }>();
+      const house = await env.DB.prepare("SELECT id, name FROM houses WHERE id = ? AND farm_id = ? LIMIT 1").bind(houseId, farm.id).first<{ id: string; name: string }>();
       if (house) {
         houseName = house.name;
       } else {

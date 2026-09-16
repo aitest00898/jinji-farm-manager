@@ -1490,9 +1490,9 @@ async function ensureWebGroup(env: WebApiEnv, organizationId: string): Promise<s
 
 async function validateEventScope(env: WebApiEnv, organizationId: string, farmId: string, houseId: string | null, flockId: string | null): Promise<{ farm: FarmRow; house: HouseRow | null; flock: FlockRow | null } | null> {
   const farm = await farmById(env, organizationId, farmId);
-  if (!farm || farm.active !== 1) return null;
+  if (!farm) return null;
   const house = houseId ? await houseById(env, organizationId, houseId) : null;
-  if (houseId && (!house || house.farmId !== farm.id || house.active !== 1)) return null;
+  if (houseId && (!house || house.farmId !== farm.id)) return null;
   const flock = flockId ? await flockById(env, organizationId, flockId) : null;
   if (flockId && (!flock || flock.farmId !== farm.id || (house && flock.houseId !== house.id))) return null;
   if (farm.structureMode === "multi_house" && !house) return null;
@@ -1641,6 +1641,7 @@ async function listOperationalEvents(request: Request, env: WebApiEnv, session: 
   const clauses = ["e.organization_id = ?"];
   const bindings: unknown[] = [session.organizationId];
   addOperationalEnvironmentFilter(url, clauses, bindings, "f");
+  if (sessionAccessClass(session) === "PUBLIC") clauses.push("f.active = 1", "(e.house_id IS NULL OR h.active = 1)");
   const farmId = url.searchParams.get("farmId");
   const houseId = url.searchParams.get("houseId");
   const intent = url.searchParams.get("intent");
@@ -1665,6 +1666,7 @@ async function listOperationalEvents(request: Request, env: WebApiEnv, session: 
             END AS effectiveStatus,
             e.source_event_id AS sourceEventId, e.created_at AS createdAt
        FROM operational_events e JOIN farms f ON f.id = e.farm_id
+       LEFT JOIN houses h ON h.id = e.house_id AND h.farm_id = e.farm_id
       WHERE ${clauses.join(" AND ")}
       ORDER BY e.created_at DESC, e.id DESC LIMIT ?`,
   ).bind(...bindings, limit + 1).all<Record<string, unknown>>();
@@ -2137,6 +2139,7 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
   const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
   const farmFilter = farmId ? " AND e.farm_id = ?" : "";
   const bind = farmId ? [session.organizationId, environment, farmId] : [session.organizationId, environment];
+  const publicVisibilityFilter = sessionAccessClass(session) === "PUBLIC" ? " AND f.active = 1 AND (e.house_id IS NULL OR h.active = 1)" : "";
   const [recordingEvents, actions, operationalEvents, abnormalEvents] = await Promise.all([
     env.DB.prepare(
       `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
@@ -2169,7 +2172,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
                 ELSE e.lifecycle_status
               END AS effectiveStatus
          FROM recording_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
+         LEFT JOIN houses h ON h.id = e.house_id AND h.farm_id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${publicVisibilityFilter}${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
     env.DB.prepare(
       `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
@@ -2202,7 +2206,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
                 ELSE e.lifecycle_status
               END AS effectiveStatus
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?${farmFilter}`,
+         LEFT JOIN houses h ON h.id = e.house_id AND h.farm_id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${publicVisibilityFilter}${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
     env.DB.prepare(
       `SELECT e.id, e.taxonomy_id AS taxonomyId, e.family, e.canonical_type AS type,
@@ -2224,7 +2229,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
                 ELSE 'active'
               END AS effectiveStatus
          FROM operational_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
+         LEFT JOIN houses h ON h.id = e.house_id AND h.farm_id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${publicVisibilityFilter}
           AND e.intent IN ('shipment', 'mortality', 'cull')${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
     env.DB.prepare(
@@ -2246,7 +2252,8 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
                 ELSE e.status
               END AS effectiveStatus
          FROM abnormal_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id IS NOT NULL${farmFilter}`,
+         LEFT JOIN houses h ON h.id = e.house_id AND h.farm_id = e.farm_id
+        WHERE e.organization_id = ? AND f.environment = ?${publicVisibilityFilter} AND e.taxonomy_id IS NOT NULL${farmFilter}`,
     ).bind(...bind).all<Record<string, unknown>>(),
   ]);
   const records: Array<Record<string, unknown>> = [
@@ -2291,6 +2298,66 @@ async function listCanonicalRecords(request: Request, env: WebApiEnv, session: S
     };
   });
   return response(request, { records: enrichedRecords, lifecycleSummaries, environment });
+}
+
+function lineGroupRevocationStatements(
+  env: WebApiEnv,
+  groupId: string,
+  organizationId: string,
+  invalidatedAt: string,
+  reason: string,
+): D1PreparedStatement[] {
+  return [
+    env.DB.prepare(
+      `UPDATE pending_actions
+          SET status = 'cancelled', cancel_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND status IN ('waiting_farm', 'waiting_confirmation')`,
+    ).bind(reason, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE test_farm_actions
+          SET status = 'cancelled', cancel_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND status = 'waiting_confirmation'`,
+    ).bind(reason, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE farm_admin_actions
+          SET status = 'cancelled', cancel_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND status IN ('waiting_password', 'waiting_confirmation')`,
+    ).bind(reason, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE operational_admin_actions
+          SET status = 'cancelled', cancel_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND status IN ('waiting_password', 'waiting_confirmation')`,
+    ).bind(reason, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE abnormal_pending_actions
+          SET status = 'cancelled', cancel_reason = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND status IN ('waiting_farm', 'waiting_house')`,
+    ).bind(reason, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE quick_record_sessions
+          SET active_farm_id = NULL, active_house_id = NULL, active_flock_id = NULL,
+              pending_items_json = '[]', pending_farm_candidates_json = '[]', pending_status = 'closed',
+              last_confirmed_bundle_id = NULL, pending_correction_json = NULL,
+              last_activity_at = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND organization_id = ?
+          AND pending_status <> 'closed'`,
+    ).bind(invalidatedAt, invalidatedAt, groupId, organizationId),
+    env.DB.prepare(
+      `UPDATE conversation_v2_sessions
+          SET active_object_type = NULL, active_object_id = NULL,
+              last_goal = NULL, last_topic = NULL, last_action = NULL,
+              last_tool = NULL, last_tool_result_summary = NULL,
+              last_explained_issue = NULL, last_referenced_field = NULL,
+              turn_count = 0, semantic_memory_json = NULL,
+              updated_at = CURRENT_TIMESTAMP, expires_at = ?
+        WHERE line_group_id = ? AND organization_id = ? AND expires_at > ?`,
+    ).bind(invalidatedAt, groupId, organizationId, invalidatedAt),
+  ];
 }
 
 function encodeCursor(value: string): string {
@@ -4194,28 +4261,34 @@ export async function setLineGroupOperationalAuthorization(
   const after = authorized === 1;
   const action = after ? "authorize" : "revoke";
   try {
-    if (before !== after) {
-      await env.DB.batch([
-        env.DB.prepare(
+    if (before !== after || !after) {
+      const statements: D1PreparedStatement[] = [];
+      if (before !== after) {
+        statements.push(env.DB.prepare(
           `UPDATE line_groups
               SET operational_authorized = ?
             WHERE group_id = ? AND organization_id = ?`,
-        ).bind(authorized, targetGroupId, session.organizationId),
-        auditLogStatement(env, {
-          organizationId: session.organizationId,
-          source: "web",
-          actorType: "web_admin",
-          actorId: session.id,
-          action,
-          entityType: "line_group_operational_authorization",
-          entityId: targetGroupId,
-          before: { operationalAuthorized: before },
-          after: { operationalAuthorized: after },
-          changedFields: ["operationalAuthorized"],
-          reason,
-          requestId: requestId(request),
-        }),
-      ]);
+        ).bind(authorized, targetGroupId, session.organizationId));
+      }
+      if (!after) {
+        const invalidatedAt = new Date(Date.now() - 1).toISOString();
+        statements.push(...lineGroupRevocationStatements(env, targetGroupId, session.organizationId, invalidatedAt, "line_group_operational_authorization_revoked"));
+      }
+      statements.push(auditLogStatement(env, {
+        organizationId: session.organizationId,
+        source: "web",
+        actorType: "web_admin",
+        actorId: session.id,
+        action,
+        entityType: "line_group_operational_authorization",
+        entityId: targetGroupId,
+        before: { operationalAuthorized: before },
+        after: { operationalAuthorized: after },
+        changedFields: before !== after ? ["operationalAuthorized"] : [],
+        reason,
+        requestId: requestId(request),
+      }));
+      await env.DB.batch(statements);
     } else {
       await writeAuditLog(env, {
         organizationId: session.organizationId,

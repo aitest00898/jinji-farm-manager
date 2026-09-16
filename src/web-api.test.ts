@@ -17,7 +17,7 @@ function authorizationDb(input: {
   status: string;
   operationalAuthorized: number;
 }) {
-  const state = { ...input, auditCount: 0, updateCount: 0 };
+  const state = { ...input, auditCount: 0, updateCount: 0, cleanupCount: 0 };
   const db = {
     prepare(sql: string) {
       return {
@@ -65,6 +65,13 @@ function authorizationDb(input: {
           state.operationalAuthorized = Number(statement.values?.[0] ?? 0);
           state.updateCount += 1;
         }
+        if (statement.sql?.includes("UPDATE pending_actions")
+          || statement.sql?.includes("UPDATE test_farm_actions")
+          || statement.sql?.includes("UPDATE farm_admin_actions")
+          || statement.sql?.includes("UPDATE operational_admin_actions")
+          || statement.sql?.includes("UPDATE abnormal_pending_actions")
+          || statement.sql?.includes("UPDATE quick_record_sessions")
+          || statement.sql?.includes("UPDATE conversation_v2_sessions")) state.cleanupCount += 1;
         if (statement.sql?.includes("INSERT INTO audit_logs")) state.auditCount += 1;
       }
       return [];
@@ -272,6 +279,7 @@ describe("Web API boundary", () => {
     await expect(repeated.json()).resolves.toMatchObject({ changed: false, operationalAuthorized: false });
     expect(db.state.updateCount).toBe(1);
     expect(db.state.auditCount).toBe(2);
+    expect(db.state.cleanupCount).toBeGreaterThan(0);
   });
 
   it("lists only unbound groups with observed LINE events as read-only claim candidates", async () => {

@@ -328,7 +328,10 @@ async function loadFarmData(env: QuickRecordEnv, organizationId: string): Promis
        FROM farm_aliases a JOIN farms f ON f.id = a.farm_id
       WHERE f.organization_id = ? ORDER BY LENGTH(a.alias) DESC, a.id`,
   ).bind(organizationId).all<QuickAlias>();
-  return { farms: farms.results.filter((farm) => farm.active === 1), aliases: aliases.results };
+  // Disabled master data remains selectable for correctly scoped operational
+  // history. Public read surfaces still hide it; this boundary only prevents
+  // an archive flag from rejecting a real operational record.
+  return { farms: farms.results, aliases: aliases.results };
 }
 
 function findFarmMentions(text: string, farms: QuickFarm[], aliases: QuickAlias[]): FarmMention[] {
@@ -497,7 +500,7 @@ function farmOnlyIsQuery(text: string): boolean {
 async function resolveScope(env: QuickRecordEnv, organizationId: string, farm: QuickFarm, requestedHouse: string | null, fallbackHouseId: string | null): Promise<Scope> {
   const houses = await env.DB.prepare(
     `SELECT id, name, normalized_name AS normalizedName
-       FROM houses WHERE farm_id = ? AND active = 1 ORDER BY normalized_name, id`,
+       FROM houses WHERE farm_id = ? ORDER BY normalized_name, id`,
   ).bind(farm.id).all<{ id: string; name: string; normalizedName: string }>();
   let house: { id: string; name: string } | null = null;
   if (requestedHouse) {
@@ -931,6 +934,14 @@ export async function handleQuickRecordInput(
     : (session.pendingStatus === "waiting_farm" || session.pendingStatus === "waiting_house")
       ? currentPending.map(toDraft)
       : [];
+  let pendingFarmCandidates: FarmCandidate[] = supersedesPending ? [] : candidates;
+  let pendingRequiresConfirmation = false;
+  let pendingFarmAudit = false;
+  const deferredReplies: string[] = [];
+  let pendingHouseItems: QuickItemDraft[] = [];
+  let pendingHouseReply: string | null = null;
+  let pendingHouseCandidates: Array<{ id: string; name: string }> = [];
+  let pendingHouseFarm: QuickFarm | null = null;
   let lastFarmId: string | null = session.activeFarmId;
   let lastHouseId: string | null = session.activeHouseId;
   let lastFlockId: string | null = session.activeFlockId;
@@ -938,15 +949,14 @@ export async function handleQuickRecordInput(
     if (!segment.items.length) continue;
     if (segment.farmCandidates.length || segment.requiresConfirmation) {
       const candidateSet = segment.farmCandidates.length ? segment.farmCandidates : candidateRecords(farms);
-      const allItems = [...pending, ...segment.items];
-      const pendingRows = pendingFromItems(allItems);
-      await saveSession(env, session, { pendingItemsJson: JSON.stringify(pendingRows), pendingFarmCandidatesJson: JSON.stringify(candidateSet), pendingStatus: "waiting_farm", activeFarmId: null, activeHouseId: null, activeFlockId: null }, receivedAt);
-      await sessionAudit(env, organizationId, userId, groupId, "pending_record", undefined, { items: allItems, candidates: candidateSet }, text, eventId);
-      return {
-        handled: true,
-        reply: pendingReply(allItems, candidateSet, segment.requiresConfirmation),
-        quickReplyFarms: segment.requiresConfirmation ? undefined : quickFarmChoices(candidateSet, farms),
-      };
+      pending.push(...segment.items);
+      pendingFarmCandidates = [...new Map([...pendingFarmCandidates, ...candidateSet].map((candidate) => [candidate.farmId, candidate])).values()];
+      pendingRequiresConfirmation ||= segment.requiresConfirmation;
+      pendingFarmAudit = true;
+      // One ambiguous segment must not prevent later explicit segments from
+      // being resolved and committed independently. The unresolved items are
+      // retained in the existing bounded session for a later selection.
+      continue;
     }
     const farm = farms.find((row) => row.id === (segment.farmId ?? session.activeFarmId)) ?? null;
     if (!farm) {
@@ -964,16 +974,22 @@ export async function handleQuickRecordInput(
     const result = await commitForFarm(env, event, eventId, groupId, userId, organizationId, farm, itemsForSegment, segment.houseText, session.activeHouseId, bundles.length, canAppendToSessionBundle ? session.lastConfirmedBundleId : null);
     if (result.reply) {
       if (result.scope.houseCandidates.length) {
-        const pendingRows = pendingFromItems(itemsForSegment);
-        await saveSession(env, session, { pendingItemsJson: JSON.stringify(pendingRows), pendingFarmCandidatesJson: "[]", pendingStatus: "waiting_house", activeFarmId: farm.id, activeHouseId: null, activeFlockId: null }, receivedAt);
-        return {
-          handled: true,
-          reply: result.reply,
-          quickReplyHouses: result.scope.houseCandidates,
-          quickReplyHouseFarm: farm,
-        };
+        if (pending.length) {
+          // Keep a previously unresolved farm choice as the outer boundary;
+          // the new items remain pending and cannot be written to a guessed
+          // farm. Once that choice is made, the existing house flow resumes.
+          pending.push(...itemsForSegment);
+          pendingFarmAudit = true;
+        } else {
+          pendingHouseItems.push(...itemsForSegment);
+          pendingHouseReply = result.reply;
+          pendingHouseCandidates = result.scope.houseCandidates;
+          pendingHouseFarm = farm;
+        }
+        continue;
       }
-      return { handled: true, reply: result.reply };
+      deferredReplies.push(result.reply);
+      continue;
     }
     if (result.bundle) {
       bundles.push(result.bundle);
@@ -984,13 +1000,21 @@ export async function handleQuickRecordInput(
   }
   if (pending.length) {
     const pendingRows = pendingFromItems(pending);
-    const candidateSet = candidateRecords(farms);
+    const candidateSet = pendingFarmCandidates.length ? pendingFarmCandidates : candidateRecords(farms);
     await saveSession(env, session, { pendingItemsJson: JSON.stringify(pendingRows), pendingFarmCandidatesJson: JSON.stringify(candidateSet), pendingStatus: "waiting_farm", activeFarmId: null, activeHouseId: null, activeFlockId: null }, receivedAt);
-    return { handled: true, reply: pendingReply(pending, candidateSet), quickReplyFarms: quickFarmChoices(candidateSet, farms) };
+    if (pendingFarmAudit) await sessionAudit(env, organizationId, userId, groupId, "pending_record", undefined, { items: pending, candidates: candidateSet }, text, eventId);
+    deferredReplies.push(pendingReply(pending, candidateSet, pendingRequiresConfirmation));
+    return { handled: true, reply: deferredReplies.join("\n\n"), quickReplyFarms: pendingRequiresConfirmation ? undefined : quickFarmChoices(candidateSet, farms) };
   }
-  if (!bundles.length) return { handled: false };
+  if (pendingHouseItems.length && pendingHouseFarm) {
+    const pendingRows = pendingFromItems(pendingHouseItems);
+    await saveSession(env, session, { pendingItemsJson: JSON.stringify(pendingRows), pendingFarmCandidatesJson: "[]", pendingStatus: "waiting_house", activeFarmId: pendingHouseFarm.id, activeHouseId: null, activeFlockId: null }, receivedAt);
+    deferredReplies.push(pendingHouseReply ?? "請選擇雞舍。\n請回覆舍別名稱或編號。");
+    return { handled: true, reply: deferredReplies.join("\n\n"), quickReplyHouses: pendingHouseCandidates, quickReplyHouseFarm: pendingHouseFarm };
+  }
+  if (!bundles.length) return deferredReplies.length ? { handled: true, reply: deferredReplies.join("\n\n") } : { handled: false };
   await saveSession(env, session, { activeFarmId: lastFarmId, activeHouseId: lastHouseId, activeFlockId: lastFlockId, pendingItemsJson: "[]", pendingFarmCandidatesJson: "[]", pendingStatus: "active", lastConfirmedBundleId: bundles[bundles.length - 1].id }, receivedAt);
-  return { handled: true, reply: groupReply(bundles) };
+  return { handled: true, reply: [...deferredReplies, groupReply(bundles)].join("\n\n") };
 }
 
 /**
