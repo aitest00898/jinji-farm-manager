@@ -1479,3 +1479,912 @@ export async function applyO6RecoveryBatch(
     evaluatedAt: new Date().toISOString(),
   };
 }
+
+const PIT_RECOVERY_OPERATION = "selective_o6_point_in_time_recovery" as const;
+const MAX_PIT_CANDIDATES = 100;
+const MAX_PIT_GROUPS = 20;
+
+export type PitRecoveryDecision = "REVERT" | "PRESERVE";
+export type PitRecoveryDisposition = "REVERT" | "PRESERVE" | "DEPENDENCY_REQUIRED" | "NOT_RECOVERABLE";
+
+export interface PitRecoveryDiscoverRequest {
+  environment: "production" | "test";
+  targetTime: string;
+}
+
+export interface PitRecoverySelection {
+  candidateId: string;
+  decision: PitRecoveryDecision;
+}
+
+export interface PitRecoveryDryRunRequest {
+  environment: "production" | "test";
+  targetTime: string;
+  selections: readonly PitRecoverySelection[];
+}
+
+export interface PitRecoveryApplyGroupRequest {
+  groupId: string;
+  targetTime: string;
+  selections: readonly PitRecoverySelection[];
+  stateFingerprint: string;
+  dryRunToken: string;
+  clientOperationId: string;
+}
+
+export interface PitRecoveryApplyRequest {
+  environment: "production" | "test";
+  groups: readonly PitRecoveryApplyGroupRequest[];
+}
+
+export interface PitRecoveryDependencyRequirement {
+  kind: "canonical_fact" | "derived_projection";
+  id: string;
+  candidateId: string | null;
+  relation: "lineage_parent" | "house_status";
+  effective: boolean;
+}
+
+export interface PitRecoveryCandidate {
+  candidateId: string;
+  factId: string;
+  groupId: string;
+  environment: "production" | "test";
+  farmId: string;
+  farmName: string;
+  houseId: string | null;
+  houseName: string | null;
+  flockId: string | null;
+  occurredAt: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+  workflowStatus: string | null;
+  result: string | null;
+  completedAt: string | null;
+  changeType: "submission" | "correction" | "reversal" | "replacement";
+  currentEffective: boolean;
+  disposition: PitRecoveryDisposition;
+  availableDecisions: readonly PitRecoveryDecision[];
+  dependencies: readonly PitRecoveryDependencyRequirement[];
+  reason: string | null;
+}
+
+export interface PitRecoveryDiscoverGroup {
+  groupId: string;
+  environment: "production" | "test";
+  farmId: string;
+  farmName: string;
+  houseId: string | null;
+  houseName: string | null;
+  candidateIds: string[];
+}
+
+export interface PitRecoveryDiscoverResult {
+  operation: typeof PIT_RECOVERY_OPERATION;
+  supportedDomains: readonly ["O6"];
+  environment: "production" | "test";
+  targetTime: string;
+  candidateCount: number;
+  groupCount: number;
+  candidates: PitRecoveryCandidate[];
+  groups: PitRecoveryDiscoverGroup[];
+  evaluatedAt: string;
+}
+
+export interface PitRecoveryDryRunCandidate extends PitRecoveryCandidate {
+  decision: PitRecoveryDecision | null;
+  decisionState: PitRecoveryDisposition;
+}
+
+export interface PitRecoveryGroupDryRun {
+  groupId: string;
+  environment: "production" | "test";
+  targetTime: string;
+  farmId: string;
+  farmName: string;
+  houseId: string | null;
+  houseName: string | null;
+  candidateIds: string[];
+  candidates: PitRecoveryDryRunCandidate[];
+  selectedRevert: string[];
+  selectedPreserve: string[];
+  dependencyRequired: PitRecoveryDependencyRequirement[];
+  dependencyRequiredCandidateIds: string[];
+  before: CanonicalLabSubmissionSummary;
+  current: CanonicalLabSubmissionSummary;
+  proposedAfter: CanonicalLabSubmissionSummary | null;
+  derivedImpact: {
+    projection: "canonical_lab_submission_house_status";
+    before: CanonicalLabSubmissionSummary;
+    after: CanonicalLabSubmissionSummary | null;
+  };
+  stockImpact: {
+    affected: false;
+    before: null;
+    after: null;
+    delta: 0;
+  };
+  lifecycleImpact: "UNCHANGED_NON_STOCK";
+  conflicts: string[];
+  applyEligibility: "ELIGIBLE" | "DENIED";
+  stateFingerprint: string;
+  dryRunToken: string;
+  evaluatedAt: string;
+}
+
+export interface PitRecoveryDryRunResult {
+  operation: typeof PIT_RECOVERY_OPERATION;
+  supportedDomains: readonly ["O6"];
+  environment: "production" | "test";
+  targetTime: string;
+  candidateCount: number;
+  groupCount: number;
+  groups: PitRecoveryGroupDryRun[];
+  evaluatedAt: string;
+}
+
+export type PitRecoveryGroupApplyStatus = "APPLIED" | "PRESERVED" | "STALE_STATE" | "BLOCKED" | "FAILED";
+
+export interface PitRecoveryAuthoritativeReadback {
+  derived: CanonicalLabSubmissionSummary;
+  effectiveFactIds: string[];
+  revertedFactIds: string[];
+}
+
+export interface PitRecoveryGroupApplyResult {
+  groupId: string;
+  status: PitRecoveryGroupApplyStatus;
+  applied: boolean;
+  idempotent: boolean;
+  candidateIds: string[];
+  revertedCandidateIds: string[];
+  preservedCandidateIds: string[];
+  dependencyRequiredCandidateIds: string[];
+  recoveryRecordIds: string[];
+  recoveryAuditIds: string[];
+  conflicts: string[];
+  canonical: CanonicalWriteResult[];
+  authoritativeReadback: PitRecoveryAuthoritativeReadback | null;
+}
+
+export interface PitRecoveryApplyResult {
+  operation: typeof PIT_RECOVERY_OPERATION;
+  supportedDomains: readonly ["O6"];
+  groupCount: number;
+  appliedGroupCount: number;
+  preservedGroupCount: number;
+  blockedGroupCount: number;
+  groups: PitRecoveryGroupApplyResult[];
+  evaluatedAt: string;
+}
+
+interface PitGroupState {
+  groupId: string;
+  environment: "production" | "test";
+  scope: CanonicalLabSubmissionScope;
+  facts: O6Row[];
+  candidates: PitRecoveryCandidate[];
+}
+
+function pitGroupId(environment: "production" | "test", farmId: string, houseId: string | null): string {
+  return `o6:${environment}:${farmId}:${houseId ?? "whole-farm"}`;
+}
+
+function pitCandidateId(factId: string): string {
+  return `o6-change:${factId}`;
+}
+
+function pitRelation(fact: CanonicalLabSubmissionFact): { kind: "correction" | "reversal" | "replacement"; id: string } | null {
+  if (fact.correctionOfId) return { kind: "correction", id: fact.correctionOfId };
+  if (fact.reversalOfId) return { kind: "reversal", id: fact.reversalOfId };
+  if (fact.replacementOfId) return { kind: "replacement", id: fact.replacementOfId };
+  return null;
+}
+
+function pitChangeType(fact: CanonicalLabSubmissionFact): PitRecoveryCandidate["changeType"] {
+  const relation = pitRelation(fact);
+  return relation?.kind ?? "submission";
+}
+
+function pitEffectiveIds(facts: readonly CanonicalLabSubmissionFact[]): { ids: Set<string>; reason: string | null } {
+  const projection = effectiveCanonicalLabSubmissionFacts(facts);
+  return { ids: new Set(projection.facts.map((fact) => fact.id)), reason: projection.reason };
+}
+
+function pitCandidateFromFact(
+  fact: O6Row,
+  groupId: string,
+  effectiveIds: Set<string>,
+  projectionReason: string | null,
+  factsById: ReadonlyMap<string, O6Row>,
+): PitRecoveryCandidate {
+  const relation = pitRelation(fact);
+  const currentEffective = effectiveIds.has(fact.id);
+  const disposition: PitRecoveryDisposition = projectionReason
+    ? "NOT_RECOVERABLE"
+    : currentEffective && !relation
+      ? "REVERT"
+      : currentEffective && relation
+        ? "DEPENDENCY_REQUIRED"
+        : "NOT_RECOVERABLE";
+  const dependencies: PitRecoveryDependencyRequirement[] = [];
+  if (relation) {
+    const parent = factsById.get(relation.id);
+    dependencies.push({
+      kind: "canonical_fact",
+      id: relation.id,
+      candidateId: parent ? pitCandidateId(parent.id) : null,
+      relation: "lineage_parent",
+      effective: parent ? effectiveIds.has(parent.id) : false,
+    });
+  }
+  dependencies.push({
+    kind: "derived_projection",
+    id: `house:${fact.farmId}:${fact.houseId ?? "whole-farm"}`,
+    candidateId: null,
+    relation: "house_status",
+    effective: true,
+  });
+  return {
+    candidateId: pitCandidateId(fact.id),
+    factId: fact.id,
+    groupId,
+    environment: fact.environment,
+    farmId: fact.farmId,
+    farmName: fact.farmName,
+    houseId: fact.houseId,
+    houseName: fact.houseName,
+    flockId: fact.flockId,
+    occurredAt: fact.occurredAt,
+    createdAt: fact.createdAt,
+    submittedAt: fact.submittedAt,
+    workflowStatus: fact.workflowStatus,
+    result: fact.result,
+    completedAt: fact.completedAt,
+    changeType: pitChangeType(fact),
+    currentEffective,
+    disposition,
+    availableDecisions: disposition === "REVERT" ? ["REVERT", "PRESERVE"] : ["PRESERVE"],
+    dependencies,
+    reason: projectionReason
+      ? `EFFECTIVE_PROJECTION_INVALID:${projectionReason}`
+      : disposition === "DEPENDENCY_REQUIRED"
+        ? "LINEAGE_DEPENDENCY_MUST_BE_RESOLVED_AS_A_GROUP"
+        : disposition === "NOT_RECOVERABLE"
+          ? "CHANGE_IS_NOT_CURRENT_EFFECTIVE_ROOT"
+          : null,
+  };
+}
+
+async function readPitGroups(env: RecoveryEnv, organizationId: string, environment: "production" | "test"): Promise<PitGroupState[]> {
+  const rows = await env.DB.prepare(
+    `SELECT e.id, e.organization_id AS organizationId, f.name AS farmName,
+            f.environment, e.farm_id AS farmId, e.house_id AS houseId,
+            h.name AS houseName, e.flock_id AS flockId,
+            e.occurred_at AS occurredAt, e.created_at AS createdAt,
+            e.submitted_at AS submittedAt, e.workflow_status AS workflowStatus,
+            e.result, e.completed_at AS completedAt,
+            e.reminder_due_at AS reminderDueAt,
+            e.lifecycle_status AS lifecycleStatus,
+            e.correction_of_id AS correctionOfId,
+            e.reversal_of_id AS reversalOfId,
+            e.replacement_of_id AS replacementOfId,
+            e.family, e.canonical_type AS canonicalType, e.subtype,
+            e.content, e.source_channel AS sourceChannel,
+            e.source_message_id AS sourceMessageId,
+            e.source_candidate_id AS sourceCandidateId,
+            e.raw_text AS rawText, e.actor_id AS actorId,
+            e.confirmed_by AS confirmedBy,
+            e.client_operation_id AS clientOperationId
+       FROM operational_actions e
+       JOIN farms f ON f.id = e.farm_id
+       LEFT JOIN houses h ON h.id = e.house_id
+      WHERE e.organization_id = ? AND e.taxonomy_id = 'O6'
+        AND e.subtype = 'lab_test' AND f.environment = ? AND f.active = 1
+      ORDER BY e.created_at ASC, e.id ASC`,
+  ).bind(organizationId, environment).all<Record<string, unknown>>();
+  const grouped = new Map<string, { target: O6Row; facts: O6Row[] }>();
+  for (const row of rows.results) {
+    const target = rowToO6(row);
+    const groupId = pitGroupId(environment, target.farmId, target.houseId);
+    const current = grouped.get(groupId);
+    if (current) current.facts.push(target);
+    else grouped.set(groupId, { target, facts: [target] });
+  }
+  return Array.from(grouped.entries()).map(([groupId, group]) => {
+    const facts = group.facts.slice().sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    return {
+      groupId,
+      environment,
+      scope: labScope(group.target),
+      facts,
+      candidates: [],
+    };
+  });
+}
+
+function pitCandidateGroups(states: readonly PitGroupState[], targetTime: string): PitGroupState[] {
+  const targetMs = Date.parse(targetTime);
+  return states
+    .map((state) => {
+      const facts = state.facts.slice().sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+      const factsById = new Map(facts.map((fact) => [fact.id, fact]));
+      const effective = pitEffectiveIds(facts);
+      return {
+        ...state,
+        candidates: facts
+          .filter((fact) => {
+            const created = Date.parse(fact.createdAt);
+            return Number.isFinite(created) && created > targetMs;
+          })
+          .map((fact) => pitCandidateFromFact(fact, state.groupId, effective.ids, effective.reason, factsById)),
+      };
+    })
+    .filter((state) => state.candidates.length > 0)
+    .sort((left, right) => left.groupId.localeCompare(right.groupId));
+}
+
+function validatePitEnvironment(environment: unknown): asserts environment is "production" | "test" {
+  if (environment !== "production" && environment !== "test") throw new RecoveryCoreError("RECOVERY_ENVIRONMENT_INVALID");
+}
+
+function validatePitSelection(input: PitRecoverySelection): PitRecoverySelection {
+  return {
+    candidateId: text(input.candidateId, "pit_candidate_id", 220),
+    decision: input.decision === "REVERT" || input.decision === "PRESERVE"
+      ? input.decision
+      : (() => { throw new RecoveryCoreError("PIT_DECISION_INVALID"); })(),
+  };
+}
+
+function validatePitDiscoverRequest(input: PitRecoveryDiscoverRequest): PitRecoveryDiscoverRequest {
+  validatePitEnvironment(input.environment);
+  return { environment: input.environment, targetTime: timestamp(input.targetTime, "pit_target_time") };
+}
+
+function validatePitDryRunRequest(input: PitRecoveryDryRunRequest): PitRecoveryDryRunRequest {
+  validatePitEnvironment(input.environment);
+  if (!Array.isArray(input.selections) || input.selections.length === 0 || input.selections.length > MAX_PIT_CANDIDATES) {
+    throw new RecoveryCoreError("PIT_SELECTIONS_INVALID");
+  }
+  return {
+    environment: input.environment,
+    targetTime: timestamp(input.targetTime, "pit_target_time"),
+    selections: input.selections.map(validatePitSelection),
+  };
+}
+
+function validatePitApplyGroup(input: PitRecoveryApplyGroupRequest): PitRecoveryApplyGroupRequest {
+  const groupId = text(input.groupId, "pit_group_id", 220);
+  const targetTime = timestamp(input.targetTime, "pit_target_time");
+  if (!Array.isArray(input.selections) || input.selections.length === 0 || input.selections.length > MAX_PIT_CANDIDATES) {
+    throw new RecoveryCoreError("PIT_SELECTIONS_INVALID");
+  }
+  const stateFingerprint = text(input.stateFingerprint, "state_fingerprint", 128);
+  const dryRunToken = text(input.dryRunToken, "dry_run_token", 128);
+  if (!/^[a-f0-9]{64}$/u.test(stateFingerprint) || !/^[a-f0-9]{64}$/u.test(dryRunToken)) {
+    throw new RecoveryCoreError("PIT_PLAN_TOKEN_INVALID");
+  }
+  return {
+    groupId,
+    targetTime,
+    selections: input.selections.map(validatePitSelection),
+    stateFingerprint,
+    dryRunToken,
+    clientOperationId: text(input.clientOperationId, "client_operation_id", 200),
+  };
+}
+
+function pitDependencyKey(dependency: PitRecoveryDependencyRequirement): string {
+  return `${dependency.kind}:${dependency.id}:${dependency.relation}`;
+}
+
+function pitCandidateDecisionState(
+  candidate: PitRecoveryCandidate,
+  decision: PitRecoveryDecision | null,
+): PitRecoveryDisposition {
+  if (candidate.disposition === "NOT_RECOVERABLE" || candidate.disposition === "DEPENDENCY_REQUIRED") return candidate.disposition;
+  return decision ?? "PRESERVE";
+}
+
+function pitPreviewReversal(target: O6Row, evaluatedAt: string): CanonicalLabSubmissionFact {
+  return {
+    ...stateValue(target) as Omit<CanonicalLabSubmissionFact, "id">,
+    id: `pit-preview-reversal:${target.id}`,
+    createdAt: evaluatedAt,
+    lifecycleStatus: "reversed",
+    correctionOfId: null,
+    reversalOfId: target.id,
+    replacementOfId: null,
+  };
+}
+
+async function pitStateFingerprint(
+  organizationId: string,
+  state: PitGroupState,
+  targetTime: string,
+): Promise<string> {
+  return sha256Hex(JSON.stringify({
+    operation: PIT_RECOVERY_OPERATION,
+    organizationId,
+    environment: state.environment,
+    groupId: state.groupId,
+    targetTime,
+    facts: state.facts.slice().sort((left, right) => left.id.localeCompare(right.id)).map(stateValue),
+  }));
+}
+
+async function pitDryRunToken(
+  organizationId: string,
+  state: PitGroupState,
+  targetTime: string,
+  selections: readonly PitRecoverySelection[],
+  stateFingerprint: string,
+): Promise<string> {
+  return sha256Hex(JSON.stringify({
+    operation: PIT_RECOVERY_OPERATION,
+    organizationId,
+    environment: state.environment,
+    groupId: state.groupId,
+    targetTime,
+    selections: selections.slice().sort((left, right) => left.candidateId.localeCompare(right.candidateId)),
+    stateFingerprint,
+  }));
+}
+
+async function buildPitGroupDryRun(
+  organizationId: string,
+  state: PitGroupState,
+  targetTime: string,
+  selections: readonly PitRecoverySelection[],
+  evaluatedAt: string,
+): Promise<PitRecoveryGroupDryRun> {
+  const selectionByCandidate = new Map<string, PitRecoveryDecision>();
+  const conflicts = new Set<string>();
+  for (const selection of selections) {
+    const existing = selectionByCandidate.get(selection.candidateId);
+    if (existing) {
+      conflicts.add(existing === selection.decision
+        ? `PIT_DUPLICATE_SELECTION:${selection.candidateId}`
+        : `PIT_CONFLICTING_SELECTION:${selection.candidateId}`);
+    } else selectionByCandidate.set(selection.candidateId, selection.decision);
+  }
+  const candidateById = new Map(state.candidates.map((candidate) => [candidate.candidateId, candidate]));
+  for (const selection of selections) {
+    if (!candidateById.has(selection.candidateId)) conflicts.add(`PIT_CANDIDATE_NOT_IN_GROUP:${selection.candidateId}`);
+  }
+  for (const candidate of state.candidates) {
+    if (!selectionByCandidate.has(candidate.candidateId)) conflicts.add(`PIT_SELECTION_REQUIRED:${candidate.candidateId}`);
+    const decision = selectionByCandidate.get(candidate.candidateId);
+    if (decision === "REVERT" && candidate.disposition !== "REVERT") {
+      conflicts.add(`PIT_${candidate.disposition}:${candidate.candidateId}`);
+    }
+  }
+  for (const candidate of state.candidates) {
+    const relation = candidate.dependencies.find((dependency) => dependency.kind === "canonical_fact" && dependency.relation === "lineage_parent");
+    if (!relation) continue;
+    const parentCandidate = state.candidates.find((item) => item.factId === relation.id);
+    if (parentCandidate
+      && selectionByCandidate.get(parentCandidate.candidateId) === "REVERT"
+      && selectionByCandidate.get(candidate.candidateId) === "PRESERVE") {
+      conflicts.add(`PIT_PRESERVE_DEPENDENCY_CONFLICT:${candidate.candidateId}`);
+    }
+  }
+  const dependencyRequired = Array.from(
+    new Map(state.candidates.flatMap((candidate) => candidate.dependencies.map((dependency) => [pitDependencyKey(dependency), dependency] as const))).values(),
+  ).sort((left, right) => pitDependencyKey(left).localeCompare(pitDependencyKey(right)));
+  const selectedRevert = state.candidates
+    .filter((candidate) => selectionByCandidate.get(candidate.candidateId) === "REVERT")
+    .map((candidate) => candidate.candidateId);
+  const selectedPreserve = state.candidates
+    .filter((candidate) => selectionByCandidate.get(candidate.candidateId) === "PRESERVE")
+    .map((candidate) => candidate.candidateId);
+  const before = deriveCanonicalLabSubmissionSummary(state.scope, state.facts, new Date(evaluatedAt));
+  const proposedAfter = conflicts.size
+    ? null
+    : deriveCanonicalLabSubmissionSummary(
+      state.scope,
+      [
+        ...state.facts,
+        ...state.candidates
+          .filter((candidate) => selectionByCandidate.get(candidate.candidateId) === "REVERT" && candidate.disposition === "REVERT")
+          .map((candidate) => pitPreviewReversal(state.facts.find((fact) => fact.id === candidate.factId)!, evaluatedAt)),
+      ],
+      new Date(evaluatedAt),
+    );
+  const stateFingerprint = await pitStateFingerprint(organizationId, state, targetTime);
+  const dryRunToken = await pitDryRunToken(organizationId, state, targetTime, selections, stateFingerprint);
+  const candidates = state.candidates.map((candidate) => {
+    const decision = selectionByCandidate.get(candidate.candidateId) ?? null;
+    return {
+      ...candidate,
+      decision,
+      decisionState: pitCandidateDecisionState(candidate, decision),
+    };
+  });
+  return {
+    groupId: state.groupId,
+    environment: state.environment,
+    targetTime,
+    farmId: state.scope.farmId,
+    farmName: state.scope.farmName,
+    houseId: state.scope.houseId,
+    houseName: state.scope.houseName,
+    candidateIds: state.candidates.map((candidate) => candidate.candidateId),
+    candidates,
+    selectedRevert,
+    selectedPreserve,
+    dependencyRequired,
+    dependencyRequiredCandidateIds: state.candidates
+      .filter((candidate) => candidate.disposition === "DEPENDENCY_REQUIRED")
+      .map((candidate) => candidate.candidateId),
+    before,
+    current: before,
+    proposedAfter,
+    derivedImpact: { projection: "canonical_lab_submission_house_status", before, after: proposedAfter },
+    stockImpact: { affected: false, before: null, after: null, delta: 0 },
+    lifecycleImpact: "UNCHANGED_NON_STOCK",
+    conflicts: Array.from(conflicts).sort(),
+    applyEligibility: conflicts.size ? "DENIED" : "ELIGIBLE",
+    stateFingerprint,
+    dryRunToken,
+    evaluatedAt,
+  };
+}
+
+export async function discoverO6PointInTimeRecovery(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: PitRecoveryDiscoverRequest,
+): Promise<PitRecoveryDiscoverResult> {
+  const request = validatePitDiscoverRequest(input);
+  const states = pitCandidateGroups(
+    await readPitGroups(env, context.organizationId, request.environment),
+    request.targetTime,
+  );
+  const candidates = states.flatMap((state) => state.candidates);
+  if (candidates.length > MAX_PIT_CANDIDATES) throw new RecoveryCoreError("PIT_CANDIDATE_LIMIT_EXCEEDED");
+  if (states.length > MAX_PIT_GROUPS) throw new RecoveryCoreError("PIT_GROUP_LIMIT_EXCEEDED");
+  return {
+    operation: PIT_RECOVERY_OPERATION,
+    supportedDomains: ["O6"],
+    environment: request.environment,
+    targetTime: request.targetTime,
+    candidateCount: candidates.length,
+    groupCount: states.length,
+    candidates,
+    groups: states.map((state) => ({
+      groupId: state.groupId,
+      environment: state.environment,
+      farmId: state.scope.farmId,
+      farmName: state.scope.farmName,
+      houseId: state.scope.houseId,
+      houseName: state.scope.houseName,
+      candidateIds: state.candidates.map((candidate) => candidate.candidateId),
+    })),
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function dryRunO6PointInTimeRecovery(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: PitRecoveryDryRunRequest,
+): Promise<PitRecoveryDryRunResult> {
+  const request = validatePitDryRunRequest(input);
+  const states = pitCandidateGroups(
+    await readPitGroups(env, context.organizationId, request.environment),
+    request.targetTime,
+  );
+  const candidateById = new Map(states.flatMap((state) => state.candidates).map((candidate) => [candidate.candidateId, candidate]));
+  for (const selection of request.selections) {
+    if (!candidateById.has(selection.candidateId)) throw new RecoveryCoreError(`PIT_CANDIDATE_NOT_FOUND:${selection.candidateId}`, 404);
+  }
+  const evaluatedAt = new Date().toISOString();
+  const groups = [];
+  for (const state of states) {
+    const groupSelections = request.selections.filter((selection) => state.candidates.some((candidate) => candidate.candidateId === selection.candidateId));
+    groups.push(await buildPitGroupDryRun(context.organizationId, state, request.targetTime, groupSelections, evaluatedAt));
+  }
+  if (request.selections.length > MAX_PIT_CANDIDATES) throw new RecoveryCoreError("PIT_CANDIDATE_LIMIT_EXCEEDED");
+  return {
+    operation: PIT_RECOVERY_OPERATION,
+    supportedDomains: ["O6"],
+    environment: request.environment,
+    targetTime: request.targetTime,
+    candidateCount: states.reduce((count, state) => count + state.candidates.length, 0),
+    groupCount: groups.length,
+    groups,
+    evaluatedAt,
+  };
+}
+
+async function pitClientOperationId(base: string, candidateId: string): Promise<string> {
+  return `pit-recovery-${(await sha256Hex(`${PIT_RECOVERY_OPERATION}:${base}:${candidateId}`)).slice(0, 56)}`;
+}
+
+async function pitRecoveryRecordId(clientOperationId: string): Promise<string> {
+  return `web-pit-recovery-${(await sha256Hex(`${PIT_RECOVERY_OPERATION}:record:${clientOperationId}`)).slice(0, 48)}`;
+}
+
+function pitAuditId(clientOperationId: string): string {
+  return `audit-pit-${clientOperationId}`;
+}
+
+async function pitExistingRecovery(
+  env: RecoveryEnv,
+  organizationId: string,
+  clientOperationId: string,
+): Promise<{ id: string; reversalOfId: string | null; lifecycleStatus: string | null } | null> {
+  return env.DB.prepare(
+    `SELECT id, reversal_of_id AS reversalOfId, lifecycle_status AS lifecycleStatus
+       FROM operational_actions
+      WHERE organization_id = ? AND client_operation_id = ? LIMIT 1`,
+  ).bind(organizationId, clientOperationId).first<{ id: string; reversalOfId: string | null; lifecycleStatus: string | null }>();
+}
+
+async function pitAuditExists(env: RecoveryEnv, organizationId: string, clientOperationId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT id FROM audit_logs WHERE id = ? AND organization_id = ? LIMIT 1",
+  ).bind(pitAuditId(clientOperationId), organizationId).first<{ id: string }>();
+  return Boolean(row?.id);
+}
+
+function pitReversalRecord(
+  target: O6Row,
+  context: RecoveryContext,
+  id: string,
+  clientOperationId: string,
+): Record<string, unknown> {
+  return {
+    id,
+    taxonomyId: "O6",
+    family: target.family,
+    type: target.canonicalType,
+    subtype: target.subtype,
+    occurredAt: target.occurredAt,
+    farmId: target.farmId,
+    houseId: target.houseId,
+    flockId: target.flockId,
+    content: target.content,
+    submittedAt: target.submittedAt,
+    workflowStatus: target.workflowStatus,
+    result: target.result,
+    completedAt: target.completedAt,
+    reminderDueAt: target.reminderDueAt,
+    sourceChannel: "web",
+    sourceMessageId: target.sourceMessageId,
+    sourceCandidateId: target.sourceCandidateId,
+    rawText: `web:pit-recovery:${target.rawText}`,
+    actorId: context.actorId,
+    confirmedBy: context.actorId,
+    clientOperationId,
+    reversalOfId: target.id,
+  };
+}
+
+function pitAuditStatement(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  target: O6Row,
+  selection: PitRecoverySelection,
+  result: CanonicalWriteResult,
+  plan: PitRecoveryGroupDryRun,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT OR IGNORE INTO audit_logs
+      (id, organization_id, source, actor_type, actor_id, action, entity_type,
+       entity_id, before_json, after_json, changed_fields_json, reason, request_id, created_at)
+     VALUES (?, ?, 'web', 'web_admin', ?, 'selective_pit_recovery',
+             'canonical_pit_recovery', ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    pitAuditId(result.clientOperationId),
+    context.organizationId,
+    context.actorId,
+    target.id,
+    JSON.stringify({
+      operation: PIT_RECOVERY_OPERATION,
+      targetTime: plan.targetTime,
+      candidateId: selection.candidateId,
+      decision: selection.decision,
+      target: stateValue(target),
+      before: plan.before,
+    }),
+    JSON.stringify({
+      recoveryRecordId: result.id,
+      reversalOfId: target.id,
+      proposedAfter: plan.proposedAfter,
+    }),
+    JSON.stringify(["effective_lineage", "derived_house_status"]),
+    `Selective PIT revert to ${plan.targetTime}`,
+    context.requestId,
+    new Date().toISOString(),
+  );
+}
+
+async function pitAuthoritativeReadback(
+  env: RecoveryEnv,
+  organizationId: string,
+  groupId: string,
+  environment: "production" | "test",
+): Promise<PitRecoveryAuthoritativeReadback | null> {
+  const state = (await readPitGroups(env, organizationId, environment)).find((item) => item.groupId === groupId);
+  if (!state) return null;
+  const effective = effectiveCanonicalLabSubmissionFacts(state.facts);
+  return {
+    derived: deriveCanonicalLabSubmissionSummary(state.scope, state.facts),
+    effectiveFactIds: effective.facts.map((fact) => fact.id),
+    revertedFactIds: state.facts
+      .filter((fact) => fact.lifecycleStatus === "reversed" && fact.reversalOfId)
+      .map((fact) => String(fact.reversalOfId)),
+  };
+}
+
+function pitApplyResult(
+  group: PitRecoveryGroupDryRun | { groupId: string; candidateIds: string[]; selectedRevert: string[]; selectedPreserve: string[]; dependencyRequiredCandidateIds: string[] },
+  status: PitRecoveryGroupApplyStatus,
+  conflicts: string[] = [],
+  idempotent = false,
+  canonical: CanonicalWriteResult[] = [],
+  authoritativeReadback: PitRecoveryAuthoritativeReadback | null = null,
+  recoveryAuditIds: string[] = canonical.map((result) => pitAuditId(result.clientOperationId)),
+): PitRecoveryGroupApplyResult {
+  return {
+    groupId: group.groupId,
+    status,
+    applied: status === "APPLIED" && !idempotent,
+    idempotent,
+    candidateIds: group.candidateIds,
+    revertedCandidateIds: group.selectedRevert,
+    preservedCandidateIds: group.selectedPreserve,
+    dependencyRequiredCandidateIds: group.dependencyRequiredCandidateIds,
+    recoveryRecordIds: canonical.map((result) => result.id),
+    recoveryAuditIds,
+    conflicts,
+    canonical,
+    authoritativeReadback,
+  };
+}
+
+async function applyPitGroup(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: PitRecoveryApplyGroupRequest,
+  environment: "production" | "test",
+): Promise<PitRecoveryGroupApplyResult> {
+  const request = validatePitApplyGroup(input);
+  const states = pitCandidateGroups(
+    await readPitGroups(env, context.organizationId, environment),
+    request.targetTime,
+  );
+  const state = states.find((candidate) => candidate.groupId === request.groupId);
+  if (!state) {
+    return pitApplyResult({ groupId: request.groupId, candidateIds: [], selectedRevert: [], selectedPreserve: [], dependencyRequiredCandidateIds: [] }, "BLOCKED", ["PIT_GROUP_NOT_FOUND"]);
+  }
+  const plan = await buildPitGroupDryRun(context.organizationId, state, request.targetTime, request.selections, new Date().toISOString());
+  if (plan.conflicts.some((conflict) => conflict.startsWith("PIT_DUPLICATE_SELECTION:") || conflict.startsWith("PIT_CONFLICTING_SELECTION:"))) {
+    return pitApplyResult(plan, "BLOCKED", plan.conflicts);
+  }
+  const requestedRevertCandidates = request.selections.filter((selection) => selection.decision === "REVERT");
+  const selectedRevertCandidates = plan.candidates.filter((candidate) => candidate.decision === "REVERT" && candidate.disposition === "REVERT");
+  const expectedOperations = await Promise.all(requestedRevertCandidates.map((selection) => pitClientOperationId(request.clientOperationId, selection.candidateId)));
+  const existingRows = await Promise.all(expectedOperations.map((operationId) => pitExistingRecovery(env, context.organizationId, operationId)));
+  const existingCount = existingRows.filter(Boolean).length;
+  if (existingCount > 0 && existingCount < expectedOperations.length) {
+    return pitApplyResult(plan, "BLOCKED", ["PIT_IDEMPOTENCY_PARTIAL"]);
+  }
+  if (existingCount === expectedOperations.length && expectedOperations.length > 0) {
+    const valid = existingRows.every((row, index) => row
+      && row.reversalOfId === state.facts.find((fact) => pitCandidateId(fact.id) === requestedRevertCandidates[index].candidateId)?.id
+      && row.lifecycleStatus === "reversed");
+    const audits = await Promise.all(expectedOperations.map((operationId) => pitAuditExists(env, context.organizationId, operationId)));
+    if (!valid || audits.some((value) => !value)) return pitApplyResult(plan, "FAILED", ["PIT_IDEMPOTENCY_READBACK_FAILED"]);
+    const replayGroup = {
+      ...plan,
+      candidateIds: request.selections.map((selection) => selection.candidateId),
+      selectedRevert: requestedRevertCandidates.map((selection) => selection.candidateId),
+      selectedPreserve: request.selections.filter((selection) => selection.decision === "PRESERVE").map((selection) => selection.candidateId),
+    };
+    return pitApplyResult(
+      replayGroup,
+      "APPLIED",
+      [],
+      true,
+      [],
+      await pitAuthoritativeReadback(env, context.organizationId, request.groupId, state.environment),
+      expectedOperations.map(pitAuditId),
+    );
+  }
+  if (plan.stateFingerprint !== request.stateFingerprint) return pitApplyResult(plan, "STALE_STATE", ["STALE_STATE"]);
+  if (plan.dryRunToken !== request.dryRunToken) return pitApplyResult(plan, "BLOCKED", ["PIT_PLAN_TOKEN_MISMATCH"]);
+  if (plan.conflicts.length || !plan.proposedAfter) return pitApplyResult(plan, "BLOCKED", plan.conflicts.length ? plan.conflicts : ["PIT_GROUP_NOT_ELIGIBLE"]);
+  if (!selectedRevertCandidates.length) {
+    return pitApplyResult(
+      plan,
+      "PRESERVED",
+      [],
+      false,
+      [],
+      await pitAuthoritativeReadback(env, context.organizationId, request.groupId, state.environment),
+      [],
+    );
+  }
+  try {
+    const entries: CanonicalLineageBatchEntry[] = [];
+    for (let index = 0; index < selectedRevertCandidates.length; index += 1) {
+      const candidate = selectedRevertCandidates[index];
+      const target = state.facts.find((fact) => fact.id === candidate.factId);
+      if (!target) return pitApplyResult(plan, "BLOCKED", [`PIT_CANDIDATE_NOT_FOUND:${candidate.candidateId}`]);
+      const clientOperationId = expectedOperations[index];
+      const id = await pitRecoveryRecordId(clientOperationId);
+      entries.push({
+        record: pitReversalRecord(target, context, id, clientOperationId),
+        patch: {
+          kind: "reversal",
+          originalId: target.id,
+          childId: id,
+          clientOperationId,
+          reason: `Selective PIT revert to ${request.targetTime}`,
+        },
+      });
+    }
+    const recoveryContext: CanonicalWriteContext = {
+      organizationId: context.organizationId,
+      actorType: "web_admin",
+      actorId: context.actorId,
+      requestId: context.requestId,
+      environment: state.environment,
+      expectedSourceChannel: "web",
+      operatorScopeRequired: true,
+    };
+    const canonical = (await persistCanonicalLineageBatch(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      entries,
+      recoveryContext,
+      (results) => results.map((result, index) => pitAuditStatement(
+        env,
+        context,
+        state.facts.find((fact) => fact.id === selectedRevertCandidates[index].factId)!,
+        request.selections.find((selection) => selection.candidateId === selectedRevertCandidates[index].candidateId)!,
+        result,
+        plan,
+      )),
+    )) as CanonicalWriteResult[];
+    const readback = await pitAuthoritativeReadback(env, context.organizationId, request.groupId, state.environment);
+    if (!readback || JSON.stringify(readback.derived) !== JSON.stringify(plan.proposedAfter)) {
+      throw new RecoveryCoreError("PIT_DERIVED_READBACK_MISMATCH", 500);
+    }
+    const auditIds = canonical.map((result) => pitAuditId(result.clientOperationId));
+    const audits = await Promise.all(canonical.map((result) => pitAuditExists(env, context.organizationId, result.clientOperationId)));
+    if (audits.some((value) => !value)) throw new RecoveryCoreError("PIT_AUDIT_READBACK_FAILED", 500);
+    return pitApplyResult(plan, "APPLIED", [], false, canonical, readback, auditIds);
+  } catch (error) {
+    const code = error instanceof RecoveryCoreError ? error.code : "PIT_ATOMIC_APPLY_FAILED";
+    return pitApplyResult(plan, "FAILED", [code]);
+  }
+}
+
+export async function applyO6PointInTimeRecovery(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: PitRecoveryApplyRequest,
+): Promise<PitRecoveryApplyResult> {
+  validatePitEnvironment(input.environment);
+  if (!Array.isArray(input.groups) || input.groups.length === 0 || input.groups.length > MAX_PIT_GROUPS) {
+    throw new RecoveryCoreError("PIT_GROUPS_INVALID");
+  }
+  const groups = input.groups.map(validatePitApplyGroup);
+  if (new Set(groups.map((group) => group.groupId)).size !== groups.length) throw new RecoveryCoreError("PIT_DUPLICATE_GROUP");
+  const results: PitRecoveryGroupApplyResult[] = [];
+  for (const group of groups) results.push(await applyPitGroup(env, context, group, input.environment));
+  return {
+    operation: PIT_RECOVERY_OPERATION,
+    supportedDomains: ["O6"],
+    groupCount: results.length,
+    appliedGroupCount: results.filter((group) => group.status === "APPLIED").length,
+    preservedGroupCount: results.filter((group) => group.status === "PRESERVED").length,
+    blockedGroupCount: results.filter((group) => group.status !== "APPLIED" && group.status !== "PRESERVED").length,
+    groups: results,
+    evaluatedAt: new Date().toISOString(),
+  };
+}

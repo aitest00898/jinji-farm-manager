@@ -100,7 +100,10 @@ function isRecoveryAdminMutation(pathname: string): boolean {
   return pathname === "/api/recovery/dry-run"
     || pathname === "/api/recovery/apply"
     || pathname === "/api/recovery/batch-dry-run"
-    || pathname === "/api/recovery/batch-apply";
+    || pathname === "/api/recovery/batch-apply"
+    || pathname === "/api/recovery/pit-discover"
+    || pathname === "/api/recovery/pit-dry-run"
+    || pathname === "/api/recovery/pit-apply";
 }
 
 function isAdminAiMutation(pathname: string): boolean {

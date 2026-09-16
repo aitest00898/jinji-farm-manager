@@ -3,12 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   applyO6Recovery,
   applyO6RecoveryBatch,
+  applyO6PointInTimeRecovery,
   auditRangeBoundary,
+  discoverO6PointInTimeRecovery,
   dryRunO6Recovery,
   dryRunO6RecoveryBatch,
+  dryRunO6PointInTimeRecovery,
   listAuditLogs,
   type BatchRecoveryApplyRequest,
   type BatchRecoveryRequest,
+  type PitRecoveryApplyRequest,
+  type PitRecoveryDryRunRequest,
   type RecoveryApplyRequest,
   type RecoveryRequest,
 } from "./audit-recovery-core";
@@ -242,7 +247,9 @@ function insertO6(
     completedAt?: string | null;
     clientOperationId: string;
     correctionOfId?: string | null;
+    reversalOfId?: string | null;
     lifecycleStatus?: string;
+    createdAt?: string;
     farmId?: string;
     houseId?: string;
     flockId?: string;
@@ -254,14 +261,14 @@ function insertO6(
        occurred_at, created_at, farm_id, house_id, flock_id, content,
        submitted_at, workflow_status, result, completed_at, reminder_due_at,
        source_channel, raw_text, client_operation_id, correction_of_id,
-       lifecycle_status)
+       lifecycle_status, reversal_of_id)
      VALUES (?, ?, 'O6', 'operational_action', 'action', 'lab_test', ?, ?, ?, ?, ?,
-             '新城雞瘟', ?, ?, ?, ?, ?, 'web', ?, ?, ?, ?)` ,
+             '新城雞瘟', ?, ?, ?, ?, ?, 'web', ?, ?, ?, ?, ?)` ,
   ).run(
     input.id,
     ORGANIZATION_ID,
     input.submittedAt,
-    input.submittedAt,
+    input.createdAt ?? input.submittedAt,
     input.farmId ?? FARM_ID,
     input.houseId ?? HOUSE_ID,
     input.flockId ?? FLOCK_ID,
@@ -274,6 +281,7 @@ function insertO6(
     input.clientOperationId,
     input.correctionOfId ?? null,
     input.lifecycleStatus ?? "active",
+    input.reversalOfId ?? null,
   );
 }
 
@@ -604,6 +612,221 @@ describe("bounded O6 audit and recovery core", () => {
     expect(retried.groups[0]).toMatchObject({ status: "APPLIED", applied: true });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 5 });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 4 });
+    db.sqlite.close();
+  });
+
+  it("discovers later O6 changes, preserves selected facts, reverts selected roots, and replays idempotently", async () => {
+    const db = new MemoryD1();
+    insertO6(db, {
+      id: "pit-before-target",
+      submittedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-before",
+    });
+    insertO6(db, {
+      id: "pit-revert-root",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      createdAt: "2026-01-10T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-revert",
+    });
+    insertO6(db, {
+      id: "pit-preserve-root",
+      submittedAt: "2026-01-03T00:00:00.000Z",
+      createdAt: "2026-01-11T00:00:00.000Z",
+      workflowStatus: "completed",
+      result: "陰性",
+      completedAt: "2026-01-12T00:00:00.000Z",
+      clientOperationId: "pit-source-preserve",
+    });
+
+    const targetTime = "2026-01-05T00:00:00.000Z";
+    const discovered = await discoverO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      readContext,
+      { environment: "test", targetTime },
+    );
+    expect(discovered.candidateCount).toBe(2);
+    expect(discovered.candidates.map((candidate) => candidate.factId)).toEqual(["pit-revert-root", "pit-preserve-root"]);
+    expect(discovered.candidates.every((candidate) => candidate.disposition === "REVERT" && candidate.availableDecisions.includes("PRESERVE"))).toBe(true);
+
+    const selections = discovered.candidates.map((candidate) => ({
+      candidateId: candidate.candidateId,
+      decision: candidate.factId === "pit-revert-root" ? "REVERT" as const : "PRESERVE" as const,
+    }));
+    const dryRun = await dryRunO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      readContext,
+      { environment: "test", targetTime, selections },
+    );
+    const group = dryRun.groups[0];
+    expect(group).toMatchObject({
+      applyEligibility: "ELIGIBLE",
+      selectedRevert: ["o6-change:pit-revert-root"],
+      selectedPreserve: ["o6-change:pit-preserve-root"],
+      before: { pendingSubmissionCount: 2, hasOverdueLabSubmission: true },
+      proposedAfter: { pendingSubmissionCount: 1, hasOverdueLabSubmission: true },
+    });
+    expect(group.dependencyRequired).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "derived_projection", relation: "house_status" }),
+    ]));
+    expect(group.candidates.find((candidate) => candidate.factId === "pit-revert-root")).toMatchObject({ decision: "REVERT", decisionState: "REVERT" });
+    expect(group.candidates.find((candidate) => candidate.factId === "pit-preserve-root")).toMatchObject({ decision: "PRESERVE", decisionState: "PRESERVE" });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 3 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 0 });
+
+    const applyInput: PitRecoveryApplyRequest = {
+      environment: "test",
+      groups: [{
+        groupId: group.groupId,
+        targetTime,
+        selections,
+        stateFingerprint: group.stateFingerprint,
+        dryRunToken: group.dryRunToken,
+        clientOperationId: "pit-apply-1",
+      }],
+    };
+    const applied = await applyO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      applyContext,
+      applyInput,
+    );
+    expect(applied.groups[0]).toMatchObject({
+      status: "APPLIED",
+      applied: true,
+      idempotent: false,
+      revertedCandidateIds: ["o6-change:pit-revert-root"],
+      preservedCandidateIds: ["o6-change:pit-preserve-root"],
+      authoritativeReadback: {
+        derived: { pendingSubmissionCount: 1, hasOverdueLabSubmission: true },
+        revertedFactIds: ["pit-revert-root"],
+      },
+    });
+    expect(db.sqlite.prepare("SELECT workflow_status AS workflowStatus, result, lifecycle_status AS lifecycleStatus FROM operational_actions WHERE id = ?").get("pit-revert-root")).toEqual({ workflowStatus: "waiting_result", result: null, lifecycleStatus: "active" });
+    expect(db.sqlite.prepare("SELECT reversal_of_id AS reversalOfId, lifecycle_status AS lifecycleStatus FROM operational_actions WHERE id = ?").get(applied.groups[0].recoveryRecordIds[0])).toEqual({ reversalOfId: "pit-revert-root", lifecycleStatus: "reversed" });
+    expect(db.sqlite.prepare("SELECT action, entity_type AS entityType, entity_id AS entityId FROM audit_logs WHERE id = ?").get(applied.groups[0].recoveryAuditIds[0])).toEqual({ action: "selective_pit_recovery", entityType: "canonical_pit_recovery", entityId: "pit-revert-root" });
+
+    const actionCount = (db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get() as { count: number }).count;
+    const auditCount = (db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get() as { count: number }).count;
+    const replay = await applyO6PointInTimeRecovery({ DB: db as unknown as D1Database }, applyContext, applyInput);
+    expect(replay.groups[0]).toMatchObject({ status: "APPLIED", applied: false, idempotent: true });
+    expect((db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get() as { count: number }).count).toBe(actionCount);
+    expect((db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get() as { count: number }).count).toBe(auditCount);
+    db.sqlite.close();
+  });
+
+  it("blocks conflicting PIT decisions without mutating canonical state", async () => {
+    const db = new MemoryD1();
+    insertO6(db, {
+      id: "pit-conflict-root",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      createdAt: "2026-01-10T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-conflict",
+    });
+    const candidateId = "o6-change:pit-conflict-root";
+    const dryRun = await dryRunO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      readContext,
+      {
+        environment: "test",
+        targetTime: "2026-01-05T00:00:00.000Z",
+        selections: [
+          { candidateId, decision: "REVERT" },
+          { candidateId, decision: "PRESERVE" },
+        ],
+      },
+    );
+    expect(dryRun.groups[0]).toMatchObject({ applyEligibility: "DENIED" });
+    expect(dryRun.groups[0].conflicts).toContain("PIT_CONFLICTING_SELECTION:o6-change:pit-conflict-root");
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 1 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 0 });
+    db.sqlite.close();
+  });
+
+  it("rejects only a stale PIT group while applying an independent fresh group", async () => {
+    const db = new MemoryD1();
+    insertO6(db, {
+      id: "pit-stale-house-a",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      createdAt: "2026-01-10T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-stale-a",
+    });
+    insertO6(db, {
+      id: "pit-fresh-house-b",
+      submittedAt: "2026-01-03T00:00:00.000Z",
+      createdAt: "2026-01-11T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-fresh-b",
+      houseId: SECOND_HOUSE_ID,
+      flockId: SECOND_FLOCK_ID,
+    });
+    const targetTime = "2026-01-05T00:00:00.000Z";
+    const discovered = await discoverO6PointInTimeRecovery({ DB: db as unknown as D1Database }, readContext, { environment: "test", targetTime });
+    const selections = discovered.candidates.map((candidate) => ({ candidateId: candidate.candidateId, decision: "REVERT" as const }));
+    const dryRun = await dryRunO6PointInTimeRecovery({ DB: db as unknown as D1Database }, readContext, { environment: "test", targetTime, selections });
+    db.sqlite.prepare("UPDATE operational_actions SET result = '陽性', workflow_status = 'completed', completed_at = '2026-01-12T00:00:00.000Z' WHERE id = ?").run("pit-stale-house-a");
+    const applied = await applyO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      applyContext,
+      {
+        environment: "test",
+        groups: dryRun.groups.map((group, index) => ({
+          groupId: group.groupId,
+          targetTime,
+          selections: group.candidates.map((candidate) => ({ candidateId: candidate.candidateId, decision: "REVERT" as const })),
+          stateFingerprint: group.stateFingerprint,
+          dryRunToken: group.dryRunToken,
+          clientOperationId: `pit-independent-${index}`,
+        })),
+      },
+    );
+    expect(applied.groups.find((group) => group.groupId.includes(HOUSE_ID))).toMatchObject({ status: "STALE_STATE", applied: false });
+    expect(applied.groups.find((group) => group.groupId.includes(SECOND_HOUSE_ID))).toMatchObject({ status: "APPLIED", applied: true });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 3 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 2 });
+    db.sqlite.close();
+  });
+
+  it("surfaces lineage dependencies and refuses to revert a dependent O6 correction", async () => {
+    const db = new MemoryD1();
+    insertO6(db, {
+      id: "pit-lineage-parent",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      createdAt: "2026-01-10T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "pit-source-parent",
+    });
+    insertO6(db, {
+      id: "pit-lineage-child",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      createdAt: "2026-01-11T00:00:00.000Z",
+      workflowStatus: "completed",
+      result: "陰性",
+      completedAt: "2026-01-12T00:00:00.000Z",
+      clientOperationId: "pit-source-child",
+      correctionOfId: "pit-lineage-parent",
+    });
+    const discovered = await discoverO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      readContext,
+      { environment: "test", targetTime: "2026-01-05T00:00:00.000Z" },
+    );
+    expect(discovered.candidates.find((candidate) => candidate.factId === "pit-lineage-parent")).toMatchObject({ disposition: "NOT_RECOVERABLE" });
+    expect(discovered.candidates.find((candidate) => candidate.factId === "pit-lineage-child")).toMatchObject({ disposition: "DEPENDENCY_REQUIRED" });
+    const dryRun = await dryRunO6PointInTimeRecovery(
+      { DB: db as unknown as D1Database },
+      readContext,
+      {
+        environment: "test",
+        targetTime: "2026-01-05T00:00:00.000Z",
+        selections: discovered.candidates.map((candidate) => ({ candidateId: candidate.candidateId, decision: candidate.factId === "pit-lineage-child" ? "REVERT" as const : "PRESERVE" as const })),
+      },
+    );
+    expect(dryRun.groups[0]).toMatchObject({ applyEligibility: "DENIED", dependencyRequiredCandidateIds: ["o6-change:pit-lineage-child"] });
+    expect(dryRun.groups[0].conflicts).toContain("PIT_DEPENDENCY_REQUIRED:o6-change:pit-lineage-child");
     db.sqlite.close();
   });
 });

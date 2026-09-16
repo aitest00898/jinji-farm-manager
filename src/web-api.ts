@@ -74,13 +74,20 @@ import {
 import {
   applyO6Recovery,
   applyO6RecoveryBatch,
+  applyO6PointInTimeRecovery,
   auditRangeBoundary,
+  discoverO6PointInTimeRecovery,
   dryRunO6Recovery,
   dryRunO6RecoveryBatch,
+  dryRunO6PointInTimeRecovery,
   listAuditLogs,
   RecoveryCoreError,
   type BatchRecoveryApplyRequest,
   type BatchRecoveryRequest,
+  type PitRecoveryApplyRequest,
+  type PitRecoveryDecision,
+  type PitRecoveryDryRunRequest,
+  type PitRecoverySelection,
   type RecoveryApplyRequest,
   type RecoveryRequest,
 } from "./audit-recovery-core";
@@ -2861,6 +2868,23 @@ function recoveryMessage(code: string): string {
     CANONICAL_BATCH_DUPLICATE_OPERATION: "Recovery 批次包含重複操作識別。",
     CANONICAL_BATCH_STOCK_MUTATION_FORBIDDEN: "Recovery 批次不得包含 stock mutation。",
     CANONICAL_BATCH_CONTEXT_MISMATCH: "Recovery 批次包含不一致的組織範圍。",
+    RECOVERY_PIT_TARGET_TIME_INVALID: "PIT Recovery 目標時間必須是有效的 ISO 時間。",
+    PIT_DECISION_INVALID: "PIT Recovery 決策只能是 REVERT 或 PRESERVE。",
+    PIT_SELECTIONS_INVALID: "PIT Recovery 必須提供有限且完整的變更選擇。",
+    PIT_GROUPS_INVALID: "PIT Recovery 群組欄位不完整或超過安全上限。",
+    PIT_CANDIDATE_LIMIT_EXCEEDED: "PIT Recovery 變更候選超過安全上限。",
+    PIT_GROUP_LIMIT_EXCEEDED: "PIT Recovery 群組超過安全上限。",
+    PIT_CANDIDATE_NOT_FOUND: "PIT Recovery 找不到指定的 O6 變更候選。",
+    PIT_GROUP_NOT_FOUND: "PIT Recovery 找不到指定的 scope 群組。",
+    PIT_PLAN_TOKEN_INVALID: "PIT Recovery Dry Run 計畫無效。",
+    PIT_PLAN_TOKEN_MISMATCH: "PIT Recovery 計畫與目前操作不一致，請重新 Dry Run。",
+    PIT_IDEMPOTENCY_PARTIAL: "PIT Recovery 已有部分重送結果，沒有新增寫入。",
+    PIT_IDEMPOTENCY_READBACK_FAILED: "PIT Recovery 重送 readback 不一致，沒有新增寫入。",
+    PIT_DERIVED_READBACK_MISMATCH: "PIT Recovery 後 derived readback 不一致，請停止後檢查。",
+    PIT_AUDIT_READBACK_FAILED: "PIT Recovery audit readback 失敗。",
+    PIT_ATOMIC_APPLY_FAILED: "PIT Recovery 群組未能原子套用，沒有安全確認。",
+    PIT_REVERT: "PIT Recovery 目標無法安全回復。",
+    PIT_PRESERVE_DEPENDENCY_CONFLICT: "PIT Recovery 的保留選擇與 lineage dependency 衝突。",
   } as Record<string, string>)[code.split(":", 1)[0]] ?? "Recovery 操作未完成，沒有安全確認。";
 }
 
@@ -2911,6 +2935,50 @@ function recoveryBatchApplyRequestFromBody(
   });
   if (groups.some((group) => group === null)) return null;
   return { groups: groups as BatchRecoveryApplyRequest["groups"] };
+}
+
+function pitSelectionFromBody(value: unknown): PitRecoverySelection | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const selection = value as Record<string, unknown>;
+  const candidateId = stringValue(selection.candidateId, 220);
+  const decision = selection.decision as PitRecoveryDecision;
+  if (!candidateId || (decision !== "REVERT" && decision !== "PRESERVE")) return null;
+  return { candidateId, decision };
+}
+
+function pitDryRunRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): PitRecoveryDryRunRequest | null {
+  const targetTime = stringValue(body?.targetTime, 80);
+  if (!targetTime || !Array.isArray(body?.selections)) return null;
+  const selections = body.selections.map(pitSelectionFromBody);
+  return selections.every((selection): selection is PitRecoverySelection => selection !== null)
+    ? { environment, targetTime, selections }
+    : null;
+}
+
+function pitApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): PitRecoveryApplyRequest | null {
+  if (!Array.isArray(body?.groups)) return null;
+  const groups = body.groups.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const group = value as Record<string, unknown>;
+    const groupId = stringValue(group.groupId, 220);
+    const targetTime = stringValue(group.targetTime, 80);
+    const stateFingerprint = stringValue(group.stateFingerprint, 128);
+    const dryRunToken = stringValue(group.dryRunToken, 128);
+    const clientOperationId = stringValue(group.clientOperationId, 200);
+    if (!groupId || !targetTime || !stateFingerprint || !dryRunToken || !clientOperationId || !Array.isArray(group.selections)) return null;
+    const selections = group.selections.map(pitSelectionFromBody);
+    return selections.every((selection): selection is PitRecoverySelection => selection !== null)
+      ? { groupId, targetTime, selections, stateFingerprint, dryRunToken, clientOperationId }
+      : null;
+  });
+  if (groups.some((group) => group === null)) return null;
+  return { environment, groups: groups as PitRecoveryApplyRequest["groups"] };
 }
 
 async function recoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -2972,6 +3040,63 @@ async function recoveryBatchApply(request: Request, env: WebApiEnv, session: Ses
   if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Recovery 批次 Apply 欄位不完整或無效。");
   try {
     const result = await applyO6RecoveryBatch(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.appliedGroupCount > 0 ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function recoveryPitDiscover(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const body = await bodyJson(request);
+  const targetTime = stringValue(body?.targetTime, 80);
+  if (!targetTime) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery 需要有效的 targetTime。");
+  try {
+    const result = await discoverO6PointInTimeRecovery(
+      { DB: env.DB },
+      { organizationId: session.organizationId },
+      { environment, targetTime },
+    );
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryPitDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = pitDryRunRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunO6PointInTimeRecovery(
+      { DB: env.DB },
+      { organizationId: session.organizationId },
+      input,
+    );
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryPitApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = pitApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery Apply 欄位不完整或無效。");
+  try {
+    const result = await applyO6PointInTimeRecovery(
       { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
       { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
       input,
@@ -4244,6 +4369,9 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/recovery/apply" && request.method === "POST") return recoveryApply(request, env, session);
     if (url.pathname === "/api/recovery/batch-dry-run" && request.method === "POST") return recoveryBatchDryRun(request, env, session);
     if (url.pathname === "/api/recovery/batch-apply" && request.method === "POST") return recoveryBatchApply(request, env, session);
+    if (url.pathname === "/api/recovery/pit-discover" && request.method === "POST") return recoveryPitDiscover(request, env, session);
+    if (url.pathname === "/api/recovery/pit-dry-run" && request.method === "POST") return recoveryPitDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/pit-apply" && request.method === "POST") return recoveryPitApply(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "GET") return listOperators(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "POST") return createOperator(request, env, session);
     const operatorScopeMatch = /^\/api\/operators\/([^/]+)\/scopes$/u.exec(url.pathname);
