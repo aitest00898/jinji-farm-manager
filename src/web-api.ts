@@ -80,8 +80,25 @@ import {
   dryRunO6Recovery,
   dryRunO6RecoveryBatch,
   dryRunO6PointInTimeRecovery,
+  applyDomainRecovery,
+  applyDomainRecoveryBatch,
+  applyDomainPointInTimeRecovery,
   listAuditLogs,
+  discoverDomainPointInTimeRecovery,
+  discoverDomainRecovery,
+  dryRunDomainPointInTimeRecovery,
+  dryRunDomainRecovery,
+  dryRunDomainRecoveryBatch,
   RecoveryCoreError,
+  type DomainRecoveryApplyRequest,
+  type DomainRecoveryBatchApplyRequest,
+  type DomainRecoveryBatchRequest,
+  type DomainRecoveryDiscoverRequest,
+  type DomainRecoveryEntityType,
+  type DomainRecoveryRequest,
+  type DomainPitRecoveryApplyRequest,
+  type DomainPitRecoveryDryRunRequest,
+  type DomainPitRecoverySelection,
   type BatchRecoveryApplyRequest,
   type BatchRecoveryRequest,
   type PitRecoveryApplyRequest,
@@ -2912,6 +2929,33 @@ function recoveryMessage(code: string): string {
     FINANCE_PLAN_TOKEN_MISMATCH: "Finance recovery 計畫與目前操作不一致，請重新 Dry Run。",
     FINANCE_PLAN_NOT_ELIGIBLE: "Finance recovery 未通過安全 eligibility，沒有寫入。",
     FINANCE_ATOMIC_APPLY_FAILED: "Finance recovery 未能原子套用，沒有安全確認。",
+    RECOVERY_DOMAIN_ENVIRONMENT_INVALID: "Domain recovery 必須指定 production 或 test 範圍。",
+    RECOVERY_DOMAIN_ENTITY_TYPE_INVALID: "Domain recovery 類型不受支援，沒有寫入。",
+    RECOVERY_DOMAIN_TARGET_ID_INVALID: "Domain recovery 目標無效，沒有寫入。",
+    RECOVERY_DOMAIN_AUDIT_ID_INVALID: "Domain recovery 歷史紀錄識別無效，沒有寫入。",
+    RECOVERY_DOMAIN_CLIENT_OPERATION_ID_INVALID: "Domain recovery 操作識別無效，沒有寫入。",
+    RECOVERY_DOMAIN_REASON_INVALID: "Domain recovery 需要有效的操作原因。",
+    RECOVERY_DOMAIN_GROUP_ID_INVALID: "Domain recovery 群組識別無效，沒有寫入。",
+    RECOVERY_DOMAIN_AUDIT_NOT_FOUND: "找不到指定的 canonical domain 變更歷史。",
+    RECOVERY_DOMAIN_TARGET_NOT_FOUND: "找不到指定的 canonical domain 目標。",
+    RECOVERY_DOMAIN_AUDIT_TARGET_MISMATCH: "Domain recovery 目標與歷史紀錄不一致，沒有寫入。",
+    RECOVERY_DOMAIN_ENVIRONMENT_MISMATCH: "Domain recovery 目標不在指定環境，沒有寫入。",
+    RECOVERY_DOMAIN_ORGANIZATION_MISMATCH: "Domain recovery 目標不屬於目前 organization，沒有寫入。",
+    RECOVERY_DOMAIN_ORGANIZATION_REASSIGNMENT: "Domain recovery 不允許改派 organization，沒有寫入。",
+    RECOVERY_DOMAIN_STATUS_INVALID: "Domain recovery 的狀態快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_NAME_INVALID: "Domain recovery 的名稱快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_NORMALIZED_NAME_INVALID: "Domain recovery 的標準化名稱快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_STRUCTURE_MODE_INVALID: "Domain recovery 的雞場模式快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_CAPACITY_INVALID: "Domain recovery 的容量快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_EXPECTED_SHIPMENT_DATE_INVALID: "Domain recovery 的預計出雞日期快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_ACTUAL_SHIPMENT_DATE_INVALID: "Domain recovery 的實際出雞日期快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_DISPLAY_NAME_INVALID: "Domain recovery 的操作人名稱快照無效，沒有寫入。",
+    RECOVERY_DOMAIN_STOCK_FIELD_FORBIDDEN: "Domain recovery 不得改動存欄基礎數量，沒有寫入。",
+    RECOVERY_DOMAIN_NO_STATE_CHANGE: "Domain recovery 沒有可套用的狀態變更。",
+    RECOVERY_DEPENDENCY_PREVIEW_REQUIRED: "這項恢復會影響相依資料，請先檢視並確認預覽。",
+    RECOVERY_BATCH_ENVIRONMENT_MISMATCH: "Recovery 批次包含不同環境，沒有寫入。",
+    RECOVERY_DOMAIN_BATCH_INPUT_INVALID: "Domain recovery 批次欄位不完整或超過安全上限。",
+    RECOVERY_DOMAIN_BATCH_DUPLICATE_GROUP: "Domain recovery 批次包含重複群組。",
   } as Record<string, string>)[code.split(":", 1)[0]] ?? "Recovery 操作未完成，沒有安全確認。";
 }
 
@@ -3030,6 +3074,253 @@ function financeRecoveryApplyRequestFromBody(
   const stateFingerprint = stringValue(body?.stateFingerprint, 128);
   const dryRunToken = stringValue(body?.dryRunToken, 128);
   return base && stateFingerprint && dryRunToken ? { ...base, stateFingerprint, dryRunToken } : null;
+}
+
+function domainRecoveryRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainRecoveryRequest | null {
+  const auditId = stringValue(body?.auditId, 240);
+  const entityType = body?.entityType as DomainRecoveryEntityType;
+  const targetId = stringValue(body?.targetId, 240);
+  const clientOperationId = stringValue(body?.clientOperationId, 240);
+  const reason = stringValue(body?.reason, 500);
+  if (!auditId || !targetId || !clientOperationId || !reason || typeof entityType !== "string") return null;
+  return { environment, auditId, entityType, targetId, clientOperationId, reason };
+}
+
+function domainRecoveryApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainRecoveryApplyRequest | null {
+  const base = domainRecoveryRequestFromBody(body, environment);
+  const stateFingerprint = stringValue(body?.stateFingerprint, 128);
+  const dryRunToken = stringValue(body?.dryRunToken, 128);
+  if (!base || !stateFingerprint || !dryRunToken || typeof body?.confirm !== "boolean") return null;
+  return {
+    ...base,
+    stateFingerprint,
+    dryRunToken,
+    confirm: body.confirm,
+    previewAcknowledged: body.previewAcknowledged === true,
+  };
+}
+
+function domainBatchRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainRecoveryBatchRequest | null {
+  if (!Array.isArray(body?.targets)) return null;
+  const targets = body.targets.map((value) => domainRecoveryRequestFromBody(
+    value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null,
+    environment,
+  ));
+  return targets.every((target): target is DomainRecoveryRequest => target !== null) ? { targets } : null;
+}
+
+function domainBatchApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainRecoveryBatchApplyRequest | null {
+  if (!Array.isArray(body?.groups)) return null;
+  const groups = body.groups.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const group = value as Record<string, unknown>;
+    const groupId = stringValue(group.groupId, 240);
+    const stateFingerprint = stringValue(group.stateFingerprint, 128);
+    const dryRunToken = stringValue(group.dryRunToken, 128);
+    if (!groupId || !stateFingerprint || !dryRunToken || !Array.isArray(group.targets)) return null;
+    const targets = group.targets.map((target) => domainRecoveryApplyRequestFromBody(
+      target && typeof target === "object" && !Array.isArray(target) ? target as Record<string, unknown> : null,
+      environment,
+    ));
+    return targets.every((target): target is DomainRecoveryApplyRequest => target !== null)
+      ? { groupId, targets, stateFingerprint, dryRunToken }
+      : null;
+  });
+  return groups.some((group) => group === null) ? null : { groups: groups as DomainRecoveryBatchApplyRequest["groups"] };
+}
+
+function domainPitSelectionFromBody(value: unknown): DomainPitRecoverySelection | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const selection = value as Record<string, unknown>;
+  const auditId = stringValue(selection.auditId, 240);
+  const decision = selection.decision as DomainPitRecoverySelection["decision"];
+  return auditId && (decision === "REVERT" || decision === "PRESERVE") ? { auditId, decision } : null;
+}
+
+function domainPitDryRunRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainPitRecoveryDryRunRequest | null {
+  const targetTime = stringValue(body?.targetTime, 80);
+  if (!targetTime || !Array.isArray(body?.selections)) return null;
+  const selections = body.selections.map(domainPitSelectionFromBody);
+  return selections.every((selection): selection is DomainPitRecoverySelection => selection !== null)
+    ? { environment, targetTime, selections }
+    : null;
+}
+
+function domainPitApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): DomainPitRecoveryApplyRequest | null {
+  if (!Array.isArray(body?.groups)) return null;
+  const groups = body.groups.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const group = value as Record<string, unknown>;
+    const groupId = stringValue(group.groupId, 240);
+    const targetTime = stringValue(group.targetTime, 80);
+    const stateFingerprint = stringValue(group.stateFingerprint, 128);
+    const dryRunToken = stringValue(group.dryRunToken, 128);
+    const clientOperationId = stringValue(group.clientOperationId, 240);
+    if (!groupId || !targetTime || !stateFingerprint || !dryRunToken || !clientOperationId || !Array.isArray(group.selections)) return null;
+    const selections = group.selections.map(domainPitSelectionFromBody);
+    return selections.every((selection): selection is DomainPitRecoverySelection => selection !== null)
+      ? { groupId, targetTime, selections, stateFingerprint, dryRunToken, clientOperationId }
+      : null;
+  });
+  return groups.some((group) => group === null) ? null : { environment, groups: groups as DomainPitRecoveryApplyRequest["groups"] };
+}
+
+async function domainRecoveryDiscover(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const body = await bodyJson(request);
+  const entityType = body?.entityType === undefined ? undefined : body.entityType as DomainRecoveryEntityType;
+  const limit = body?.limit === undefined ? undefined : positiveInteger(body.limit);
+  if (body?.limit !== undefined && limit === null) return errorResponse(request, 400, "recovery_input_invalid", "Domain recovery Discover 的 limit 無效。");
+  try {
+    const result = await discoverDomainRecovery(env, { organizationId: session.organizationId }, { environment, entityType, limit: limit ?? undefined });
+    if (sessionAccessClass(session) === "SHARED_EDIT") {
+      return response(request, {
+        recovery: {
+          ...result,
+          candidates: result.candidates.map(({ auditId, action, entityType: candidateType, targetId, createdAt }) => ({ auditId, action, entityType: candidateType, targetId, createdAt })),
+        },
+      });
+    }
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function domainRecoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainRecoveryRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Domain recovery Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunDomainRecovery(env, { organizationId: session.organizationId }, input);
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function domainRecoveryApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainRecoveryApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Domain recovery Apply 欄位不完整或無效。");
+  try {
+    const result = await applyDomainRecovery(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.applied ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function domainRecoveryBatchDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainBatchRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Domain recovery 批次 Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunDomainRecoveryBatch(env, { organizationId: session.organizationId }, input);
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function domainRecoveryBatchApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainBatchApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Domain recovery 批次 Apply 欄位不完整或無效。");
+  try {
+    const result = await applyDomainRecoveryBatch(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.appliedGroupCount > 0 ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function domainRecoveryPitDiscover(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const targetTime = stringValue((await bodyJson(request))?.targetTime, 80);
+  if (!targetTime) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery 需要有效的 targetTime。");
+  try {
+    const result = await discoverDomainPointInTimeRecovery(env, { organizationId: session.organizationId }, { environment, targetTime });
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function domainRecoveryPitDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainPitDryRunRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunDomainPointInTimeRecovery(env, { organizationId: session.organizationId }, input);
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function domainRecoveryPitApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = domainPitApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "PIT Recovery Apply 欄位不完整或無效。");
+  try {
+    const result = await applyDomainPointInTimeRecovery(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.appliedGroupCount > 0 ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
 }
 
 async function recoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -4476,6 +4767,14 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/reliability/events" && request.method === "GET") return reliabilityEvents(request, env, session);
     if (url.pathname === "/api/ambient/preview" && request.method === "GET") return ambientPreview(request, env, session);
     if (url.pathname === "/api/pending-candidates" && request.method === "GET") return pendingCandidates(request, env, session);
+    if (url.pathname === "/api/recovery/domain-discover" && request.method === "POST") return domainRecoveryDiscover(request, env, session);
+    if (url.pathname === "/api/recovery/domain-dry-run" && request.method === "POST") return domainRecoveryDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/domain-apply" && request.method === "POST") return domainRecoveryApply(request, env, session);
+    if (url.pathname === "/api/recovery/domain-batch-dry-run" && request.method === "POST") return domainRecoveryBatchDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/domain-batch-apply" && request.method === "POST") return domainRecoveryBatchApply(request, env, session);
+    if (url.pathname === "/api/recovery/domain-pit-discover" && request.method === "POST") return domainRecoveryPitDiscover(request, env, session);
+    if (url.pathname === "/api/recovery/domain-pit-dry-run" && request.method === "POST") return domainRecoveryPitDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/domain-pit-apply" && request.method === "POST") return domainRecoveryPitApply(request, env, session);
     if (url.pathname === "/api/recovery/dry-run" && request.method === "POST") return recoveryDryRun(request, env, session);
     if (url.pathname === "/api/recovery/apply" && request.method === "POST") return recoveryApply(request, env, session);
     if (url.pathname === "/api/recovery/batch-dry-run" && request.method === "POST") return recoveryBatchDryRun(request, env, session);

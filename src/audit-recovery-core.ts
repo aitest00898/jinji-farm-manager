@@ -11,7 +11,11 @@ import {
   type CanonicalLineageBatchEntry,
 } from "./canonical-lineage-service";
 import { addIsoDays, isIsoDate } from "./master-data";
-import type { CanonicalWriteContext, CanonicalWriteResult } from "./recording-write-adapter";
+import {
+  assertCanonicalWritesOpen,
+  type CanonicalWriteContext,
+  type CanonicalWriteResult,
+} from "./recording-write-adapter";
 
 const RECOVERY_OPERATION = "restore_o6_submission_result" as const;
 
@@ -2387,4 +2391,1488 @@ export async function applyO6PointInTimeRecovery(
     groups: results,
     evaluatedAt: new Date().toISOString(),
   };
+}
+
+/*
+ * Cross-domain recovery deliberately lives beside the established O6
+ * recovery functions.  It is an allowlisted extension of the same recovery
+ * authority, not a second persistence or lineage engine.  The implementation
+ * only restores fields that the existing Web administration handlers already
+ * record in immutable audit snapshots; identifiers, organizations,
+ * environments, stock facts, and financial facts are never taken from a
+ * client-supplied snapshot.
+ */
+
+export const DOMAIN_RECOVERY_ENTITY_TYPES = [
+  "farm",
+  "house",
+  "flock",
+  "caretaker",
+  "farm_caretaker_assignment",
+  "line_group",
+  "line_group_organization_claim",
+  "line_group_operational_authorization",
+  "line_group_ai_conversation",
+  "operator_identity",
+  "operator_scope_binding",
+  "line_group_operator_binding",
+] as const;
+
+export type DomainRecoveryEntityType = typeof DOMAIN_RECOVERY_ENTITY_TYPES[number];
+export type DomainRecoveryDecision = "REVERT" | "PRESERVE";
+
+const DOMAIN_RECOVERY_OPERATION = "restore_canonical_domain_state" as const;
+const DOMAIN_BATCH_RECOVERY_OPERATION = "restore_canonical_domain_states_batch" as const;
+const DOMAIN_PIT_RECOVERY_OPERATION = "selective_canonical_domain_point_in_time_recovery" as const;
+const MAX_DOMAIN_RECOVERY_TARGETS = 20;
+const MAX_DOMAIN_PIT_CANDIDATES = 100;
+const MAX_DOMAIN_PIT_GROUPS = 20;
+
+export interface DomainRecoveryRequest {
+  environment: "production" | "test";
+  auditId: string;
+  entityType: DomainRecoveryEntityType;
+  targetId: string;
+  clientOperationId: string;
+  reason: string;
+}
+
+export interface DomainRecoveryApplyRequest extends DomainRecoveryRequest {
+  stateFingerprint: string;
+  dryRunToken: string;
+  confirm: boolean;
+  previewAcknowledged?: boolean;
+}
+
+export interface DomainRecoveryDependency {
+  kind: "domain_entity" | "dependent_entity" | "derived_projection";
+  id: string;
+  relation: "target" | "parent" | "dependent" | "scope" | "audit";
+  effective: boolean;
+}
+
+export interface DomainRecoveryPlan {
+  operation: typeof DOMAIN_RECOVERY_OPERATION;
+  environment: "production" | "test";
+  audit: {
+    id: string;
+    action: string;
+    entityType: DomainRecoveryEntityType;
+    entityId: string;
+    createdAt: string;
+  };
+  target: {
+    id: string;
+    entityType: DomainRecoveryEntityType;
+    table: string;
+    organizationId: string | null;
+    environment: "production" | "test";
+    scope: {
+      farmId: string | null;
+      houseId: string | null;
+      flockId: string | null;
+    };
+  };
+  before: Record<string, unknown> | null;
+  current: Record<string, unknown>;
+  proposedAfter: Record<string, unknown>;
+  dependencies: DomainRecoveryDependency[];
+  dependencyImpact: boolean;
+  dependencyGroupId: string;
+  stockImpact: { affected: false; delta: 0 };
+  financeImpact: { affected: false; delta: 0 };
+  conflicts: string[];
+  applyEligibility: "ELIGIBLE" | "DENIED";
+  stateFingerprint: string;
+  dryRunToken: string;
+  evaluatedAt: string;
+}
+
+export interface DomainRecoveryApplyResult {
+  operation: typeof DOMAIN_RECOVERY_OPERATION;
+  environment: "production" | "test";
+  entityType: DomainRecoveryEntityType;
+  targetId: string;
+  applied: boolean;
+  idempotent: boolean;
+  recoveryAuditId: string;
+  authoritativeReadback: {
+    entityType: DomainRecoveryEntityType;
+    id: string;
+    environment: "production" | "test";
+    state: Record<string, unknown>;
+  };
+}
+
+export interface DomainRecoveryBatchRequest {
+  targets: readonly DomainRecoveryRequest[];
+}
+
+export interface DomainRecoveryBatchGroupDryRun {
+  groupId: string;
+  environment: "production" | "test" | null;
+  targetIds: string[];
+  targets: DomainRecoveryPlan[];
+  dependencies: DomainRecoveryDependency[];
+  dependencyImpact: boolean;
+  conflicts: string[];
+  applyEligibility: "ELIGIBLE" | "DENIED";
+  stateFingerprint: string;
+  dryRunToken: string;
+  evaluatedAt: string;
+}
+
+export interface DomainRecoveryBatchDryRun {
+  operation: typeof DOMAIN_BATCH_RECOVERY_OPERATION;
+  targetCount: number;
+  groupCount: number;
+  groups: DomainRecoveryBatchGroupDryRun[];
+  evaluatedAt: string;
+}
+
+export interface DomainRecoveryBatchApplyGroupRequest {
+  groupId: string;
+  targets: readonly DomainRecoveryApplyRequest[];
+  stateFingerprint: string;
+  dryRunToken: string;
+}
+
+export interface DomainRecoveryBatchApplyRequest {
+  groups: readonly DomainRecoveryBatchApplyGroupRequest[];
+}
+
+export type DomainRecoveryBatchGroupStatus = "APPLIED" | "STALE_STATE" | "BLOCKED" | "FAILED";
+
+export interface DomainRecoveryBatchGroupApplyResult {
+  groupId: string;
+  status: DomainRecoveryBatchGroupStatus;
+  applied: boolean;
+  idempotent: boolean;
+  targetIds: string[];
+  recoveryAuditIds: string[];
+  conflicts: string[];
+  authoritativeReadback: DomainRecoveryApplyResult["authoritativeReadback"][];
+}
+
+export interface DomainRecoveryBatchApplyResult {
+  operation: typeof DOMAIN_BATCH_RECOVERY_OPERATION;
+  groupCount: number;
+  appliedGroupCount: number;
+  blockedGroupCount: number;
+  groups: DomainRecoveryBatchGroupApplyResult[];
+  evaluatedAt: string;
+}
+
+export interface DomainRecoveryDiscoverRequest {
+  environment: "production" | "test";
+  entityType?: DomainRecoveryEntityType;
+  limit?: number;
+}
+
+export interface DomainRecoveryDiscoverCandidate {
+  auditId: string;
+  action: string;
+  entityType: DomainRecoveryEntityType;
+  targetId: string;
+  createdAt: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface DomainRecoveryDiscoverResult {
+  operation: "discover_canonical_domain_recovery_candidates";
+  environment: "production" | "test";
+  candidates: DomainRecoveryDiscoverCandidate[];
+  evaluatedAt: string;
+}
+
+export interface DomainPitRecoveryDiscoverRequest {
+  environment: "production" | "test";
+  targetTime: string;
+}
+
+export interface DomainPitRecoverySelection {
+  auditId: string;
+  decision: DomainRecoveryDecision;
+}
+
+export interface DomainPitRecoveryDryRunRequest {
+  environment: "production" | "test";
+  targetTime: string;
+  selections: readonly DomainPitRecoverySelection[];
+}
+
+export interface DomainPitRecoveryApplyGroupRequest {
+  groupId: string;
+  targetTime: string;
+  selections: readonly DomainPitRecoverySelection[];
+  stateFingerprint: string;
+  dryRunToken: string;
+  clientOperationId: string;
+}
+
+export interface DomainPitRecoveryApplyRequest {
+  environment: "production" | "test";
+  groups: readonly DomainPitRecoveryApplyGroupRequest[];
+}
+
+export interface DomainPitRecoveryCandidate extends DomainRecoveryDiscoverCandidate {
+  groupId: string;
+  environment: "production" | "test";
+  disposition: "REVERT" | "PRESERVE" | "NOT_RECOVERABLE";
+  dependencyImpact: boolean;
+}
+
+export interface DomainPitRecoveryDiscoverResult {
+  operation: typeof DOMAIN_PIT_RECOVERY_OPERATION;
+  environment: "production" | "test";
+  targetTime: string;
+  candidateCount: number;
+  groupCount: number;
+  candidates: DomainPitRecoveryCandidate[];
+  groups: Array<{ groupId: string; candidateIds: string[] }>;
+  evaluatedAt: string;
+}
+
+export interface DomainPitRecoveryGroupDryRun {
+  groupId: string;
+  environment: "production" | "test";
+  targetTime: string;
+  candidateIds: string[];
+  selectedRevert: string[];
+  selectedPreserve: string[];
+  targetPlans: DomainRecoveryPlan[];
+  dependencies: DomainRecoveryDependency[];
+  dependencyImpact: boolean;
+  conflicts: string[];
+  applyEligibility: "ELIGIBLE" | "DENIED";
+  stateFingerprint: string;
+  dryRunToken: string;
+  evaluatedAt: string;
+}
+
+export interface DomainPitRecoveryDryRunResult {
+  operation: typeof DOMAIN_PIT_RECOVERY_OPERATION;
+  environment: "production" | "test";
+  targetTime: string;
+  candidateCount: number;
+  groupCount: number;
+  groups: DomainPitRecoveryGroupDryRun[];
+  evaluatedAt: string;
+}
+
+export type DomainPitRecoveryGroupStatus = "APPLIED" | "PRESERVED" | "STALE_STATE" | "BLOCKED" | "FAILED";
+
+export interface DomainPitRecoveryGroupApplyResult {
+  groupId: string;
+  status: DomainPitRecoveryGroupStatus;
+  applied: boolean;
+  idempotent: boolean;
+  candidateIds: string[];
+  revertedCandidateIds: string[];
+  preservedCandidateIds: string[];
+  recoveryAuditIds: string[];
+  conflicts: string[];
+  authoritativeReadback: DomainRecoveryApplyResult["authoritativeReadback"][];
+}
+
+export interface DomainPitRecoveryApplyResult {
+  operation: typeof DOMAIN_PIT_RECOVERY_OPERATION;
+  environment: "production" | "test";
+  groupCount: number;
+  appliedGroupCount: number;
+  preservedGroupCount: number;
+  blockedGroupCount: number;
+  groups: DomainPitRecoveryGroupApplyResult[];
+  evaluatedAt: string;
+}
+
+interface DomainAuditRow {
+  id: string;
+  action: string;
+  entityType: DomainRecoveryEntityType;
+  entityId: string;
+  beforeJson: string | null;
+  afterJson: string | null;
+  createdAt: string;
+}
+
+interface DomainTargetRow {
+  id: string;
+  entityType: DomainRecoveryEntityType;
+  table: string;
+  organizationId: string | null;
+  environment: "production" | "test";
+  farmId: string | null;
+  houseId: string | null;
+  flockId: string | null;
+  values: Record<string, unknown>;
+}
+
+function domainEntityType(value: unknown): DomainRecoveryEntityType {
+  if (typeof value === "string" && (DOMAIN_RECOVERY_ENTITY_TYPES as readonly string[]).includes(value)) {
+    return value as DomainRecoveryEntityType;
+  }
+  throw new RecoveryCoreError("RECOVERY_DOMAIN_ENTITY_TYPE_INVALID");
+}
+
+function domainRequestText(value: unknown, field: string, max: number): string {
+  if (typeof value !== "string") throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized || normalized.length > max || /[\u0000-\u001F\u007F]/u.test(normalized)) {
+    throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  }
+  return normalized;
+}
+
+function domainEnvironment(value: unknown): "production" | "test" {
+  if (value !== "production" && value !== "test") throw new RecoveryCoreError("RECOVERY_ENVIRONMENT_INVALID");
+  return value;
+}
+
+function domainApplyToken(value: unknown, field: string): string {
+  const token = domainRequestText(value, field, 128);
+  if (!/^[a-f0-9]{64}$/u.test(token)) throw new RecoveryCoreError("RECOVERY_PLAN_TOKEN_INVALID");
+  return token;
+}
+
+function validateDomainRequest(input: DomainRecoveryRequest): DomainRecoveryRequest {
+  return {
+    environment: domainEnvironment(input?.environment),
+    auditId: domainRequestText(input?.auditId, "audit_id", 240),
+    entityType: domainEntityType(input?.entityType),
+    targetId: domainRequestText(input?.targetId, "target_id", 240),
+    clientOperationId: domainRequestText(input?.clientOperationId, "client_operation_id", 240),
+    reason: domainRequestText(input?.reason, "reason", 500),
+  };
+}
+
+function validateDomainApplyRequest(input: DomainRecoveryApplyRequest): DomainRecoveryApplyRequest {
+  const request = validateDomainRequest(input);
+  if (input?.confirm !== true) throw new RecoveryCoreError("RECOVERY_CONFIRMATION_REQUIRED");
+  return {
+    ...request,
+    stateFingerprint: domainApplyToken(input?.stateFingerprint, "state_fingerprint"),
+    dryRunToken: domainApplyToken(input?.dryRunToken, "dry_run_token"),
+    confirm: true,
+    previewAcknowledged: input?.previewAcknowledged === true,
+  };
+}
+
+function domainJsonObject(value: string | null, field: string): Record<string, unknown> | null {
+  if (value === null || value === undefined || value === "") return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  return parsed as Record<string, unknown>;
+}
+
+function domainString(value: unknown, field: string, required = true): string | null {
+  if (value === null || value === undefined || value === "") {
+    if (required) throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+    return null;
+  }
+  if (typeof value !== "string") throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized || normalized.length > 500 || /[\u0000-\u001F\u007F]/u.test(normalized)) {
+    throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  }
+  return normalized;
+}
+
+function domainNullableString(value: unknown, field: string): string | null {
+  return value === null || value === undefined || value === "" ? null : domainString(value, field, false);
+}
+
+function domainBool(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  return value;
+}
+
+function domainInteger(value: unknown, field: string): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  return number;
+}
+
+function domainDate(value: unknown, field: string): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const date = domainString(value, field);
+  if (!date || !Number.isFinite(Date.parse(date))) throw new RecoveryCoreError(`RECOVERY_DOMAIN_${field.toUpperCase()}_INVALID`);
+  return date;
+}
+
+function domainNormalized(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, "");
+}
+
+function domainSortedObject(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]));
+}
+
+function domainStatesEqual(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+  return JSON.stringify(domainSortedObject(left)) === JSON.stringify(domainSortedObject(right));
+}
+
+function domainCopySnapshot(
+  target: DomainTargetRow,
+  before: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const next = { ...target.values };
+  const source = before ?? {};
+  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(source, key);
+  switch (target.entityType) {
+    case "farm":
+      if (before === null) next.active = false;
+      else {
+        if (has("name")) next.name = domainString(source.name, "name");
+        if (has("siteName")) next.siteName = domainNullableString(source.siteName, "site_name");
+        if (has("latitude")) next.latitude = source.latitude === null ? null : Number(source.latitude);
+        if (has("longitude")) next.longitude = source.longitude === null ? null : Number(source.longitude);
+        if (has("structureMode")) next.structureMode = domainString(source.structureMode, "structure_mode");
+        if (has("note")) next.note = domainNullableString(source.note, "note");
+        if (has("active")) next.active = domainBool(source.active, "active");
+      }
+      break;
+    case "house":
+      if (before === null) next.active = false;
+      else {
+        if (has("name")) next.name = domainString(source.name, "name");
+        if (has("normalizedName")) next.normalizedName = domainString(source.normalizedName, "normalized_name");
+        if (has("capacity")) next.capacity = domainInteger(source.capacity, "capacity");
+        if (has("note")) next.note = domainNullableString(source.note, "note");
+        if (has("active")) next.active = domainBool(source.active, "active");
+      }
+      break;
+    case "flock":
+      if (before === null) next.status = "cancelled";
+      else {
+        if (has("breed")) next.breed = domainNullableString(source.breed, "breed");
+        if (has("expectedShipmentDate")) next.expectedShipmentDate = domainDate(source.expectedShipmentDate, "expected_shipment_date");
+        if (has("actualShipmentDate")) next.actualShipmentDate = domainDate(source.actualShipmentDate, "actual_shipment_date");
+        if (has("status")) {
+          const status = domainString(source.status, "status");
+          if (!status || !["active", "closed", "cancelled"].includes(status)) throw new RecoveryCoreError("RECOVERY_DOMAIN_STATUS_INVALID");
+          next.status = status;
+        }
+        if (has("note")) next.note = domainNullableString(source.note, "note");
+      }
+      break;
+    case "caretaker":
+      if (before === null) next.active = false;
+      else {
+        if (has("name")) {
+          const name = domainString(source.name, "name");
+          next.name = name;
+          next.normalizedName = has("normalizedName") ? domainString(source.normalizedName, "normalized_name") : domainNormalized(name ?? "");
+        }
+        if (has("normalizedName")) next.normalizedName = domainString(source.normalizedName, "normalized_name");
+        if (has("note")) next.note = domainNullableString(source.note, "note");
+        if (has("active")) next.active = domainBool(source.active, "active");
+      }
+      break;
+    case "farm_caretaker_assignment":
+      if (before === null) next.effectiveTo = addIsoDays(String(target.values.effectiveFrom), -1);
+      else {
+        if (has("effectiveFrom")) next.effectiveFrom = domainDate(source.effectiveFrom, "effective_from");
+        if (has("effectiveTo")) next.effectiveTo = domainDate(source.effectiveTo, "effective_to");
+        if (has("isPrimary")) next.isPrimary = domainBool(source.isPrimary, "is_primary");
+      }
+      break;
+    case "line_group":
+      if (before === null) {
+        next.status = "unbound";
+        next.farmId = null;
+        next.farmName = null;
+      } else {
+        if (has("status")) next.status = domainString(source.status, "status");
+        if (has("farmId")) next.farmId = domainNullableString(source.farmId, "farm_id");
+        if (has("farmName")) next.farmName = domainNullableString(source.farmName, "farm_name");
+      }
+      break;
+    case "line_group_organization_claim":
+      if (before === null) {
+        next.organizationId = null;
+        next.status = "unbound";
+      } else {
+        if (has("organizationId")) next.organizationId = domainNullableString(source.organizationId, "organization_id");
+        if (has("status")) next.status = domainString(source.status, "status");
+      }
+      break;
+    case "line_group_operational_authorization":
+      next.operationalAuthorized = before === null ? false : has("operationalAuthorized") ? domainBool(source.operationalAuthorized, "operational_authorized") : next.operationalAuthorized;
+      break;
+    case "line_group_ai_conversation":
+      next.conversationV2Enabled = before === null ? false : has("conversationV2Enabled") ? domainBool(source.conversationV2Enabled, "conversation_v2_enabled") : next.conversationV2Enabled;
+      break;
+    case "operator_identity":
+      if (before === null) next.active = false;
+      else {
+        if (has("displayName")) next.displayName = domainString(source.displayName, "display_name");
+        if (has("active")) next.active = domainBool(source.active, "active");
+      }
+      break;
+    case "operator_scope_binding":
+      next.active = before === null ? false : has("active") ? domainBool(source.active, "active") : next.active;
+      break;
+    case "line_group_operator_binding":
+      next.active = before === null ? false : has("active") ? domainBool(source.active, "active") : next.active;
+      break;
+  }
+  return next;
+}
+
+function domainDependencyImpact(entityType: DomainRecoveryEntityType): boolean {
+  return new Set<DomainRecoveryEntityType>([
+    "farm",
+    "house",
+    "flock",
+    "farm_caretaker_assignment",
+    "line_group",
+    "line_group_organization_claim",
+    "operator_identity",
+    "operator_scope_binding",
+    "line_group_operator_binding",
+  ]).has(entityType);
+}
+
+const DOMAIN_RECOVERY_MUTABLE_FIELDS: Readonly<Record<DomainRecoveryEntityType, readonly string[]>> = Object.freeze({
+  farm: ["name", "siteName", "latitude", "longitude", "structureMode", "note", "active"],
+  house: ["name", "normalizedName", "capacity", "note", "active"],
+  flock: ["breed", "expectedShipmentDate", "actualShipmentDate", "status", "note"],
+  caretaker: ["name", "normalizedName", "note", "active"],
+  farm_caretaker_assignment: ["effectiveFrom", "effectiveTo", "isPrimary"],
+  line_group: ["status", "farmId", "farmName"],
+  line_group_organization_claim: ["organizationId", "status"],
+  line_group_operational_authorization: ["operationalAuthorized"],
+  line_group_ai_conversation: ["conversationV2Enabled"],
+  operator_identity: ["displayName", "active"],
+  operator_scope_binding: ["active"],
+  line_group_operator_binding: ["active"],
+});
+
+function domainRecoveryMutableFields(entityType: DomainRecoveryEntityType): readonly string[] {
+  return DOMAIN_RECOVERY_MUTABLE_FIELDS[entityType];
+}
+
+function domainExpectedAfterState(target: DomainTargetRow, proposedAfter: Record<string, unknown>): Record<string, unknown> {
+  if (typeof target.values.version !== "number") return proposedAfter;
+  return { ...proposedAfter, version: target.values.version + 1 };
+}
+
+function domainDependencyGroup(target: DomainTargetRow): string {
+  if (target.entityType === "line_group" || target.entityType.startsWith("line_group_")) return `line-group:${target.environment}:${target.id}`;
+  if (target.entityType === "farm" || target.entityType === "farm_caretaker_assignment") return `farm:${target.environment}:${target.farmId ?? target.id}`;
+  if (target.entityType === "house") return `house:${target.environment}:${target.houseId ?? target.id}`;
+  if (target.entityType === "flock") return `flock:${target.environment}:${target.flockId ?? target.id}`;
+  if (target.entityType === "operator_identity") return `operator:${target.organizationId ?? "unknown"}:${target.id}`;
+  if (target.entityType === "operator_scope_binding") return `scope:${target.environment}:${target.id}`;
+  if (target.entityType === "line_group_operator_binding") return `binding:${target.environment}:${target.id}`;
+  return `organization:${target.organizationId ?? "unknown"}:${target.entityType}`;
+}
+
+function domainDependencies(target: DomainTargetRow, audit: DomainAuditRow): DomainRecoveryDependency[] {
+  const dependencies: DomainRecoveryDependency[] = [
+    { kind: "domain_entity", id: `${target.entityType}:${target.id}`, relation: "target", effective: true },
+    { kind: "derived_projection", id: `scope:${target.environment}:${target.farmId ?? target.organizationId ?? "organization"}`, relation: "scope", effective: true },
+    { kind: "domain_entity", id: `audit:${audit.id}`, relation: "audit", effective: true },
+  ];
+  if (target.farmId) dependencies.push({ kind: "dependent_entity", id: `farm:${target.farmId}`, relation: "parent", effective: true });
+  if (target.houseId) dependencies.push({ kind: "dependent_entity", id: `house:${target.houseId}`, relation: "parent", effective: true });
+  if (target.flockId) dependencies.push({ kind: "dependent_entity", id: `flock:${target.flockId}`, relation: "parent", effective: true });
+  return dependencies;
+}
+
+async function domainSha256(value: unknown): Promise<string> {
+  return sha256Hex(JSON.stringify(value));
+}
+
+async function domainAuditById(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryRequest,
+): Promise<DomainAuditRow> {
+  const row = await env.DB.prepare(
+    `SELECT id, action, entity_type AS entityType, entity_id AS entityId,
+            before_json AS beforeJson, after_json AS afterJson, created_at AS createdAt
+       FROM audit_logs
+      WHERE id = ? AND organization_id = ? AND entity_type = ? AND entity_id = ?
+      LIMIT 1`,
+  ).bind(request.auditId, organizationId, request.entityType, request.targetId).first<Record<string, unknown>>();
+  if (!row) throw new RecoveryCoreError("RECOVERY_DOMAIN_AUDIT_NOT_FOUND", 404);
+  return {
+    id: String(row.id),
+    action: String(row.action),
+    entityType: domainEntityType(row.entityType),
+    entityId: String(row.entityId),
+    beforeJson: row.beforeJson === null || row.beforeJson === undefined ? null : String(row.beforeJson),
+    afterJson: row.afterJson === null || row.afterJson === undefined ? null : String(row.afterJson),
+    createdAt: String(row.createdAt),
+  };
+}
+
+function domainTargetFromRow(
+  entityType: DomainRecoveryEntityType,
+  table: string,
+  row: Record<string, unknown>,
+  requestedEnvironment: "production" | "test",
+): DomainTargetRow {
+  const organizationId = row.organizationId === null || row.organizationId === undefined ? null : String(row.organizationId);
+  const environment = row.environment === "test" ? "test" : "production";
+  if (environment !== requestedEnvironment && ["farm", "house", "flock", "farm_caretaker_assignment", "line_group", "line_group_organization_claim", "line_group_operational_authorization", "line_group_ai_conversation", "operator_scope_binding", "line_group_operator_binding"].includes(entityType)) {
+    throw new RecoveryCoreError("RECOVERY_DOMAIN_ENVIRONMENT_MISMATCH", 409);
+  }
+  const id = String(row.id);
+  const values: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!["id", "entityType", "table", "environment"].includes(key)) values[key] = value;
+  }
+  if (["farm", "house", "caretaker", "operator_identity", "operator_scope_binding", "line_group_operator_binding"].includes(entityType) && Object.prototype.hasOwnProperty.call(values, "active")) {
+    values.active = Number(values.active) === 1;
+  }
+  if (entityType === "farm_caretaker_assignment" && Object.prototype.hasOwnProperty.call(values, "isPrimary")) values.isPrimary = Number(values.isPrimary) === 1;
+  if (entityType === "line_group" || entityType === "line_group_organization_claim" || entityType === "line_group_operational_authorization" || entityType === "line_group_ai_conversation") {
+    if (Object.prototype.hasOwnProperty.call(values, "operationalAuthorized")) values.operationalAuthorized = Number(values.operationalAuthorized) === 1;
+    if (Object.prototype.hasOwnProperty.call(values, "conversationV2Enabled")) values.conversationV2Enabled = Number(values.conversationV2Enabled) === 1;
+  }
+  return {
+    id,
+    entityType,
+    table,
+    organizationId,
+    environment: requestedEnvironment,
+    farmId: row.farmId === null || row.farmId === undefined ? null : String(row.farmId),
+    houseId: row.houseId === null || row.houseId === undefined ? null : String(row.houseId),
+    flockId: row.flockId === null || row.flockId === undefined ? null : String(row.flockId),
+    values,
+  };
+}
+
+async function domainTargetById(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryRequest,
+): Promise<DomainTargetRow> {
+  const id = request.targetId;
+  let row: Record<string, unknown> | null = null;
+  let table = "";
+  switch (request.entityType) {
+    case "farm":
+      table = "farms";
+      row = await env.DB.prepare(
+        `SELECT id, organization_id AS organizationId, environment, name, site_name AS siteName,
+                latitude, longitude, active, farm_structure_mode AS structureMode, note, version
+           FROM farms WHERE id = ? AND organization_id = ? AND environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+    case "house":
+      table = "houses";
+      row = await env.DB.prepare(
+        `SELECT h.id, f.organization_id AS organizationId, f.environment, h.farm_id AS farmId,
+                h.name, h.normalized_name AS normalizedName, h.capacity, h.active, h.note, h.version
+           FROM houses h JOIN farms f ON f.id = h.farm_id
+          WHERE h.id = ? AND f.organization_id = ? AND f.environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+    case "flock":
+      table = "flocks";
+      row = await env.DB.prepare(
+        `SELECT k.id, f.organization_id AS organizationId, f.environment, k.farm_id AS farmId,
+                k.house_id AS houseId, k.batch_code AS batchCode, k.breed, k.chick_in_date AS chickInDate,
+                k.initial_count AS initialCount, k.expected_shipment_date AS expectedShipmentDate,
+                k.actual_shipment_date AS actualShipmentDate, k.status, k.note, k.version
+           FROM flocks k JOIN farms f ON f.id = k.farm_id
+          WHERE k.id = ? AND f.organization_id = ? AND f.environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+    case "caretaker":
+      table = "caretakers";
+      row = await env.DB.prepare(
+        `SELECT id, organization_id AS organizationId, name, normalized_name AS normalizedName,
+                active, note, version FROM caretakers
+          WHERE id = ? AND organization_id = ? LIMIT 1`,
+      ).bind(id, organizationId).first<Record<string, unknown>>();
+      break;
+    case "farm_caretaker_assignment":
+      table = "farm_caretaker_assignments";
+      row = await env.DB.prepare(
+        `SELECT a.id, f.organization_id AS organizationId, f.environment, a.farm_id AS farmId,
+                a.caretaker_id AS caretakerId, a.effective_from AS effectiveFrom,
+                a.effective_to AS effectiveTo, a.is_primary AS isPrimary
+           FROM farm_caretaker_assignments a JOIN farms f ON f.id = a.farm_id
+          WHERE a.id = ? AND f.organization_id = ? AND f.environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+    case "line_group":
+    case "line_group_organization_claim":
+    case "line_group_operational_authorization":
+    case "line_group_ai_conversation":
+      table = "line_groups";
+      row = await env.DB.prepare(
+        `SELECT g.group_id AS id, g.organization_id AS organizationId,
+                COALESCE(f.environment, 'production') AS environment,
+                g.status, g.farm_id AS farmId, g.farm_name AS farmName,
+                COALESCE(g.operational_authorized, 0) AS operationalAuthorized,
+                COALESCE(g.conversation_v2_enabled, 0) AS conversationV2Enabled
+           FROM line_groups g LEFT JOIN farms f ON f.id = g.farm_id
+          WHERE g.group_id = ? LIMIT 1`,
+      ).bind(id).first<Record<string, unknown>>();
+      if (row && row.organizationId !== null && row.organizationId !== organizationId) throw new RecoveryCoreError("RECOVERY_DOMAIN_ORGANIZATION_MISMATCH", 409);
+      if (row && request.entityType !== "line_group_organization_claim" && row.organizationId !== organizationId) row = null;
+      break;
+    case "operator_identity":
+      table = "operator_identities";
+      row = await env.DB.prepare(
+        `SELECT id, organization_id AS organizationId, identity_type AS identityType,
+                identity_key AS identityKey, display_name AS displayName, active, version
+           FROM operator_identities WHERE id = ? AND organization_id = ? LIMIT 1`,
+      ).bind(id, organizationId).first<Record<string, unknown>>();
+      break;
+    case "operator_scope_binding":
+      table = "operator_scope_bindings";
+      row = await env.DB.prepare(
+        `SELECT s.id, s.organization_id AS organizationId, s.environment, s.operator_id AS operatorId,
+                s.farm_id AS farmId, s.house_id AS houseId, s.flock_id AS flockId, s.active
+           FROM operator_scope_bindings s
+          WHERE s.id = ? AND s.organization_id = ? AND s.environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+    case "line_group_operator_binding":
+      table = "line_group_operator_bindings";
+      row = await env.DB.prepare(
+        `SELECT b.id, b.organization_id AS organizationId, s.environment,
+                b.line_group_id AS groupId, b.operator_id AS operatorId,
+                b.scope_binding_id AS scopeId, b.active
+           FROM line_group_operator_bindings b
+           JOIN operator_scope_bindings s ON s.id = b.scope_binding_id AND s.organization_id = b.organization_id
+          WHERE b.id = ? AND b.organization_id = ? AND s.environment = ? LIMIT 1`,
+      ).bind(id, organizationId, request.environment).first<Record<string, unknown>>();
+      break;
+  }
+  if (!row) throw new RecoveryCoreError("RECOVERY_DOMAIN_TARGET_NOT_FOUND", 404);
+  return domainTargetFromRow(request.entityType, table, row, request.environment);
+}
+
+function domainPlanConflicts(
+  target: DomainTargetRow,
+  before: Record<string, unknown> | null,
+  proposedAfter: Record<string, unknown>,
+  organizationId: string,
+): string[] {
+  const conflicts: string[] = [];
+  if (before && before.id !== undefined && String(before.id) !== target.id) conflicts.push("RECOVERY_DOMAIN_AUDIT_TARGET_MISMATCH");
+  if (before && before.environment !== undefined && before.environment !== target.environment) conflicts.push("RECOVERY_DOMAIN_ENVIRONMENT_MISMATCH");
+  if (target.entityType === "line_group_organization_claim") {
+    const nextOrganization = proposedAfter.organizationId === null || proposedAfter.organizationId === undefined ? null : String(proposedAfter.organizationId);
+    if (nextOrganization !== null && nextOrganization !== organizationId) conflicts.push("RECOVERY_DOMAIN_ORGANIZATION_REASSIGNMENT");
+  }
+  if (target.entityType === "flock" && proposedAfter.initialCount !== undefined && proposedAfter.initialCount !== target.values.initialCount) conflicts.push("RECOVERY_DOMAIN_STOCK_FIELD_FORBIDDEN");
+  const changed = domainRecoveryMutableFields(target.entityType).some((key) => JSON.stringify(proposedAfter[key]) !== JSON.stringify(target.values[key]));
+  if (!changed) conflicts.push("RECOVERY_DOMAIN_NO_STATE_CHANGE");
+  return conflicts;
+}
+
+async function domainPlanFingerprint(
+  organizationId: string,
+  request: DomainRecoveryRequest,
+  audit: DomainAuditRow,
+  target: DomainTargetRow,
+): Promise<string> {
+  return domainSha256({
+    operation: DOMAIN_RECOVERY_OPERATION,
+    organizationId,
+    request: { environment: request.environment, auditId: request.auditId, entityType: request.entityType, targetId: request.targetId },
+    audit: { id: audit.id, action: audit.action, before: audit.beforeJson, after: audit.afterJson, createdAt: audit.createdAt },
+    current: domainSortedObject(target.values),
+  });
+}
+
+async function domainPlanToken(
+  request: DomainRecoveryRequest,
+  fingerprint: string,
+  proposedAfter: Record<string, unknown>,
+): Promise<string> {
+  return domainSha256({ operation: DOMAIN_RECOVERY_OPERATION, request, fingerprint, proposedAfter: domainSortedObject(proposedAfter) });
+}
+
+async function buildDomainRecoveryPlan(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryRequest,
+): Promise<DomainRecoveryPlan> {
+  const normalized = validateDomainRequest(request);
+  const audit = await domainAuditById(env, organizationId, normalized);
+  const before = domainJsonObject(audit.beforeJson, "before");
+  const target = await domainTargetById(env, organizationId, normalized);
+  const proposedAfter = domainExpectedAfterState(target, domainCopySnapshot(target, before));
+  const conflicts = domainPlanConflicts(target, before, proposedAfter, organizationId);
+  const fingerprint = await domainPlanFingerprint(organizationId, normalized, audit, target);
+  return {
+    operation: DOMAIN_RECOVERY_OPERATION,
+    environment: normalized.environment,
+    audit: { id: audit.id, action: audit.action, entityType: audit.entityType, entityId: audit.entityId, createdAt: audit.createdAt },
+    target: {
+      id: target.id,
+      entityType: target.entityType,
+      table: target.table,
+      organizationId: target.organizationId,
+      environment: target.environment,
+      scope: { farmId: target.farmId, houseId: target.houseId, flockId: target.flockId },
+    },
+    before,
+    current: target.values,
+    proposedAfter,
+    dependencies: domainDependencies(target, audit),
+    dependencyImpact: domainDependencyImpact(target.entityType),
+    dependencyGroupId: domainDependencyGroup(target),
+    stockImpact: { affected: false, delta: 0 },
+    financeImpact: { affected: false, delta: 0 },
+    conflicts,
+    applyEligibility: conflicts.length ? "DENIED" : "ELIGIBLE",
+    stateFingerprint: fingerprint,
+    dryRunToken: await domainPlanToken(normalized, fingerprint, proposedAfter),
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function dryRunDomainRecovery(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: DomainRecoveryRequest,
+): Promise<DomainRecoveryPlan> {
+  return buildDomainRecoveryPlan(env, context.organizationId, input);
+}
+
+function domainRecoveryAuditId(clientOperationId: string): string {
+  return `audit-domain-recovery-${clientOperationId}`;
+}
+
+function domainRecoveryAuditStatement(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  request: DomainRecoveryApplyRequest,
+  plan: DomainRecoveryPlan,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT OR IGNORE INTO audit_logs
+      (id, organization_id, source, actor_type, actor_id, action, entity_type,
+       entity_id, before_json, after_json, changed_fields_json, reason, request_id)
+     VALUES (?, ?, 'web', 'web_admin', ?, 'recovery_apply', 'domain_recovery', ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    domainRecoveryAuditId(request.clientOperationId),
+    context.organizationId,
+    context.actorId,
+    plan.target.id,
+    JSON.stringify({
+      operation: DOMAIN_RECOVERY_OPERATION,
+      auditId: plan.audit.id,
+      entityType: plan.target.entityType,
+      targetId: plan.target.id,
+      stateFingerprint: plan.stateFingerprint,
+      state: plan.current,
+    }),
+    JSON.stringify({
+      operation: DOMAIN_RECOVERY_OPERATION,
+      entityType: plan.target.entityType,
+      targetId: plan.target.id,
+      state: plan.proposedAfter,
+      stockDelta: 0,
+      financeDelta: 0,
+    }),
+    JSON.stringify(domainRecoveryMutableFields(plan.target.entityType).filter((key) => JSON.stringify(plan.proposedAfter[key]) !== JSON.stringify(plan.current[key]))),
+    request.reason,
+    context.requestId,
+  );
+}
+
+function domainUpdateStatement(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryRequest,
+  plan: DomainRecoveryPlan,
+): D1PreparedStatement {
+  const state = plan.proposedAfter;
+  const id = plan.target.id;
+  switch (request.entityType) {
+    case "farm":
+      return env.DB.prepare(
+        `UPDATE farms SET name = ?, site_name = ?, latitude = ?, longitude = ?,
+                farm_structure_mode = ?, note = ?, active = ?, version = version + 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND organization_id = ? AND environment = ? AND version = ?`,
+      ).bind(state.name, state.siteName ?? null, state.latitude ?? null, state.longitude ?? null, state.structureMode, state.note ?? null, state.active ? 1 : 0, id, organizationId, request.environment, Number(plan.current.version));
+    case "house":
+      return env.DB.prepare(
+        `UPDATE houses SET name = ?, normalized_name = ?, capacity = ?, note = ?, active = ?,
+                version = version + 1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND version = ? AND EXISTS (
+            SELECT 1 FROM farms f WHERE f.id = houses.farm_id AND f.organization_id = ? AND f.environment = ?
+          )`,
+      ).bind(state.name, state.normalizedName ?? domainNormalized(String(state.name)), state.capacity ?? null, state.note ?? null, state.active ? 1 : 0, id, Number(plan.current.version), organizationId, request.environment);
+    case "flock":
+      return env.DB.prepare(
+        `UPDATE flocks SET breed = ?, expected_shipment_date = ?, actual_shipment_date = ?,
+                status = ?, note = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND version = ? AND EXISTS (
+            SELECT 1 FROM farms f WHERE f.id = flocks.farm_id AND f.organization_id = ? AND f.environment = ?
+          )`,
+      ).bind(state.breed ?? null, state.expectedShipmentDate ?? null, state.actualShipmentDate ?? null, state.status, state.note ?? null, id, Number(plan.current.version), organizationId, request.environment);
+    case "caretaker":
+      return env.DB.prepare(
+        `UPDATE caretakers SET name = ?, normalized_name = ?, note = ?, active = ?,
+                version = version + 1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND organization_id = ? AND version = ?`,
+      ).bind(state.name, state.normalizedName ?? domainNormalized(String(state.name)), state.note ?? null, state.active ? 1 : 0, id, organizationId, Number(plan.current.version));
+    case "farm_caretaker_assignment":
+      return env.DB.prepare(
+        `UPDATE farm_caretaker_assignments SET effective_from = ?, effective_to = ?, is_primary = ?
+          WHERE id = ? AND EXISTS (
+            SELECT 1 FROM farms f WHERE f.id = farm_caretaker_assignments.farm_id
+              AND f.organization_id = ? AND f.environment = ?
+          )`,
+      ).bind(state.effectiveFrom, state.effectiveTo ?? null, state.isPrimary ? 1 : 0, id, organizationId, request.environment);
+    case "line_group":
+      return env.DB.prepare(
+        `UPDATE line_groups SET status = ?, farm_id = ?, farm_name = ?
+          WHERE group_id = ? AND organization_id = ?`,
+      ).bind(state.status, state.farmId ?? null, state.farmName ?? null, id, organizationId);
+    case "line_group_organization_claim":
+      return env.DB.prepare(
+        `UPDATE line_groups SET organization_id = ?, status = ?
+          WHERE group_id = ? AND organization_id = ?`,
+      ).bind(state.organizationId ?? null, state.status, id, organizationId);
+    case "line_group_operational_authorization":
+      return env.DB.prepare(
+        `UPDATE line_groups SET operational_authorized = ?
+          WHERE group_id = ? AND organization_id = ?`,
+      ).bind(state.operationalAuthorized ? 1 : 0, id, organizationId);
+    case "line_group_ai_conversation":
+      return env.DB.prepare(
+        `UPDATE line_groups SET conversation_v2_enabled = ?
+          WHERE group_id = ? AND organization_id = ?`,
+      ).bind(state.conversationV2Enabled ? 1 : 0, id, organizationId);
+    case "operator_identity":
+      return env.DB.prepare(
+        `UPDATE operator_identities SET display_name = ?, active = ?, version = version + 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND organization_id = ? AND version = ?`,
+      ).bind(state.displayName, state.active ? 1 : 0, id, organizationId, Number(plan.current.version));
+    case "operator_scope_binding":
+      return env.DB.prepare(
+        `UPDATE operator_scope_bindings SET active = ?
+          WHERE id = ? AND organization_id = ? AND environment = ?`,
+      ).bind(state.active ? 1 : 0, id, organizationId, request.environment);
+    case "line_group_operator_binding":
+      return env.DB.prepare(
+        `UPDATE line_group_operator_bindings SET active = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND organization_id = ?`,
+      ).bind(state.active ? 1 : 0, id, organizationId);
+  }
+}
+
+async function domainRecoveryAuditExists(env: RecoveryEnv, organizationId: string, clientOperationId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT id FROM audit_logs WHERE id = ? AND organization_id = ? AND entity_type = 'domain_recovery' LIMIT 1",
+  ).bind(domainRecoveryAuditId(clientOperationId), organizationId).first<{ id: string }>();
+  return Boolean(row?.id);
+}
+
+async function domainRecoveryIdempotentState(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryApplyRequest,
+): Promise<Record<string, unknown> | null> {
+  const row = await env.DB.prepare(
+    "SELECT after_json AS afterJson FROM audit_logs WHERE id = ? AND organization_id = ? AND entity_type = 'domain_recovery' LIMIT 1",
+  ).bind(domainRecoveryAuditId(request.clientOperationId), organizationId).first<{ afterJson: string | null }>();
+  const after = domainJsonObject(row?.afterJson ?? null, "recovery_after");
+  return after?.state && typeof after.state === "object" && !Array.isArray(after.state) ? after.state as Record<string, unknown> : null;
+}
+
+async function domainAuthoritativeReadback(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainRecoveryRequest,
+): Promise<DomainRecoveryApplyResult["authoritativeReadback"]> {
+  const target = await domainTargetById(env, organizationId, request);
+  return { entityType: target.entityType, id: target.id, environment: target.environment, state: target.values };
+}
+
+async function executeDomainRecoveryGroup(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  requests: readonly DomainRecoveryApplyRequest[],
+  plans: readonly DomainRecoveryPlan[],
+): Promise<{ auditIds: string[]; readbacks: DomainRecoveryApplyResult["authoritativeReadback"][] }> {
+  if (!requests.length || requests.length !== plans.length) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  const statements: D1PreparedStatement[] = [];
+  for (let index = 0; index < requests.length; index += 1) {
+    statements.push(domainUpdateStatement(env, context.organizationId, requests[index], plans[index]));
+    statements.push(domainRecoveryAuditStatement(env, context, requests[index], plans[index]));
+  }
+  await env.DB.batch(statements);
+  const readbacks: DomainRecoveryApplyResult["authoritativeReadback"][] = [];
+  for (let index = 0; index < requests.length; index += 1) {
+    const readback = await domainAuthoritativeReadback(env, context.organizationId, requests[index]);
+    const fields = domainRecoveryMutableFields(requests[index].entityType);
+    const matches = fields.every((field) => JSON.stringify(readback.state[field]) === JSON.stringify(plans[index].proposedAfter[field]));
+    if (!matches) throw new RecoveryCoreError("RECOVERY_DOMAIN_READBACK_MISMATCH", 500);
+    if (!(await domainRecoveryAuditExists(env, context.organizationId, requests[index].clientOperationId))) throw new RecoveryCoreError("RECOVERY_DOMAIN_AUDIT_READBACK_FAILED", 500);
+    readbacks.push(readback);
+  }
+  return { auditIds: requests.map((request) => domainRecoveryAuditId(request.clientOperationId)), readbacks };
+}
+
+export async function applyDomainRecovery(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: DomainRecoveryApplyRequest,
+): Promise<DomainRecoveryApplyResult> {
+  assertCanonicalWritesOpen(env);
+  const request = validateDomainApplyRequest(input);
+  const priorState = await domainRecoveryIdempotentState(env, context.organizationId, request);
+  if (priorState) {
+    const readback = await domainAuthoritativeReadback(env, context.organizationId, request);
+    if (!domainStatesEqual(readback.state, priorState)) throw new RecoveryCoreError("RECOVERY_IDEMPOTENCY_CONFLICT", 409);
+    return {
+      operation: DOMAIN_RECOVERY_OPERATION,
+      environment: request.environment,
+      entityType: request.entityType,
+      targetId: request.targetId,
+      applied: false,
+      idempotent: true,
+      recoveryAuditId: domainRecoveryAuditId(request.clientOperationId),
+      authoritativeReadback: readback,
+    };
+  }
+  const plan = await buildDomainRecoveryPlan(env, context.organizationId, request);
+  if (plan.stateFingerprint !== request.stateFingerprint) throw new RecoveryCoreError("STALE_STATE", 409);
+  if (plan.dryRunToken !== request.dryRunToken) throw new RecoveryCoreError("RECOVERY_PLAN_TOKEN_MISMATCH", 409);
+  if (plan.dependencyImpact && !request.previewAcknowledged) throw new RecoveryCoreError("RECOVERY_DEPENDENCY_PREVIEW_REQUIRED", 409);
+  if (plan.conflicts.length || plan.applyEligibility !== "ELIGIBLE") throw new RecoveryCoreError(plan.conflicts[0] ?? "RECOVERY_DOMAIN_NOT_ELIGIBLE", 409);
+  const executed = await executeDomainRecoveryGroup(env, context, [request], [plan]);
+  return {
+    operation: DOMAIN_RECOVERY_OPERATION,
+    environment: request.environment,
+    entityType: request.entityType,
+    targetId: request.targetId,
+    applied: true,
+    idempotent: false,
+    recoveryAuditId: executed.auditIds[0],
+    authoritativeReadback: executed.readbacks[0],
+  };
+}
+
+function validateDomainBatchRequest(input: DomainRecoveryBatchRequest): DomainRecoveryRequest[] {
+  if (!input || !Array.isArray(input.targets) || input.targets.length < 1 || input.targets.length > MAX_DOMAIN_RECOVERY_TARGETS) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  return input.targets.map(validateDomainRequest);
+}
+
+function validateDomainBatchApplyRequest(input: DomainRecoveryBatchApplyRequest): DomainRecoveryBatchApplyGroupRequest[] {
+  if (!input || !Array.isArray(input.groups) || input.groups.length < 1 || input.groups.length > MAX_DOMAIN_RECOVERY_TARGETS) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  const groups = input.groups.map((group) => {
+    if (!group || !Array.isArray(group.targets) || group.targets.length < 1 || group.targets.length > MAX_DOMAIN_RECOVERY_TARGETS) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+    return {
+      groupId: domainRequestText(group.groupId, "group_id", 240),
+      targets: group.targets.map(validateDomainApplyRequest),
+      stateFingerprint: domainApplyToken(group.stateFingerprint, "state_fingerprint"),
+      dryRunToken: domainApplyToken(group.dryRunToken, "dry_run_token"),
+    };
+  });
+  const seen = new Set<string>();
+  let count = 0;
+  for (const group of groups) {
+    if (seen.has(group.groupId)) throw new RecoveryCoreError("RECOVERY_BATCH_DUPLICATE_GROUP");
+    seen.add(group.groupId);
+    count += group.targets.length;
+  }
+  if (count > MAX_DOMAIN_RECOVERY_TARGETS) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  return groups;
+}
+
+async function domainBatchFingerprint(
+  organizationId: string,
+  groupId: string,
+  plans: readonly DomainRecoveryPlan[],
+): Promise<string> {
+  return domainSha256({
+    operation: DOMAIN_BATCH_RECOVERY_OPERATION,
+    organizationId,
+    groupId,
+    plans: plans.map((plan) => ({
+      audit: plan.audit,
+      target: plan.target,
+      current: domainSortedObject(plan.current),
+      proposedAfter: domainSortedObject(plan.proposedAfter),
+      conflicts: plan.conflicts,
+    })),
+  });
+}
+
+async function domainBatchToken(groupId: string, requests: readonly DomainRecoveryRequest[], fingerprint: string): Promise<string> {
+  const requestIdentity = requests.map(({ environment, auditId, entityType, targetId, clientOperationId, reason }) => ({
+    environment,
+    auditId,
+    entityType,
+    targetId,
+    clientOperationId,
+    reason,
+  }));
+  return domainSha256({ operation: DOMAIN_BATCH_RECOVERY_OPERATION, groupId, fingerprint, requests: requestIdentity });
+}
+
+async function domainBatchPlans(
+  env: RecoveryEnv,
+  organizationId: string,
+  requests: readonly DomainRecoveryRequest[],
+  requestedGroupId?: string,
+): Promise<{ groupId: string; plans: DomainRecoveryPlan[]; conflicts: string[]; environment: "production" | "test" | null }> {
+  const plans = await Promise.all(requests.map((request) => buildDomainRecoveryPlan(env, organizationId, request)));
+  const groupIds = new Set(plans.map((plan) => plan.dependencyGroupId));
+  const environments = new Set(plans.map((plan) => plan.environment));
+  const groupId = requestedGroupId ?? (groupIds.size === 1 ? Array.from(groupIds)[0] : `mixed:${Array.from(groupIds).sort().join(",")}`);
+  const conflicts: string[] = [];
+  if (requestedGroupId && (groupIds.size !== 1 || !groupIds.has(requestedGroupId))) conflicts.push("BATCH_GROUP_ID_MISMATCH");
+  if (environments.size !== 1) conflicts.push("RECOVERY_BATCH_ENVIRONMENT_MISMATCH");
+  for (const plan of plans) conflicts.push(...plan.conflicts.map((conflict) => `${plan.target.entityType}:${plan.target.id}:${conflict}`));
+  return { groupId, plans, conflicts: Array.from(new Set(conflicts)), environment: environments.size === 1 ? Array.from(environments)[0] : null };
+}
+
+function domainBatchGroupFromPlans(
+  groupId: string,
+  batch: { plans: DomainRecoveryPlan[]; conflicts: string[]; environment: "production" | "test" | null },
+  fingerprint: string,
+  token: string,
+): DomainRecoveryBatchGroupDryRun {
+  const dependencies = batch.plans.flatMap((plan) => plan.dependencies);
+  const uniqueDependencies = Array.from(new Map(dependencies.map((dependency) => [`${dependency.kind}:${dependency.id}:${dependency.relation}`, dependency])).values());
+  return {
+    groupId,
+    environment: batch.environment,
+    targetIds: batch.plans.map((plan) => plan.target.id),
+    targets: batch.plans,
+    dependencies: uniqueDependencies,
+    dependencyImpact: batch.plans.some((plan) => plan.dependencyImpact),
+    conflicts: Array.from(new Set(batch.conflicts)),
+    applyEligibility: batch.conflicts.length ? "DENIED" : "ELIGIBLE",
+    stateFingerprint: fingerprint,
+    dryRunToken: token,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function dryRunDomainRecoveryBatch(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: DomainRecoveryBatchRequest,
+): Promise<DomainRecoveryBatchDryRun> {
+  const requests = validateDomainBatchRequest(input);
+  const grouped = new Map<string, DomainRecoveryRequest[]>();
+  for (const request of requests) {
+    const preview = await buildDomainRecoveryPlan(env, context.organizationId, request);
+    const group = grouped.get(preview.dependencyGroupId) ?? [];
+    group.push(request);
+    grouped.set(preview.dependencyGroupId, group);
+  }
+  const groups: DomainRecoveryBatchGroupDryRun[] = [];
+  for (const [groupId, groupRequests] of grouped.entries()) {
+    const batch = await domainBatchPlans(env, context.organizationId, groupRequests, groupId);
+    const fingerprint = await domainBatchFingerprint(context.organizationId, groupId, batch.plans);
+    const token = await domainBatchToken(groupId, groupRequests, fingerprint);
+    groups.push(domainBatchGroupFromPlans(groupId, batch, fingerprint, token));
+  }
+  groups.sort((left, right) => left.groupId.localeCompare(right.groupId));
+  return { operation: DOMAIN_BATCH_RECOVERY_OPERATION, targetCount: requests.length, groupCount: groups.length, groups, evaluatedAt: new Date().toISOString() };
+}
+
+async function applyDomainBatchGroup(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  group: DomainRecoveryBatchApplyGroupRequest,
+): Promise<DomainRecoveryBatchGroupApplyResult> {
+  const requests = group.targets.map(validateDomainApplyRequest);
+  const targetIds = requests.map((request) => request.targetId);
+  const existingStates = await Promise.all(requests.map((request) => domainRecoveryIdempotentState(env, context.organizationId, request)));
+  const existingCount = existingStates.filter(Boolean).length;
+  if (existingCount > 0 && existingCount < requests.length) return { groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: ["BATCH_IDEMPOTENCY_PARTIAL"], authoritativeReadback: [] };
+  const batch = await domainBatchPlans(env, context.organizationId, requests, group.groupId);
+  const fingerprint = await domainBatchFingerprint(context.organizationId, group.groupId, batch.plans);
+  const token = await domainBatchToken(group.groupId, requests, fingerprint);
+  if (fingerprint !== group.stateFingerprint) return { groupId: group.groupId, status: "STALE_STATE", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: ["STALE_STATE"], authoritativeReadback: [] };
+  if (token !== group.dryRunToken) return { groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: ["RECOVERY_PLAN_TOKEN_MISMATCH"], authoritativeReadback: [] };
+  if (batch.conflicts.length) return { groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: batch.conflicts, authoritativeReadback: [] };
+  if (existingCount === requests.length) {
+    const readbacks = await Promise.all(requests.map((request) => domainAuthoritativeReadback(env, context.organizationId, request)));
+    const valid = readbacks.every((readback, index) => domainStatesEqual(readback.state, existingStates[index] ?? {}));
+    return valid
+      ? { groupId: group.groupId, status: "APPLIED", applied: false, idempotent: true, targetIds, recoveryAuditIds: requests.map((request) => domainRecoveryAuditId(request.clientOperationId)), conflicts: [], authoritativeReadback: readbacks }
+      : { groupId: group.groupId, status: "FAILED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: ["BATCH_IDEMPOTENCY_READBACK_FAILED"], authoritativeReadback: [] };
+  }
+  if (requests.some((request, index) => batch.plans[index].dependencyImpact && !request.previewAcknowledged)) return { groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: ["RECOVERY_DEPENDENCY_PREVIEW_REQUIRED"], authoritativeReadback: [] };
+  if (batch.plans.some((plan) => plan.conflicts.length)) return { groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: batch.plans.flatMap((plan) => plan.conflicts), authoritativeReadback: [] };
+  try {
+    const executed = await executeDomainRecoveryGroup(env, context, requests, batch.plans);
+    return { groupId: group.groupId, status: "APPLIED", applied: true, idempotent: false, targetIds, recoveryAuditIds: executed.auditIds, conflicts: [], authoritativeReadback: executed.readbacks };
+  } catch (error) {
+    return { groupId: group.groupId, status: "FAILED", applied: false, idempotent: false, targetIds, recoveryAuditIds: [], conflicts: [error instanceof RecoveryCoreError ? error.code : "BATCH_ATOMIC_APPLY_FAILED"], authoritativeReadback: [] };
+  }
+}
+
+export async function applyDomainRecoveryBatch(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: DomainRecoveryBatchApplyRequest,
+): Promise<DomainRecoveryBatchApplyResult> {
+  assertCanonicalWritesOpen(env);
+  const groups = validateDomainBatchApplyRequest(input);
+  const results: DomainRecoveryBatchGroupApplyResult[] = [];
+  for (const group of groups) results.push(await applyDomainBatchGroup(env, context, group));
+  return {
+    operation: DOMAIN_BATCH_RECOVERY_OPERATION,
+    groupCount: results.length,
+    appliedGroupCount: results.filter((group) => group.status === "APPLIED" && group.applied).length,
+    blockedGroupCount: results.filter((group) => group.status !== "APPLIED").length,
+    groups: results,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+function domainPitTargetTime(value: unknown): string {
+  const targetTime = domainRequestText(value, "target_time", 80);
+  if (!Number.isFinite(Date.parse(targetTime))) throw new RecoveryCoreError("RECOVERY_PIT_TARGET_TIME_INVALID");
+  return targetTime;
+}
+
+function domainPitSelection(value: DomainPitRecoverySelection): DomainPitRecoverySelection {
+  const auditId = domainRequestText(value?.auditId, "audit_id", 240);
+  if (value?.decision !== "REVERT" && value?.decision !== "PRESERVE") throw new RecoveryCoreError("PIT_DECISION_INVALID");
+  return { auditId, decision: value.decision };
+}
+
+async function domainCandidateMatchesEnvironment(
+  env: AuditReadEnv,
+  organizationId: string,
+  candidate: DomainRecoveryDiscoverCandidate,
+  environment: "production" | "test",
+): Promise<boolean> {
+  const snapshot = candidate.after ?? candidate.before;
+  if (snapshot?.environment !== undefined) return snapshot.environment === environment;
+  if (!candidate.entityType.startsWith("line_group")) return true;
+  const organizationClause = candidate.entityType === "line_group_organization_claim"
+    ? "(g.organization_id = ? OR g.organization_id IS NULL)"
+    : "g.organization_id = ?";
+  const row = await env.DB.prepare(
+    `SELECT CASE WHEN f.environment IN ('production', 'test') THEN f.environment ELSE NULL END AS environment
+       FROM line_groups g LEFT JOIN farms f ON f.id = g.farm_id
+      WHERE g.group_id = ? AND ${organizationClause}
+      LIMIT 1`,
+  ).bind(candidate.targetId, organizationId).first<{ environment: string | null }>();
+  return row?.environment === environment;
+}
+
+async function domainRecoveryCandidatesAfter(
+  env: RecoveryEnv,
+  organizationId: string,
+  environment: "production" | "test",
+  targetTime: string,
+): Promise<DomainRecoveryDiscoverCandidate[]> {
+  const placeholders = DOMAIN_RECOVERY_ENTITY_TYPES.map(() => "?").join(",");
+  const rows = await env.DB.prepare(
+    `SELECT id, action, entity_type AS entityType, entity_id AS entityId,
+            before_json AS beforeJson, after_json AS afterJson, created_at AS createdAt
+       FROM audit_logs
+      WHERE organization_id = ? AND entity_type IN (${placeholders})
+        AND created_at > ? ORDER BY created_at ASC, id ASC LIMIT ?`,
+  ).bind(organizationId, ...DOMAIN_RECOVERY_ENTITY_TYPES, targetTime, MAX_DOMAIN_PIT_CANDIDATES).all<Record<string, unknown>>();
+  const candidates = rows.results.map((row) => ({
+    auditId: String(row.id),
+    action: String(row.action),
+    entityType: domainEntityType(row.entityType),
+    targetId: String(row.entityId),
+    createdAt: String(row.createdAt),
+    before: domainJsonObject(row.beforeJson === null || row.beforeJson === undefined ? null : String(row.beforeJson), "before"),
+    after: domainJsonObject(row.afterJson === null || row.afterJson === undefined ? null : String(row.afterJson), "after"),
+  }));
+  const matches = await Promise.all(candidates.map((candidate) => domainCandidateMatchesEnvironment(env, organizationId, candidate, environment)));
+  return candidates.filter((_, index) => matches[index]);
+}
+
+export async function discoverDomainRecovery(
+  env: AuditReadEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: DomainRecoveryDiscoverRequest,
+): Promise<DomainRecoveryDiscoverResult> {
+  const environment = domainEnvironment(input?.environment);
+  const entityType = input?.entityType === undefined ? undefined : domainEntityType(input.entityType);
+  const limit = Math.min(MAX_DOMAIN_RECOVERY_TARGETS * 5, Math.max(1, Number(input?.limit ?? 50) || 50));
+  const placeholders = DOMAIN_RECOVERY_ENTITY_TYPES.map(() => "?").join(",");
+  const typeClause = entityType ? "AND entity_type = ?" : `AND entity_type IN (${placeholders})`;
+  const bindings: unknown[] = [context.organizationId, ...(entityType ? [entityType] : DOMAIN_RECOVERY_ENTITY_TYPES), limit];
+  const rows = await env.DB.prepare(
+    `SELECT id, action, entity_type AS entityType, entity_id AS entityId,
+            before_json AS beforeJson, after_json AS afterJson, created_at AS createdAt
+       FROM audit_logs WHERE organization_id = ? ${typeClause}
+      ORDER BY created_at DESC, id DESC LIMIT ?`,
+  ).bind(...bindings).all<Record<string, unknown>>();
+  const candidates = rows.results.map((row) => ({
+    auditId: String(row.id), action: String(row.action), entityType: domainEntityType(row.entityType), targetId: String(row.entityId), createdAt: String(row.createdAt),
+    before: domainJsonObject(row.beforeJson === null || row.beforeJson === undefined ? null : String(row.beforeJson), "before"),
+    after: domainJsonObject(row.afterJson === null || row.afterJson === undefined ? null : String(row.afterJson), "after"),
+  }));
+  const matches = await Promise.all(candidates.map((candidate) => domainCandidateMatchesEnvironment(env, context.organizationId, candidate, environment)));
+  const environmentCandidates = candidates.filter((_, index) => matches[index]);
+  return {
+    operation: "discover_canonical_domain_recovery_candidates",
+    environment,
+    candidates: environmentCandidates,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function discoverDomainPointInTimeRecovery(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: DomainPitRecoveryDiscoverRequest,
+): Promise<DomainPitRecoveryDiscoverResult> {
+  const environment = domainEnvironment(input?.environment);
+  const targetTime = domainPitTargetTime(input?.targetTime);
+  const candidates = await domainRecoveryCandidatesAfter(env, context.organizationId, environment, targetTime);
+  const enriched: DomainPitRecoveryCandidate[] = [];
+  for (const candidate of candidates) {
+    try {
+      const request: DomainRecoveryRequest = { environment, auditId: candidate.auditId, entityType: candidate.entityType, targetId: candidate.targetId, clientOperationId: `pit-discover-${candidate.auditId}`, reason: `PIT discovery ${targetTime}` };
+      const plan = await buildDomainRecoveryPlan(env, context.organizationId, request);
+      enriched.push({ ...candidate, groupId: plan.dependencyGroupId, environment, disposition: plan.conflicts.length ? "NOT_RECOVERABLE" : "REVERT", dependencyImpact: plan.dependencyImpact });
+    } catch {
+      enriched.push({ ...candidate, groupId: `unresolved:${candidate.auditId}`, environment, disposition: "NOT_RECOVERABLE", dependencyImpact: true });
+    }
+  }
+  const groups = Array.from(new Map(enriched.map((candidate) => [candidate.groupId, { groupId: candidate.groupId, candidateIds: [] as string[] }])).values());
+  for (const candidate of enriched) groups.find((group) => group.groupId === candidate.groupId)?.candidateIds.push(candidate.auditId);
+  return { operation: DOMAIN_PIT_RECOVERY_OPERATION, environment, targetTime, candidateCount: enriched.length, groupCount: groups.length, candidates: enriched, groups, evaluatedAt: new Date().toISOString() };
+}
+
+async function domainPitGroupPlans(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: DomainPitRecoveryDryRunRequest,
+): Promise<DomainPitRecoveryGroupDryRun[]> {
+  const environment = domainEnvironment(request.environment);
+  const targetTime = domainPitTargetTime(request.targetTime);
+  const selections = request.selections.map(domainPitSelection);
+  if (!selections.length || selections.length > MAX_DOMAIN_PIT_CANDIDATES) throw new RecoveryCoreError("PIT_SELECTIONS_INVALID");
+  const seen = new Set<string>();
+  for (const selection of selections) {
+    if (seen.has(selection.auditId)) throw new RecoveryCoreError(`PIT_DUPLICATE_SELECTION:${selection.auditId}`);
+    seen.add(selection.auditId);
+  }
+  const discovered = await discoverDomainPointInTimeRecovery(env, { organizationId }, { environment, targetTime });
+  const candidateMap = new Map(discovered.candidates.map((candidate) => [candidate.auditId, candidate]));
+  const grouped = new Map<string, { plans: DomainRecoveryPlan[]; selectedRevert: string[]; selectedPreserve: string[]; conflicts: string[] }>();
+  for (const selection of selections) {
+    const candidate = candidateMap.get(selection.auditId);
+    if (!candidate) throw new RecoveryCoreError(`PIT_CANDIDATE_NOT_FOUND:${selection.auditId}`, 404);
+    const group = grouped.get(candidate.groupId) ?? { plans: [], selectedRevert: [], selectedPreserve: [], conflicts: [] };
+    if (selection.decision === "PRESERVE") group.selectedPreserve.push(selection.auditId);
+    else {
+      if (candidate.disposition !== "REVERT") group.conflicts.push(`PIT_${candidate.disposition}:${candidate.auditId}`);
+      else {
+        const plan = await buildDomainRecoveryPlan(env, organizationId, {
+          environment,
+          auditId: candidate.auditId,
+          entityType: candidate.entityType,
+          targetId: candidate.targetId,
+          clientOperationId: `pit-recovery-${candidate.auditId}`,
+          reason: `Selective PIT revert to ${targetTime}`,
+        });
+        if (group.plans.some((existing) => existing.target.id === plan.target.id)) group.conflicts.push(`PIT_MULTIPLE_REVERT_TARGET:${plan.target.id}`);
+        group.plans.push(plan);
+        group.selectedRevert.push(selection.auditId);
+      }
+    }
+    grouped.set(candidate.groupId, group);
+  }
+  const results: DomainPitRecoveryGroupDryRun[] = [];
+  for (const [groupId, group] of grouped.entries()) {
+    const dependencies = Array.from(new Map(group.plans.flatMap((plan) => plan.dependencies).map((dependency) => [`${dependency.kind}:${dependency.id}:${dependency.relation}`, dependency])).values());
+    const conflicts = Array.from(new Set([...group.conflicts, ...group.plans.flatMap((plan) => plan.conflicts)]));
+    const fingerprint = await domainSha256({ operation: DOMAIN_PIT_RECOVERY_OPERATION, organizationId, groupId, targetTime, selections, plans: group.plans.map((plan) => ({ audit: plan.audit, current: plan.current, proposedAfter: plan.proposedAfter })) });
+    const token = await domainSha256({ operation: DOMAIN_PIT_RECOVERY_OPERATION, groupId, targetTime, selections, fingerprint });
+    results.push({ groupId, environment, targetTime, candidateIds: [...group.selectedRevert, ...group.selectedPreserve], selectedRevert: group.selectedRevert, selectedPreserve: group.selectedPreserve, targetPlans: group.plans, dependencies, dependencyImpact: group.plans.some((plan) => plan.dependencyImpact), conflicts, applyEligibility: conflicts.length ? "DENIED" : "ELIGIBLE", stateFingerprint: fingerprint, dryRunToken: token, evaluatedAt: new Date().toISOString() });
+  }
+  return results;
+}
+
+export async function dryRunDomainPointInTimeRecovery(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: DomainPitRecoveryDryRunRequest,
+): Promise<DomainPitRecoveryDryRunResult> {
+  const environment = domainEnvironment(input?.environment);
+  const targetTime = domainPitTargetTime(input?.targetTime);
+  const groups = await domainPitGroupPlans(env, context.organizationId, input);
+  return { operation: DOMAIN_PIT_RECOVERY_OPERATION, environment, targetTime, candidateCount: input.selections.length, groupCount: groups.length, groups, evaluatedAt: new Date().toISOString() };
+}
+
+function domainPitApplyStatus(
+  group: DomainPitRecoveryGroupDryRun,
+  status: DomainPitRecoveryGroupStatus,
+  conflicts: string[] = [],
+  idempotent = false,
+  recoveryAuditIds: string[] = [],
+  authoritativeReadback: DomainRecoveryApplyResult["authoritativeReadback"][] = [],
+): DomainPitRecoveryGroupApplyResult {
+  return { groupId: group.groupId, status, applied: status === "APPLIED" && !idempotent, idempotent, candidateIds: group.candidateIds, revertedCandidateIds: group.selectedRevert, preservedCandidateIds: group.selectedPreserve, recoveryAuditIds, conflicts, authoritativeReadback };
+}
+
+export async function applyDomainPointInTimeRecovery(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: DomainPitRecoveryApplyRequest,
+): Promise<DomainPitRecoveryApplyResult> {
+  assertCanonicalWritesOpen(env);
+  const environment = domainEnvironment(input?.environment);
+  if (!Array.isArray(input?.groups) || !input.groups.length || input.groups.length > MAX_DOMAIN_PIT_GROUPS) throw new RecoveryCoreError("PIT_GROUPS_INVALID");
+  const results: DomainPitRecoveryGroupApplyResult[] = [];
+  for (const rawGroup of input.groups) {
+    const group = {
+      groupId: domainRequestText(rawGroup.groupId, "group_id", 240),
+      targetTime: domainPitTargetTime(rawGroup.targetTime),
+      selections: rawGroup.selections.map(domainPitSelection),
+      stateFingerprint: domainApplyToken(rawGroup.stateFingerprint, "state_fingerprint"),
+      dryRunToken: domainApplyToken(rawGroup.dryRunToken, "dry_run_token"),
+      clientOperationId: domainRequestText(rawGroup.clientOperationId, "client_operation_id", 240),
+    };
+    try {
+      const dryRun = await dryRunDomainPointInTimeRecovery(env, { organizationId: context.organizationId }, { environment, targetTime: group.targetTime, selections: group.selections });
+      const plan = dryRun.groups.find((candidate) => candidate.groupId === group.groupId);
+      if (!plan) {
+        results.push({ groupId: group.groupId, status: "BLOCKED", applied: false, idempotent: false, candidateIds: group.selections.map((selection: DomainPitRecoverySelection) => selection.auditId), revertedCandidateIds: [], preservedCandidateIds: [], recoveryAuditIds: [], conflicts: ["PIT_GROUP_NOT_FOUND"], authoritativeReadback: [] });
+        continue;
+      }
+      if (plan.stateFingerprint !== group.stateFingerprint) { results.push(domainPitApplyStatus(plan, "STALE_STATE", ["STALE_STATE"])); continue; }
+      if (plan.dryRunToken !== group.dryRunToken) { results.push(domainPitApplyStatus(plan, "BLOCKED", ["PIT_PLAN_TOKEN_MISMATCH"])); continue; }
+      if (plan.conflicts.length || plan.applyEligibility !== "ELIGIBLE") { results.push(domainPitApplyStatus(plan, "BLOCKED", plan.conflicts)); continue; }
+      if (!plan.selectedRevert.length) { results.push(domainPitApplyStatus(plan, "PRESERVED")); continue; }
+      const requests: DomainRecoveryApplyRequest[] = plan.targetPlans.map((targetPlan, index) => ({
+        environment,
+        auditId: targetPlan.audit.id,
+        entityType: targetPlan.target.entityType,
+        targetId: targetPlan.target.id,
+        clientOperationId: `pit-recovery-${group.clientOperationId}-${index}`,
+        reason: `Selective PIT revert to ${group.targetTime}`,
+        stateFingerprint: targetPlan.stateFingerprint,
+        dryRunToken: targetPlan.dryRunToken,
+        confirm: true,
+        previewAcknowledged: true,
+      }));
+      const executed = await executeDomainRecoveryGroup(env, context, requests, plan.targetPlans);
+      results.push(domainPitApplyStatus(plan, "APPLIED", [], false, executed.auditIds, executed.readbacks));
+    } catch (error) {
+      const code = error instanceof RecoveryCoreError ? error.code : "PIT_ATOMIC_APPLY_FAILED";
+      results.push({ groupId: group.groupId, status: "FAILED", applied: false, idempotent: false, candidateIds: group.selections.map((selection: DomainPitRecoverySelection) => selection.auditId), revertedCandidateIds: group.selections.filter((selection: DomainPitRecoverySelection) => selection.decision === "REVERT").map((selection: DomainPitRecoverySelection) => selection.auditId), preservedCandidateIds: group.selections.filter((selection: DomainPitRecoverySelection) => selection.decision === "PRESERVE").map((selection: DomainPitRecoverySelection) => selection.auditId), recoveryAuditIds: [], conflicts: [code], authoritativeReadback: [] });
+    }
+  }
+  return { operation: DOMAIN_PIT_RECOVERY_OPERATION, environment, groupCount: results.length, appliedGroupCount: results.filter((group) => group.status === "APPLIED").length, preservedGroupCount: results.filter((group) => group.status === "PRESERVED").length, blockedGroupCount: results.filter((group) => !["APPLIED", "PRESERVED"].includes(group.status)).length, groups: results, evaluatedAt: new Date().toISOString() };
 }

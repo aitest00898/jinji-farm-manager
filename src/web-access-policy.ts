@@ -109,6 +109,20 @@ function isRecoveryAdminMutation(pathname: string): boolean {
     || pathname === "/api/recovery/finance-apply";
 }
 
+function isSharedDomainRecoveryMutation(pathname: string): boolean {
+  return pathname === "/api/recovery/domain-discover"
+    || pathname === "/api/recovery/domain-dry-run"
+    || pathname === "/api/recovery/domain-apply";
+}
+
+function isAdminDomainRecoveryMutation(pathname: string): boolean {
+  return pathname === "/api/recovery/domain-batch-dry-run"
+    || pathname === "/api/recovery/domain-batch-apply"
+    || pathname === "/api/recovery/domain-pit-discover"
+    || pathname === "/api/recovery/domain-pit-dry-run"
+    || pathname === "/api/recovery/domain-pit-apply";
+}
+
 function isAdminAiMutation(pathname: string): boolean {
   return pathname === "/api/ai/brief" || pathname === "/api/ai/analyze";
 }
@@ -141,7 +155,8 @@ export function classifyWebRoute(pathname: string, method: string): WebAccessCla
   if (SHARED_EXACT_MUTATIONS.has(exact)) return "SHARED_EDIT";
 
   if (ADMIN_EXACT_MUTATIONS.has(exact)) return "ADMIN";
-  if (normalizedMethod === "POST" && (isFarmCaretakerMutation(pathname) || isOperatorScopeMutation(pathname) || isLineGroupAdminMutation(pathname) || isReliabilityAdminMutation(pathname) || isRecoveryAdminMutation(pathname) || isAdminAiMutation(pathname))) return "ADMIN";
+  if (normalizedMethod === "POST" && isSharedDomainRecoveryMutation(pathname)) return "SHARED_EDIT";
+  if (normalizedMethod === "POST" && (isFarmCaretakerMutation(pathname) || isOperatorScopeMutation(pathname) || isLineGroupAdminMutation(pathname) || isReliabilityAdminMutation(pathname) || isRecoveryAdminMutation(pathname) || isAdminDomainRecoveryMutation(pathname) || isAdminAiMutation(pathname))) return "ADMIN";
   if (normalizedMethod === "PATCH" && (isLineGroupAdminMutation(pathname) || isAdminEntityMutation(pathname))) return "ADMIN";
   if (normalizedMethod === "POST" && isAdminEntityMutation(pathname)) return "ADMIN";
   if (normalizedMethod === "GET" && pathname === "/api/finance") return "SHARED_EDIT";
