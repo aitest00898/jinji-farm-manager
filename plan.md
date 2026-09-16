@@ -1,6 +1,6 @@
 # Jinji Farm Manager — Commander Project Plan
 
-Status: Chapter 6 is in terminal PASS. The reduced Chapter 7 Audit & Recovery Core is complete locally; no Production deployment is included in this slice.
+Status: Chapter 8 Batch Recovery Engine is complete locally; no Production deployment is included in this slice.
 
 ## Product direction
 
@@ -21,7 +21,10 @@ CHAPTER_7 = PASS
 CHAPTER_7_IMPLEMENTATION = PASS
 CURRENT_BLOCKER = NONE
 READY_FOR_NEXT_FEATURE_CHAPTER = YES
-CHAPTER_8 = NOT_STARTED
+CHAPTER_8 = PASS
+CHAPTER_8_IMPLEMENTATION = PASS
+CHAPTER_9 = NOT_STARTED
+CURRENT_WORK = CHAPTER_8_BATCH_RECOVERY_ENGINE_COMPLETE
 
 ## Current deployed system
 
@@ -106,7 +109,7 @@ Chapter 7 Audit & Recovery Core was implemented locally. Its bounded scope is:
 * stale-state protection;
 * one representative dependency-aware restore path.
 
-Full batch recovery, broad selective PIT recovery, broad Finance recovery,
+Broad selective PIT recovery, broad Finance recovery,
 all-domain lifecycle recovery, and full recovery UI expansion are deferred.
 No 7A/7B/7C is created.
 
@@ -124,6 +127,26 @@ CHAPTER_7_FULL_REGRESSION = PASS_944_PASSED_11_SKIPPED
 CHAPTER_7_PRODUCTION_APPLY = NOT_EXECUTED_BY_SCOPE
 NEW_MIGRATION_REQUIRED = NO
 NEW_GOVERNANCE_ARTIFACT = NO
+
+## Chapter 8 batch recovery result
+
+CHAPTER_8_SOURCE_COMMIT = 06c47f140cb1954ff8612f2ac650b6928db05612
+CHAPTER_8_BATCH_RECOVERY = PASS
+CHAPTER_8_BATCH_DRY_RUN = PASS
+CHAPTER_8_DEPENDENCY_GROUPING = PASS
+CHAPTER_8_ATOMIC_GROUP_APPLY = PASS
+CHAPTER_8_INDEPENDENT_GROUP_ISOLATION = PASS
+CHAPTER_8_STALE_STATE_PROTECTION = PASS
+CHAPTER_8_LINEAGE_INTEGRITY = PASS
+CHAPTER_8_AUDIT_INTEGRITY = PASS
+CHAPTER_8_IDEMPOTENCY = PASS
+CHAPTER_8_ACCESS_BOUNDARY = PASS_LOCAL_ADMIN_ONLY
+CHAPTER_8_FOCUSED_TESTS = PASS_4_BATCH_CASES_PLUS_EXISTING_CORE
+CHAPTER_8_FULL_REGRESSION = PASS_948_PASSED_11_SKIPPED
+CHAPTER_8_PRODUCTION_DEPLOYMENT = NOT_REQUESTED
+CHAPTER_8_PRODUCTION_DELTA = 0
+PRODUCTION_DELTA = 0
+CHAPTER_8_NEW_MIGRATION_REQUIRED = NO
 
 ## Complexity containment
 
