@@ -51,6 +51,8 @@ describe("Web access policy", () => {
       ["GET", "/api/audit"],
       ["POST", "/api/recovery/dry-run"],
       ["POST", "/api/recovery/apply"],
+      ["POST", "/api/recovery/batch-dry-run"],
+      ["POST", "/api/recovery/batch-apply"],
       ["POST", "/api/farms"],
       ["POST", "/api/operators/operator-1/scopes"],
       ["POST", "/api/line-groups/group-1/organization-claim"],
@@ -58,6 +60,11 @@ describe("Web access policy", () => {
       ["PATCH", "/api/farms/farm-1"],
     ] as const) {
       expect(classifyWebRoute(path, method)).toBe("ADMIN");
+    }
+    for (const path of ["/api/recovery/batch-dry-run", "/api/recovery/batch-apply"]) {
+      expect(classifyWebRoute(path, "GET")).toBeNull();
+      expect(webAccessClassAllows("PUBLIC", "ADMIN")).toBe(false);
+      expect(webAccessClassAllows("SHARED_EDIT", "ADMIN")).toBe(false);
     }
     expect(webAccessClassAllows("PUBLIC", "PUBLIC")).toBe(true);
     expect(webAccessClassAllows("SHARED_EDIT", "PUBLIC")).toBe(true);

@@ -609,7 +609,7 @@ export async function previewCanonicalStockMutations(
   return projections;
 }
 
-async function ensureLineGroup(
+async function resolveLineGroup(
   env: CanonicalWriteEnv,
   organizationId: string,
   requestedGroupId: string | null | undefined,
@@ -619,12 +619,15 @@ async function ensureLineGroup(
   const existing = await env.DB.prepare("SELECT organization_id AS organizationId FROM line_groups WHERE group_id = ? LIMIT 1").bind(groupId).first<{ organizationId: string | null }>();
   if (existing && existing.organizationId && existing.organizationId !== organizationId) fail("CANONICAL_LINE_GROUP_ORGANIZATION_MISMATCH");
   if (requestedGroupId && !existing) fail("CANONICAL_LINE_GROUP_NOT_FOUND", "lineGroupId");
-  await env.DB.prepare(
+  return groupId;
+}
+
+function lineGroupStatement(env: CanonicalWriteEnv, groupId: string, organizationId: string): D1PreparedStatement {
+  return env.DB.prepare(
     `INSERT INTO line_groups (group_id, status, organization_id)
      VALUES (?, 'unbound', ?)
      ON CONFLICT(group_id) DO UPDATE SET organization_id = COALESCE(line_groups.organization_id, excluded.organization_id)`,
-  ).bind(groupId, organizationId).run();
-  return groupId;
+  ).bind(groupId, organizationId);
 }
 
 async function referenceFor(
@@ -1013,11 +1016,34 @@ async function readWrittenRow(
   return env.DB.prepare(`SELECT * FROM ${destination} WHERE id = ? AND organization_id = ? LIMIT 1`).bind(id, organizationId).first<Record<string, unknown>>();
 }
 
-export async function persistRecordCommand(
+interface PreparedCanonicalWrite {
+  record: RecordingDraft;
+  canonical: RecordCommand;
+  context: CanonicalWriteContext;
+  destination: CanonicalPersistenceDestination;
+  relation: Relation | null;
+  scope: CanonicalScope;
+  result: CanonicalWriteResult;
+  stockMutationProjection: CanonicalStockMutationProjection | null;
+  lineGroupWrite: D1PreparedStatement;
+  insert: D1PreparedStatement;
+  audit: D1PreparedStatement;
+}
+
+export interface CanonicalAtomicWriteInput {
+  input: RecordCommand;
+  context: CanonicalWriteContext;
+}
+
+type CanonicalAtomicExtraStatements = (
+  results: readonly CanonicalWriteResult[],
+) => readonly D1PreparedStatement[];
+
+async function prepareCanonicalWrite(
   env: CanonicalWriteEnv,
   input: RecordCommand,
   context: CanonicalWriteContext,
-): Promise<CanonicalWriteResult> {
+): Promise<PreparedCanonicalWrite> {
   assertCanonicalWritesOpen(env);
   const record = normalizeRecordingDraft(input.record);
   validateRecordingDraft(record);
@@ -1038,16 +1064,29 @@ export async function persistRecordCommand(
 
   const clientOperationId = String(record.clientOperationId);
   const existing = await existingAnywhere(env, destination, context.organizationId, clientOperationId);
+  const result: CanonicalWriteResult = {
+    id: existing?.id ?? String(record.id),
+    destination,
+    taxonomyId: canonical.taxonomyId,
+    clientOperationId,
+    created: !existing,
+    stockEffect: canonical.stockEffect,
+    stockDelta: stockDeltaFor(record),
+    lineage: relation ? { kind: relation.kind, referenceId: relation.id } : { kind: null, referenceId: null },
+  };
   if (existing) {
     return {
-      id: existing.id,
+      record,
+      canonical,
+      context,
       destination,
-      taxonomyId: canonical.taxonomyId,
-      clientOperationId,
-      created: false,
-      stockEffect: canonical.stockEffect,
-      stockDelta: stockDeltaFor(record),
-      lineage: relation ? { kind: relation.kind, referenceId: relation.id } : { kind: null, referenceId: null },
+      relation,
+      scope,
+      result,
+      stockMutationProjection: null,
+      lineGroupWrite: env.DB.prepare("SELECT 1"),
+      insert: env.DB.prepare("SELECT 1"),
+      audit: env.DB.prepare("SELECT 1"),
     };
   }
 
@@ -1057,11 +1096,11 @@ export async function persistRecordCommand(
   // before creating any metadata or business row.
   const stockMutationProjection = await validateCanonicalStockMutationWrite(env, record, scope, relation);
 
-  // Resolve/ensure the LINE group only after all fail-closed validation and
+  // Resolve the LINE group only after all fail-closed validation and
   // idempotency checks. Invalid Web/API requests must not leave metadata rows.
   scope = {
     ...scope,
-    lineGroupId: await ensureLineGroup(env, context.organizationId, context.lineGroupId, record.sourceChannel as RecordingSourceChannel),
+    lineGroupId: await resolveLineGroup(env, context.organizationId, context.lineGroupId, record.sourceChannel as RecordingSourceChannel),
   };
 
   let insert: D1PreparedStatement;
@@ -1070,34 +1109,94 @@ export async function persistRecordCommand(
   else if (destination === "operational_events") insert = await insertOperationalEvent(env, record, scope, context, relation);
   else insert = await insertAbnormalEvent(env, record, scope, relation);
 
-  const result: CanonicalWriteResult = {
-    id: String(record.id),
-    destination,
-    taxonomyId: canonical.taxonomyId,
-    clientOperationId,
-    created: true,
-    stockEffect: canonical.stockEffect,
-    stockDelta: stockDeltaFor(record),
-    lineage: relation ? { kind: relation.kind, referenceId: relation.id } : { kind: null, referenceId: null },
-  };
   const action = relation?.kind === "reversal" ? "reverse" : relation ? "correct" : "create";
-  await env.DB.batch([
+  return {
+    record,
+    canonical,
+    context,
+    destination,
+    relation,
+    scope,
+    result,
+    stockMutationProjection,
+    lineGroupWrite: lineGroupStatement(env, scope.lineGroupId, context.organizationId),
     insert,
-    deterministicAuditStatement(env, { context, destination, result, record, action }),
-  ]);
-  const written = await readWrittenRow(env, destination, String(record.id), context.organizationId);
+    audit: deterministicAuditStatement(env, { context, destination, result, record, action }),
+  };
+}
+
+async function finalizeCanonicalWrite(
+  env: CanonicalWriteEnv,
+  plan: PreparedCanonicalWrite,
+): Promise<CanonicalWriteResult> {
+  const written = await readWrittenRow(env, plan.destination, String(plan.record.id), plan.context.organizationId);
   if (!written) fail("CANONICAL_WRITE_READBACK_FAILED");
-  const writtenClientOperationId = destination === "operational_events" || destination === "abnormal_events"
+  const writtenClientOperationId = plan.destination === "operational_events" || plan.destination === "abnormal_events"
     ? String(written.source_event_id)
     : String(written.client_operation_id);
-  if (writtenClientOperationId !== clientOperationId) fail("CANONICAL_ID_CONFLICT");
-  if (stockMutationProjection) {
-    result.stockMutation = reconcileCanonicalStockMutation(
-      stockMutationProjection,
-      await authoritativeStockAfterWrite(env, record, scope),
-    );
+  if (writtenClientOperationId !== plan.result.clientOperationId) fail("CANONICAL_ID_CONFLICT");
+  if (!plan.stockMutationProjection) return plan.result;
+  return {
+    ...plan.result,
+    stockMutation: reconcileCanonicalStockMutation(
+      plan.stockMutationProjection,
+      await authoritativeStockAfterWrite(env, plan.record, plan.scope),
+    ),
+  };
+}
+
+export async function persistRecordCommand(
+  env: CanonicalWriteEnv,
+  input: RecordCommand,
+  context: CanonicalWriteContext,
+): Promise<CanonicalWriteResult> {
+  const plan = await prepareCanonicalWrite(env, input, context);
+  if (!plan.result.created) return plan.result;
+  await env.DB.batch([plan.lineGroupWrite, plan.insert, plan.audit]);
+  return finalizeCanonicalWrite(env, plan);
+}
+
+/**
+ * Validate every command first, then commit all new canonical rows and their
+ * deterministic audits in one D1 batch.  This is intentionally bounded and
+ * is used by non-stock recovery groups; stock-changing sequences continue to
+ * use their dedicated sequential preview/guard path.
+ */
+export async function persistRecordCommandsAtomically(
+  env: CanonicalWriteEnv,
+  inputs: readonly CanonicalAtomicWriteInput[],
+  extraStatementsFor?: CanonicalAtomicExtraStatements,
+): Promise<readonly CanonicalWriteResult[]> {
+  assertCanonicalWritesOpen(env);
+  if (inputs.length > 20) fail("CANONICAL_BATCH_TOO_LARGE");
+  if (!inputs.length) return [];
+  if (new Set(inputs.map((entry) => entry.context.organizationId)).size > 1) fail("CANONICAL_BATCH_CONTEXT_MISMATCH");
+
+  const plans: PreparedCanonicalWrite[] = [];
+  for (const entry of inputs) plans.push(await prepareCanonicalWrite(env, entry.input, entry.context));
+  const newPlans = plans.filter((plan) => plan.result.created);
+  const operationIds = new Set<string>();
+  for (const plan of newPlans) {
+    if (operationIds.has(plan.result.clientOperationId)) fail("CANONICAL_BATCH_DUPLICATE_OPERATION");
+    operationIds.add(plan.result.clientOperationId);
   }
-  return result;
+  if (!newPlans.length) return plans.map((plan) => plan.result);
+  if (newPlans.some((plan) => plan.stockMutationProjection)) fail("CANONICAL_BATCH_STOCK_MUTATION_FORBIDDEN");
+
+  const lineGroups = new Map<string, D1PreparedStatement>();
+  for (const plan of newPlans) {
+    if (!lineGroups.has(plan.scope.lineGroupId)) lineGroups.set(plan.scope.lineGroupId, plan.lineGroupWrite);
+  }
+  const extraStatements = extraStatementsFor?.(newPlans.map((plan) => plan.result)) ?? [];
+  const statements = [
+    ...lineGroups.values(),
+    ...newPlans.flatMap((plan) => [plan.insert, plan.audit]),
+    ...extraStatements,
+  ];
+  if (statements.length > 100) fail("CANONICAL_BATCH_TOO_LARGE");
+  await env.DB.batch(statements);
+
+  return Promise.all(plans.map((plan) => plan.result.created ? finalizeCanonicalWrite(env, plan) : plan.result));
 }
 
 export interface CanonicalStockProjection {

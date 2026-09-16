@@ -2,9 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   applyO6Recovery,
+  applyO6RecoveryBatch,
   auditRangeBoundary,
   dryRunO6Recovery,
+  dryRunO6RecoveryBatch,
   listAuditLogs,
+  type BatchRecoveryApplyRequest,
+  type BatchRecoveryRequest,
   type RecoveryApplyRequest,
   type RecoveryRequest,
 } from "./audit-recovery-core";
@@ -15,10 +19,13 @@ const ORGANIZATION_ID = "org-recovery-test";
 const FARM_ID = "farm-recovery-test";
 const HOUSE_ID = "house-recovery-test";
 const FLOCK_ID = "flock-recovery-test";
+const SECOND_HOUSE_ID = "house-recovery-test-2";
+const SECOND_FLOCK_ID = "flock-recovery-test-2";
 const TARGET_ID = "o6-overdue-target";
 
 class MemoryD1 {
   readonly sqlite = new DatabaseSync(":memory:");
+  failBatchAfter: number | null = null;
 
   constructor() {
     this.sqlite.exec(`
@@ -155,8 +162,14 @@ class MemoryD1 {
       "INSERT INTO houses (id, farm_id, name, active) VALUES (?, ?, ?, 1)",
     ).run(HOUSE_ID, FARM_ID, "Recovery Test House");
     this.sqlite.prepare(
+      "INSERT INTO houses (id, farm_id, name, active) VALUES (?, ?, ?, 1)",
+    ).run(SECOND_HOUSE_ID, FARM_ID, "Recovery Test House 2");
+    this.sqlite.prepare(
       "INSERT INTO flocks (id, farm_id, house_id, status) VALUES (?, ?, ?, 'active')",
     ).run(FLOCK_ID, FARM_ID, HOUSE_ID);
+    this.sqlite.prepare(
+      "INSERT INTO flocks (id, farm_id, house_id, status) VALUES (?, ?, ?, 'active')",
+    ).run(SECOND_FLOCK_ID, FARM_ID, SECOND_HOUSE_ID);
     this.sqlite.prepare(
       `INSERT INTO operator_identities
         (id, organization_id, identity_type, identity_key, active)
@@ -167,6 +180,11 @@ class MemoryD1 {
         (id, operator_id, organization_id, environment, farm_id, house_id, flock_id, active)
        VALUES ('scope-recovery', 'operator-recovery', ?, 'test', ?, ?, ?, 1)`,
     ).run(ORGANIZATION_ID, FARM_ID, HOUSE_ID, FLOCK_ID);
+    this.sqlite.prepare(
+      `INSERT INTO operator_scope_bindings
+        (id, operator_id, organization_id, environment, farm_id, house_id, flock_id, active)
+       VALUES ('scope-recovery-2', 'operator-recovery', ?, 'test', ?, ?, ?, 1)`,
+    ).run(ORGANIZATION_ID, FARM_ID, SECOND_HOUSE_ID, SECOND_FLOCK_ID);
   }
 
   prepare(sql: string) {
@@ -174,8 +192,18 @@ class MemoryD1 {
   }
 
   async batch(statements: MemoryPreparedStatement[]) {
-    for (const statement of statements) await statement.run();
-    return [];
+    this.sqlite.exec("BEGIN");
+    try {
+      for (let index = 0; index < statements.length; index += 1) {
+        if (this.failBatchAfter !== null && index >= this.failBatchAfter) throw new Error("fixture_batch_failure");
+        await statements[index].run();
+      }
+      this.sqlite.exec("COMMIT");
+      return [];
+    } catch (error) {
+      this.sqlite.exec("ROLLBACK");
+      throw error;
+    }
   }
 }
 
@@ -215,6 +243,9 @@ function insertO6(
     clientOperationId: string;
     correctionOfId?: string | null;
     lifecycleStatus?: string;
+    farmId?: string;
+    houseId?: string;
+    flockId?: string;
   },
 ) {
   db.sqlite.prepare(
@@ -231,9 +262,9 @@ function insertO6(
     ORGANIZATION_ID,
     input.submittedAt,
     input.submittedAt,
-    FARM_ID,
-    HOUSE_ID,
-    FLOCK_ID,
+    input.farmId ?? FARM_ID,
+    input.houseId ?? HOUSE_ID,
+    input.flockId ?? FLOCK_ID,
     input.submittedAt,
     input.workflowStatus,
     input.result ?? null,
@@ -273,6 +304,42 @@ function setupDb(): MemoryD1 {
     result: "陰性",
     completedAt: "2026-01-03T00:00:00.000Z",
     clientOperationId: "o6-peer-operation",
+  });
+  return db;
+}
+
+function batchRequest(targetId: string, clientOperationId: string, overrides: Partial<RecoveryRequest> = {}): RecoveryRequest {
+  return baseRequest({ targetId, clientOperationId, ...overrides });
+}
+
+function setupBatchDb(input: {
+  secondStatus?: "waiting_result" | "completed";
+  sameHouseSecondTarget?: boolean;
+} = {}): MemoryD1 {
+  const db = new MemoryD1();
+  insertO6(db, {
+    id: "o6-batch-house-a",
+    submittedAt: "2026-01-01T00:00:00.000Z",
+    workflowStatus: "waiting_result",
+    clientOperationId: "o6-batch-source-a",
+  });
+  if (input.sameHouseSecondTarget) {
+    insertO6(db, {
+      id: "o6-batch-house-a-2",
+      submittedAt: "2026-01-02T00:00:00.000Z",
+      workflowStatus: "waiting_result",
+      clientOperationId: "o6-batch-source-a-2",
+    });
+  }
+  insertO6(db, {
+    id: "o6-batch-house-b",
+    submittedAt: "2026-01-03T00:00:00.000Z",
+    workflowStatus: input.secondStatus ?? "waiting_result",
+    result: input.secondStatus === "completed" ? "陰性" : null,
+    completedAt: input.secondStatus === "completed" ? "2026-01-04T00:00:00.000Z" : null,
+    clientOperationId: "o6-batch-source-b",
+    houseId: SECOND_HOUSE_ID,
+    flockId: SECOND_FLOCK_ID,
   });
   return db;
 }
@@ -418,6 +485,125 @@ describe("bounded O6 audit and recovery core", () => {
 
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 2 });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 0 });
+    db.sqlite.close();
+  });
+
+  function batchApplyInput(
+    dryRun: Awaited<ReturnType<typeof dryRunO6RecoveryBatch>>,
+    requests: readonly RecoveryRequest[],
+  ): BatchRecoveryApplyRequest {
+    return {
+      groups: dryRun.groups.map((group) => ({
+        groupId: group.groupId,
+        targets: requests.filter((request) => group.targetIds.includes(request.targetId)),
+        stateFingerprint: group.stateFingerprint,
+        dryRunToken: group.dryRunToken,
+      })),
+    };
+  }
+
+  it("dry-runs and atomically applies two independent dependency groups", async () => {
+    const db = setupBatchDb();
+    const requests: BatchRecoveryRequest["targets"] = [
+      batchRequest("o6-batch-house-a", "batch-op-a", { result: "陰性" }),
+      batchRequest("o6-batch-house-b", "batch-op-b", { result: "陽性" }),
+    ];
+    const dryRun = await dryRunO6RecoveryBatch(
+      { DB: db as unknown as D1Database },
+      readContext,
+      { targets: requests },
+    );
+    expect(dryRun.groupCount).toBe(2);
+    expect(dryRun.groups.every((group) => group.applyEligibility === "ELIGIBLE")).toBe(true);
+    expect(dryRun.groups.every((group) => group.stockImpact.delta === 0 && group.lifecycleImpact === "UNCHANGED_NON_STOCK")).toBe(true);
+    expect(dryRun.groups.every((group) => group.dependencies.some((dependency) => dependency.relation === "house_status"))).toBe(true);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 2 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 0 });
+
+    const applied = await applyO6RecoveryBatch(
+      { DB: db as unknown as D1Database },
+      applyContext,
+      batchApplyInput(dryRun, requests),
+    );
+    expect(applied.groups.map((group) => group.status)).toEqual(["APPLIED", "APPLIED"]);
+    expect(applied.groups.every((group) => group.applied && !group.idempotent)).toBe(true);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 4 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 4 });
+    for (const targetId of ["o6-batch-house-a", "o6-batch-house-b"]) {
+      const child = db.sqlite.prepare(
+        "SELECT correction_of_id AS correctionOfId, workflow_status AS workflowStatus FROM operational_actions WHERE correction_of_id = ?",
+      ).get(targetId) as { correctionOfId: string; workflowStatus: string };
+      expect(child).toEqual({ correctionOfId: targetId, workflowStatus: "completed" });
+      expect(db.sqlite.prepare("SELECT action, entity_type AS entityType, entity_id AS entityId FROM audit_logs WHERE entity_id = ?").get(targetId)).toMatchObject({ action: "recovery_apply", entityType: "canonical_recovery", entityId: targetId });
+    }
+
+    const actionCount = (db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get() as { count: number }).count;
+    const auditCount = (db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get() as { count: number }).count;
+    const replay = await applyO6RecoveryBatch(
+      { DB: db as unknown as D1Database },
+      applyContext,
+      batchApplyInput(dryRun, requests),
+    );
+    expect(replay.groups.every((group) => group.status === "APPLIED" && group.idempotent && !group.applied)).toBe(true);
+    expect((db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get() as { count: number }).count).toBe(actionCount);
+    expect((db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get() as { count: number }).count).toBe(auditCount);
+    db.sqlite.close();
+  });
+
+  it("lets a valid group apply while an independent invalid group remains blocked", async () => {
+    const db = setupBatchDb({ secondStatus: "completed" });
+    const requests = [
+      batchRequest("o6-batch-house-a", "batch-op-valid"),
+      batchRequest("o6-batch-house-b", "batch-op-blocked"),
+    ];
+    const dryRun = await dryRunO6RecoveryBatch({ DB: db as unknown as D1Database }, readContext, { targets: requests });
+    expect(dryRun.groups.find((group) => group.targetIds.includes("o6-batch-house-a"))?.applyEligibility).toBe("ELIGIBLE");
+    expect(dryRun.groups.find((group) => group.targetIds.includes("o6-batch-house-b"))?.applyEligibility).toBe("DENIED");
+    const applied = await applyO6RecoveryBatch({ DB: db as unknown as D1Database }, applyContext, batchApplyInput(dryRun, requests));
+    expect(applied.groups.find((group) => group.targetIds.includes("o6-batch-house-a"))).toMatchObject({ status: "APPLIED", applied: true });
+    expect(applied.groups.find((group) => group.targetIds.includes("o6-batch-house-b"))).toMatchObject({ status: "BLOCKED", applied: false });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 3 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 2 });
+    db.sqlite.close();
+  });
+
+  it("rejects only a stale group while a fresh independent group continues", async () => {
+    const db = setupBatchDb();
+    const requests = [
+      batchRequest("o6-batch-house-a", "batch-op-stale"),
+      batchRequest("o6-batch-house-b", "batch-op-fresh"),
+    ];
+    const dryRun = await dryRunO6RecoveryBatch({ DB: db as unknown as D1Database }, readContext, { targets: requests });
+    db.sqlite.prepare(
+      "UPDATE operational_actions SET workflow_status = 'completed', result = '陽性', completed_at = '2026-01-11T00:00:00.000Z' WHERE id = ?",
+    ).run("o6-batch-house-a");
+    const applied = await applyO6RecoveryBatch({ DB: db as unknown as D1Database }, applyContext, batchApplyInput(dryRun, requests));
+    expect(applied.groups.find((group) => group.targetIds.includes("o6-batch-house-a"))).toMatchObject({ status: "STALE_STATE" });
+    expect(applied.groups.find((group) => group.targetIds.includes("o6-batch-house-b"))).toMatchObject({ status: "APPLIED", applied: true });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 3 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 2 });
+    db.sqlite.close();
+  });
+
+  it("rolls back an entire dependency group when its atomic batch fails", async () => {
+    const db = setupBatchDb({ sameHouseSecondTarget: true });
+    const requests = [
+      batchRequest("o6-batch-house-a", "batch-op-atomic-a"),
+      batchRequest("o6-batch-house-a-2", "batch-op-atomic-b"),
+    ];
+    const dryRun = await dryRunO6RecoveryBatch({ DB: db as unknown as D1Database }, readContext, { targets: requests });
+    expect(dryRun.groupCount).toBe(1);
+    db.failBatchAfter = 2;
+    const failed = await applyO6RecoveryBatch({ DB: db as unknown as D1Database }, applyContext, batchApplyInput(dryRun, requests));
+    expect(failed.groups[0]).toMatchObject({ status: "FAILED", applied: false });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 3 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 0 });
+
+    db.failBatchAfter = null;
+    const retried = await applyO6RecoveryBatch({ DB: db as unknown as D1Database }, applyContext, batchApplyInput(dryRun, requests));
+    expect(retried.groups[0]).toMatchObject({ status: "APPLIED", applied: true });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM operational_actions").get()).toEqual({ count: 5 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs").get()).toEqual({ count: 4 });
     db.sqlite.close();
   });
 });

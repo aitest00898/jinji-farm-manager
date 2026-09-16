@@ -5,9 +5,13 @@ import {
   type CanonicalLabSubmissionScope,
   type CanonicalLabSubmissionSummary,
 } from "./canonical-lab-submission-read-model";
-import { persistCanonicalLineage } from "./canonical-lineage-service";
+import {
+  persistCanonicalLineage,
+  persistCanonicalLineageBatch,
+  type CanonicalLineageBatchEntry,
+} from "./canonical-lineage-service";
 import { addIsoDays, isIsoDate } from "./master-data";
-import type { CanonicalWriteResult } from "./recording-write-adapter";
+import type { CanonicalWriteContext, CanonicalWriteResult } from "./recording-write-adapter";
 
 const RECOVERY_OPERATION = "restore_o6_submission_result" as const;
 
@@ -115,6 +119,93 @@ export interface RecoveryApplyResult {
     };
     derived: CanonicalLabSubmissionSummary;
   };
+}
+
+const BATCH_RECOVERY_OPERATION = "restore_o6_submission_results_batch" as const;
+const MAX_BATCH_RECOVERY_TARGETS = 20;
+
+export interface BatchRecoveryRequest {
+  targets: readonly RecoveryRequest[];
+}
+
+export interface BatchRecoveryGroupDryRun {
+  groupId: string;
+  environment: "production" | "test" | null;
+  farmId: string | null;
+  farmName: string | null;
+  houseId: string | null;
+  houseName: string | null;
+  targetIds: string[];
+  targets: Array<{
+    id: string;
+    clientOperationId: string;
+    workflowStatus: string | null;
+    result: string | null;
+    completedAt: string | null;
+  }>;
+  before: CanonicalLabSubmissionSummary | null;
+  proposedAfter: CanonicalLabSubmissionSummary | null;
+  dependencies: RecoveryDependency[];
+  derivedImpact: {
+    projection: "canonical_lab_submission_house_status";
+    before: CanonicalLabSubmissionSummary | null;
+    after: CanonicalLabSubmissionSummary | null;
+  };
+  stockImpact: {
+    affected: false;
+    before: null;
+    after: null;
+    delta: 0;
+  };
+  lifecycleImpact: "UNCHANGED_NON_STOCK";
+  conflicts: string[];
+  applyEligibility: "ELIGIBLE" | "DENIED";
+  stateFingerprint: string;
+  dryRunToken: string;
+  evaluatedAt: string;
+}
+
+export interface BatchRecoveryDryRun {
+  operation: typeof BATCH_RECOVERY_OPERATION;
+  targetCount: number;
+  groupCount: number;
+  groups: BatchRecoveryGroupDryRun[];
+  evaluatedAt: string;
+}
+
+export interface BatchRecoveryApplyGroupRequest {
+  groupId: string;
+  targets: readonly RecoveryRequest[];
+  stateFingerprint: string;
+  dryRunToken: string;
+}
+
+export interface BatchRecoveryApplyRequest {
+  groups: readonly BatchRecoveryApplyGroupRequest[];
+}
+
+export type BatchRecoveryGroupApplyStatus = "APPLIED" | "STALE_STATE" | "BLOCKED" | "FAILED";
+
+export interface BatchRecoveryGroupApplyResult {
+  groupId: string;
+  status: BatchRecoveryGroupApplyStatus;
+  applied: boolean;
+  idempotent: boolean;
+  targetIds: string[];
+  recoveryRecordIds: string[];
+  recoveryAuditIds: string[];
+  conflicts: string[];
+  canonical: CanonicalWriteResult[];
+  authoritativeReadback: RecoveryApplyResult["authoritativeReadback"][];
+}
+
+export interface BatchRecoveryApplyResult {
+  operation: typeof BATCH_RECOVERY_OPERATION;
+  groupCount: number;
+  appliedGroupCount: number;
+  blockedGroupCount: number;
+  groups: BatchRecoveryGroupApplyResult[];
+  evaluatedAt: string;
 }
 
 export class RecoveryCoreError extends Error {
@@ -602,6 +693,7 @@ function recoveryAuditStatement(
   snapshot: RecoverySnapshot,
   result: CanonicalWriteResult,
   after: CanonicalLabSubmissionSummary,
+  operation: typeof RECOVERY_OPERATION | typeof BATCH_RECOVERY_OPERATION = RECOVERY_OPERATION,
 ) {
   const auditId = `audit-recovery-${request.clientOperationId}`;
   return env.DB.prepare(
@@ -616,7 +708,7 @@ function recoveryAuditStatement(
     context.actorId,
     snapshot.target.id,
     JSON.stringify({
-      operation: RECOVERY_OPERATION,
+      operation,
       targetId: snapshot.target.id,
       workflowStatus: snapshot.target.workflowStatus,
       result: snapshot.target.result,
@@ -625,7 +717,7 @@ function recoveryAuditStatement(
       dependencyCount: snapshot.facts.length,
     }),
     JSON.stringify({
-      operation: RECOVERY_OPERATION,
+      operation,
       recoveryRecordId: result.id,
       correctionOfId: snapshot.target.id,
       workflowStatus: "completed",
@@ -850,5 +942,540 @@ export async function applyO6Recovery(
     recoveryAuditId: audit.id,
     canonical,
     authoritativeReadback: readback,
+  };
+}
+
+interface BatchTargetSnapshotEntry {
+  request: RecoveryRequest;
+  snapshot: RecoverySnapshot | null;
+  error: string | null;
+}
+
+interface BatchGroupPlan {
+  groupId: string;
+  entries: BatchTargetSnapshotEntry[];
+  recoverableEntries: Array<BatchTargetSnapshotEntry & { snapshot: RecoverySnapshot }>;
+  environment: "production" | "test" | null;
+  farmId: string | null;
+  farmName: string | null;
+  houseId: string | null;
+  houseName: string | null;
+  before: CanonicalLabSubmissionSummary | null;
+  proposedAfter: CanonicalLabSubmissionSummary | null;
+  dependencies: RecoveryDependency[];
+  conflicts: string[];
+  stateFingerprint: string;
+  dryRunToken: string;
+}
+
+function validateBatchTargets(input: BatchRecoveryRequest): RecoveryRequest[] {
+  if (!input || !Array.isArray(input.targets) || input.targets.length < 1 || input.targets.length > MAX_BATCH_RECOVERY_TARGETS) {
+    throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  }
+  return input.targets.map((target) => validateRequest(target));
+}
+
+function validateBatchApplyGroups(input: BatchRecoveryApplyRequest): BatchRecoveryApplyGroupRequest[] {
+  if (!input || !Array.isArray(input.groups) || input.groups.length < 1 || input.groups.length > MAX_BATCH_RECOVERY_TARGETS) {
+    throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  }
+  const groups = input.groups.map((group) => {
+    const groupId = text(group?.groupId, "batch_group_id", 200);
+    if (!groupId || !Array.isArray(group.targets) || group.targets.length < 1 || group.targets.length > MAX_BATCH_RECOVERY_TARGETS) {
+      throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+    }
+    const targets = group.targets.map((target: RecoveryRequest) => validateRequest(target));
+    const stateFingerprint = text(group.stateFingerprint, "state_fingerprint", 128);
+    const dryRunToken = text(group.dryRunToken, "dry_run_token", 128);
+    if (!stateFingerprint || !dryRunToken || !/^[a-f0-9]{64}$/u.test(stateFingerprint) || !/^[a-f0-9]{64}$/u.test(dryRunToken)) {
+      throw new RecoveryCoreError("RECOVERY_PLAN_TOKEN_INVALID");
+    }
+    return { groupId, targets, stateFingerprint, dryRunToken };
+  });
+  const groupIds = new Set<string>();
+  let targetCount = 0;
+  for (const group of groups) {
+    if (groupIds.has(group.groupId)) throw new RecoveryCoreError("RECOVERY_BATCH_DUPLICATE_GROUP");
+    groupIds.add(group.groupId);
+    targetCount += group.targets.length;
+  }
+  if (targetCount > MAX_BATCH_RECOVERY_TARGETS) throw new RecoveryCoreError("RECOVERY_BATCH_INPUT_INVALID");
+  return groups;
+}
+
+async function readBatchTargetSnapshot(
+  env: RecoveryEnv,
+  organizationId: string,
+  request: RecoveryRequest,
+): Promise<BatchTargetSnapshotEntry> {
+  try {
+    return { request, snapshot: await readSnapshot(env, organizationId, request), error: null };
+  } catch (error) {
+    return {
+      request,
+      snapshot: null,
+      error: error instanceof RecoveryCoreError ? error.code : "BATCH_TARGET_READ_FAILED",
+    };
+  }
+}
+
+function groupIdForSnapshot(snapshot: RecoverySnapshot): string {
+  return `o6:${snapshot.target.environment}:${snapshot.target.farmId}:${snapshot.target.houseId ?? "whole-farm"}`;
+}
+
+function addBatchConflict(conflicts: string[], value: string): void {
+  if (!conflicts.includes(value)) conflicts.push(value);
+}
+
+function batchDependencies(snapshot: RecoverySnapshot, targetIds: ReadonlySet<string>): RecoveryDependency[] {
+  const effective = new Set(effectiveCanonicalLabSubmissionFacts(snapshot.facts).facts.map((fact) => fact.id));
+  return [
+    ...snapshot.facts
+      .slice()
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((fact) => ({
+        kind: "canonical_fact" as const,
+        id: fact.id,
+        relation: targetIds.has(fact.id) ? "target" as const : "house_o6_input" as const,
+        effective: effective.has(fact.id),
+      })),
+    {
+      kind: "derived_projection" as const,
+      id: `house:${snapshot.target.farmId}:${snapshot.target.houseId ?? "whole-farm"}`,
+      relation: "house_status" as const,
+      effective: true,
+    },
+  ];
+}
+
+async function existingRecoveryChild(
+  env: RecoveryEnv,
+  organizationId: string,
+  targetId: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    `SELECT id FROM operational_actions
+      WHERE organization_id = ?
+        AND (correction_of_id = ? OR reversal_of_id = ? OR replacement_of_id = ?)
+      LIMIT 1`,
+  ).bind(organizationId, targetId, targetId, targetId).first<{ id: string }>();
+  return row?.id ? String(row.id) : null;
+}
+
+async function batchGroupFingerprint(
+  organizationId: string,
+  groupId: string,
+  entries: readonly BatchTargetSnapshotEntry[],
+  base: RecoverySnapshot | null,
+): Promise<string> {
+  return sha256Hex(JSON.stringify({
+    operation: BATCH_RECOVERY_OPERATION,
+    organizationId,
+    groupId,
+    targets: entries
+      .slice()
+      .sort((left, right) => left.request.targetId.localeCompare(right.request.targetId))
+      .map((entry) => ({
+        request: entry.request,
+        state: entry.snapshot ? stateValue(entry.snapshot.target) : null,
+        error: entry.error,
+      })),
+    facts: base?.facts.slice().sort((left, right) => left.id.localeCompare(right.id)).map(stateValue) ?? [],
+  }));
+}
+
+async function batchGroupPlanToken(
+  groupId: string,
+  entries: readonly BatchTargetSnapshotEntry[],
+  stateFingerprint: string,
+): Promise<string> {
+  return sha256Hex(JSON.stringify({
+    operation: BATCH_RECOVERY_OPERATION,
+    groupId,
+    stateFingerprint,
+    targets: entries
+      .slice()
+      .sort((left, right) => left.request.targetId.localeCompare(right.request.targetId))
+      .map((entry) => entry.request),
+  }));
+}
+
+async function buildBatchGroupPlan(
+  env: RecoveryEnv,
+  organizationId: string,
+  entries: BatchTargetSnapshotEntry[],
+  explicitGroupId?: string,
+): Promise<BatchGroupPlan> {
+  const conflicts: string[] = [];
+  const blockedTargets = new Set<string>();
+  const snapshots = entries.filter((entry): entry is BatchTargetSnapshotEntry & { snapshot: RecoverySnapshot } => entry.snapshot !== null);
+  const base = snapshots[0]?.snapshot ?? null;
+  const canonicalGroupId = base ? groupIdForSnapshot(base) : null;
+  const groupId = canonicalGroupId ?? explicitGroupId ?? `unresolved:${entries[0]?.request.targetId ?? "batch"}`;
+
+  const targetIds = new Set<string>();
+  const clientOperationIds = new Set<string>();
+  for (const entry of entries) {
+    if (targetIds.has(entry.request.targetId)) {
+      addBatchConflict(conflicts, `BATCH_DUPLICATE_TARGET:${entry.request.targetId}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+    targetIds.add(entry.request.targetId);
+    if (clientOperationIds.has(entry.request.clientOperationId)) {
+      addBatchConflict(conflicts, `BATCH_DUPLICATE_OPERATION:${entry.request.clientOperationId}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+    clientOperationIds.add(entry.request.clientOperationId);
+    if (entry.error) {
+      addBatchConflict(conflicts, `${entry.request.targetId}:${entry.error}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+    if (entry.snapshot && base && groupIdForSnapshot(entry.snapshot) !== canonicalGroupId) {
+      addBatchConflict(conflicts, `BATCH_SCOPE_MISMATCH:${entry.request.targetId}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+    if (entry.snapshot && base && entry.request.environment !== base.target.environment) {
+      addBatchConflict(conflicts, `BATCH_ENVIRONMENT_MISMATCH:${entry.request.targetId}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+  }
+  if (explicitGroupId && canonicalGroupId && explicitGroupId !== canonicalGroupId) {
+    addBatchConflict(conflicts, "BATCH_GROUP_ID_MISMATCH");
+  }
+  if (new Set(entries.map((entry) => entry.request.environment)).size > 1) {
+    addBatchConflict(conflicts, "BATCH_ENVIRONMENT_MISMATCH");
+    for (const entry of entries) blockedTargets.add(entry.request.targetId);
+  }
+
+  for (const entry of snapshots) {
+    if (blockedTargets.has(entry.request.targetId)) continue;
+    try {
+      assertRecoverableSnapshot(entry.snapshot);
+    } catch (error) {
+      const code = error instanceof RecoveryCoreError ? error.code : "BATCH_TARGET_NOT_RECOVERABLE";
+      addBatchConflict(conflicts, `${entry.request.targetId}:${code}`);
+      blockedTargets.add(entry.request.targetId);
+      continue;
+    }
+    const childId = await existingRecoveryChild(env, organizationId, entry.snapshot.target.id);
+    if (childId) {
+      addBatchConflict(conflicts, `BATCH_TARGET_ALREADY_HAS_LINEAGE_CHILD:${entry.snapshot.target.id}`);
+      blockedTargets.add(entry.request.targetId);
+    }
+  }
+
+  const recoverableEntries = snapshots.filter((entry) => !blockedTargets.has(entry.request.targetId));
+  const proposedAfter = base && recoverableEntries.length
+    ? deriveCanonicalLabSubmissionSummary(
+      labScope(base.target),
+      [
+        ...base.facts,
+        ...recoverableEntries.map((entry) => proposedFact(entry.snapshot.target, entry.request)),
+      ],
+    )
+    : base?.summary ?? null;
+  const fingerprint = await batchGroupFingerprint(organizationId, groupId, entries, base);
+  const dryRunToken = await batchGroupPlanToken(groupId, entries, fingerprint);
+  return {
+    groupId,
+    entries,
+    recoverableEntries,
+    environment: base?.target.environment ?? entries[0]?.request.environment ?? null,
+    farmId: base?.target.farmId ?? null,
+    farmName: base?.target.farmName ?? null,
+    houseId: base?.target.houseId ?? null,
+    houseName: base?.target.houseName ?? null,
+    before: base?.summary ?? null,
+    proposedAfter,
+    dependencies: base ? batchDependencies(base, targetIds) : [],
+    conflicts,
+    stateFingerprint: fingerprint,
+    dryRunToken,
+  };
+}
+
+function batchDryRunGroupFromPlan(plan: BatchGroupPlan): BatchRecoveryGroupDryRun {
+  return {
+    groupId: plan.groupId,
+    environment: plan.environment,
+    farmId: plan.farmId,
+    farmName: plan.farmName,
+    houseId: plan.houseId,
+    houseName: plan.houseName,
+    targetIds: plan.entries.map((entry) => entry.request.targetId),
+    targets: plan.entries.map((entry) => ({
+      id: entry.snapshot?.target.id ?? entry.request.targetId,
+      clientOperationId: entry.request.clientOperationId,
+      workflowStatus: entry.snapshot?.target.workflowStatus ?? null,
+      result: entry.snapshot?.target.result ?? null,
+      completedAt: entry.snapshot?.target.completedAt ?? null,
+    })),
+    before: plan.before,
+    proposedAfter: plan.proposedAfter,
+    dependencies: plan.dependencies,
+    derivedImpact: {
+      projection: "canonical_lab_submission_house_status",
+      before: plan.before,
+      after: plan.proposedAfter,
+    },
+    stockImpact: { affected: false, before: null, after: null, delta: 0 },
+    lifecycleImpact: "UNCHANGED_NON_STOCK",
+    conflicts: plan.conflicts,
+    applyEligibility: plan.conflicts.length || plan.recoverableEntries.length !== plan.entries.length ? "DENIED" : "ELIGIBLE",
+    stateFingerprint: plan.stateFingerprint,
+    dryRunToken: plan.dryRunToken,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function dryRunO6RecoveryBatch(
+  env: RecoveryEnv,
+  context: Pick<RecoveryContext, "organizationId">,
+  input: BatchRecoveryRequest,
+): Promise<BatchRecoveryDryRun> {
+  const requests = validateBatchTargets(input);
+  const entries = await Promise.all(requests.map((request) => readBatchTargetSnapshot(env, context.organizationId, request)));
+  const grouped = new Map<string, BatchTargetSnapshotEntry[]>();
+  for (const entry of entries) {
+    const key = entry.snapshot ? groupIdForSnapshot(entry.snapshot) : `unresolved:${entry.request.targetId}`;
+    const group = grouped.get(key) ?? [];
+    group.push(entry);
+    grouped.set(key, group);
+  }
+  const groups: BatchRecoveryGroupDryRun[] = [];
+  for (const groupEntries of grouped.values()) {
+    groups.push(batchDryRunGroupFromPlan(await buildBatchGroupPlan(env, context.organizationId, groupEntries)));
+  }
+  groups.sort((left, right) => left.groupId.localeCompare(right.groupId));
+  return {
+    operation: BATCH_RECOVERY_OPERATION,
+    targetCount: requests.length,
+    groupCount: groups.length,
+    groups,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+async function existingRecoveryForClientOperation(
+  env: RecoveryEnv,
+  organizationId: string,
+  clientOperationId: string,
+): Promise<Record<string, unknown> | null> {
+  return env.DB.prepare(
+    `SELECT id, correction_of_id AS correctionOfId, workflow_status AS workflowStatus,
+            result, completed_at AS completedAt, lifecycle_status AS lifecycleStatus
+       FROM operational_actions
+      WHERE organization_id = ? AND client_operation_id = ?
+      LIMIT 1`,
+  ).bind(organizationId, clientOperationId).first<Record<string, unknown>>();
+}
+
+async function recoveryAuditExists(
+  env: RecoveryEnv,
+  organizationId: string,
+  clientOperationId: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT id FROM audit_logs WHERE id = ? AND organization_id = ? LIMIT 1",
+  ).bind(`audit-recovery-${clientOperationId}`, organizationId).first<{ id: string }>();
+  return Boolean(row?.id);
+}
+
+async function batchRecoveryRecordId(clientOperationId: string): Promise<string> {
+  const suffix = await sha256Hex(`batch-recovery:${clientOperationId}`);
+  return `web-recovery-batch-${suffix.slice(0, 40)}`;
+}
+
+function batchRecoveryRecord(
+  snapshot: RecoverySnapshot,
+  request: RecoveryRequest,
+  context: RecoveryContext,
+  id: string,
+): Record<string, unknown> {
+  return {
+    id,
+    taxonomyId: "O6",
+    family: snapshot.target.family,
+    type: snapshot.target.canonicalType,
+    subtype: snapshot.target.subtype,
+    occurredAt: snapshot.target.occurredAt,
+    farmId: snapshot.target.farmId,
+    houseId: snapshot.target.houseId,
+    flockId: snapshot.target.flockId,
+    content: snapshot.target.content,
+    submittedAt: snapshot.target.submittedAt,
+    workflowStatus: "completed",
+    result: request.result,
+    completedAt: request.completedAt,
+    reminderDueAt: snapshot.target.reminderDueAt,
+    sourceChannel: "web",
+    sourceMessageId: snapshot.target.sourceMessageId,
+    sourceCandidateId: snapshot.target.sourceCandidateId,
+    rawText: `web:batch-recovery:${snapshot.target.rawText}`,
+    actorId: context.actorId,
+    confirmedBy: context.actorId,
+    clientOperationId: request.clientOperationId,
+    correctionOfId: snapshot.target.id,
+  };
+}
+
+function batchApplyResult(
+  groupId: string,
+  status: BatchRecoveryGroupApplyStatus,
+  targetIds: string[],
+  conflicts: string[] = [],
+  idempotent = false,
+  canonical: CanonicalWriteResult[] = [],
+  authoritativeReadback: RecoveryApplyResult["authoritativeReadback"][] = [],
+  recoveryAuditIds: string[] = canonical.length
+    ? canonical.map((result) => `audit-recovery-${result.clientOperationId}`)
+    : [],
+): BatchRecoveryGroupApplyResult {
+  return {
+    groupId,
+    status,
+    applied: status === "APPLIED" && !idempotent,
+    idempotent,
+    targetIds,
+    recoveryRecordIds: canonical.map((result) => result.id),
+    recoveryAuditIds,
+    conflicts,
+    canonical,
+    authoritativeReadback,
+  };
+}
+
+async function applyBatchGroup(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  group: BatchRecoveryApplyGroupRequest,
+): Promise<BatchRecoveryGroupApplyResult> {
+  const requests = group.targets.map((target) => validateRequest(target));
+  const targetIds = requests.map((request) => request.targetId);
+  const existingRows = await Promise.all(requests.map((request) => existingRecoveryForClientOperation(env, context.organizationId, request.clientOperationId)));
+  const existingCount = existingRows.filter(Boolean).length;
+  if (existingCount > 0 && existingCount < requests.length) {
+    return batchApplyResult(group.groupId, "BLOCKED", targetIds, ["BATCH_IDEMPOTENCY_PARTIAL"]);
+  }
+  if (existingCount === requests.length) {
+    const readbacks: RecoveryApplyResult["authoritativeReadback"][] = [];
+    for (let index = 0; index < requests.length; index += 1) {
+      const existing = existingRows[index];
+      if (!existing
+        || String(existing.correctionOfId ?? "") !== requests[index].targetId
+        || String(existing.workflowStatus ?? "") !== "completed"
+        || String(existing.result ?? "") !== requests[index].result
+        || String(existing.completedAt ?? "") !== requests[index].completedAt
+        || !(await recoveryAuditExists(env, context.organizationId, requests[index].clientOperationId))) {
+        return batchApplyResult(group.groupId, "FAILED", targetIds, ["BATCH_IDEMPOTENCY_READBACK_FAILED"]);
+      }
+      readbacks.push(await authoritativeAfter(env, context.organizationId, requests[index], String(existing.id)));
+    }
+    return batchApplyResult(
+      group.groupId,
+      "APPLIED",
+      targetIds,
+      [],
+      true,
+      [],
+      readbacks,
+      requests.map((request) => `audit-recovery-${request.clientOperationId}`),
+    );
+  }
+
+  const entries = await Promise.all(requests.map((request) => readBatchTargetSnapshot(env, context.organizationId, request)));
+  const plan = await buildBatchGroupPlan(env, context.organizationId, entries, group.groupId);
+  if (plan.groupId !== group.groupId) return batchApplyResult(group.groupId, "BLOCKED", targetIds, ["BATCH_GROUP_ID_MISMATCH"]);
+  if (plan.stateFingerprint !== group.stateFingerprint) return batchApplyResult(group.groupId, "STALE_STATE", targetIds, ["STALE_STATE"]);
+  if (plan.dryRunToken !== group.dryRunToken) return batchApplyResult(group.groupId, "BLOCKED", targetIds, ["RECOVERY_PLAN_TOKEN_MISMATCH"]);
+  if (plan.conflicts.length || plan.recoverableEntries.length !== entries.length || !plan.proposedAfter) {
+    return batchApplyResult(group.groupId, "BLOCKED", targetIds, plan.conflicts.length ? plan.conflicts : ["BATCH_GROUP_NOT_ELIGIBLE"]);
+  }
+
+  try {
+    const proposedAfter = plan.proposedAfter;
+    if (!proposedAfter) return batchApplyResult(group.groupId, "BLOCKED", targetIds, ["BATCH_GROUP_NOT_ELIGIBLE"]);
+    const lineageEntries: CanonicalLineageBatchEntry[] = [];
+    for (const entry of plan.recoverableEntries) {
+      const id = await batchRecoveryRecordId(entry.request.clientOperationId);
+      lineageEntries.push({
+        record: batchRecoveryRecord(entry.snapshot, entry.request, context, id),
+        patch: {
+          kind: "correction",
+          originalId: entry.snapshot.target.id,
+          childId: id,
+          clientOperationId: entry.request.clientOperationId,
+          reason: entry.request.reason,
+        },
+      });
+    }
+    const recoveryContext: CanonicalWriteContext = {
+      organizationId: context.organizationId,
+      actorType: "web_admin",
+      actorId: context.actorId,
+      requestId: context.requestId,
+      environment: requests[0].environment,
+      expectedSourceChannel: "web",
+      operatorScopeRequired: true,
+    };
+    const canonical = (await persistCanonicalLineageBatch(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      lineageEntries,
+      recoveryContext,
+      (results) => results.map((result, index) => recoveryAuditStatement(
+        env,
+        context,
+        plan.recoverableEntries[index].request,
+        plan.recoverableEntries[index].snapshot,
+        result,
+        proposedAfter,
+        BATCH_RECOVERY_OPERATION,
+      )),
+    )) as CanonicalWriteResult[];
+    const readbacks = await Promise.all(canonical.map((result, index) => authoritativeAfter(
+      env,
+      context.organizationId,
+      plan.recoverableEntries[index].request,
+      result.id,
+    )));
+    if (!readbacks.every((readback) => JSON.stringify(readback.derived) === JSON.stringify(proposedAfter))) {
+      throw new RecoveryCoreError("RECOVERY_DERIVED_READBACK_MISMATCH", 500);
+    }
+    for (const entry of plan.recoverableEntries) {
+      if (!(await recoveryAuditExists(env, context.organizationId, entry.request.clientOperationId))) {
+        throw new RecoveryCoreError("RECOVERY_AUDIT_READBACK_FAILED", 500);
+      }
+    }
+    return batchApplyResult(
+      group.groupId,
+      "APPLIED",
+      targetIds,
+      [],
+      false,
+      canonical,
+      readbacks,
+      plan.recoverableEntries.map((entry) => `audit-recovery-${entry.request.clientOperationId}`),
+    );
+  } catch (error) {
+    const code = error instanceof RecoveryCoreError ? error.code : "BATCH_ATOMIC_APPLY_FAILED";
+    return batchApplyResult(group.groupId, "FAILED", targetIds, [code]);
+  }
+}
+
+export async function applyO6RecoveryBatch(
+  env: RecoveryEnv,
+  context: RecoveryContext,
+  input: BatchRecoveryApplyRequest,
+): Promise<BatchRecoveryApplyResult> {
+  const groups = validateBatchApplyGroups(input);
+  const results: BatchRecoveryGroupApplyResult[] = [];
+  for (const group of groups) results.push(await applyBatchGroup(env, context, group));
+  return {
+    operation: BATCH_RECOVERY_OPERATION,
+    groupCount: results.length,
+    appliedGroupCount: results.filter((group) => group.status === "APPLIED").length,
+    blockedGroupCount: results.filter((group) => group.status !== "APPLIED").length,
+    groups: results,
+    evaluatedAt: new Date().toISOString(),
   };
 }

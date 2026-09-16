@@ -97,7 +97,10 @@ function isReliabilityAdminMutation(pathname: string): boolean {
 }
 
 function isRecoveryAdminMutation(pathname: string): boolean {
-  return pathname === "/api/recovery/dry-run" || pathname === "/api/recovery/apply";
+  return pathname === "/api/recovery/dry-run"
+    || pathname === "/api/recovery/apply"
+    || pathname === "/api/recovery/batch-dry-run"
+    || pathname === "/api/recovery/batch-apply";
 }
 
 function isAdminAiMutation(pathname: string): boolean {

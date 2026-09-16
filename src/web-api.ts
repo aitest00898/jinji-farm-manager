@@ -73,10 +73,14 @@ import {
 } from "./canonical-lab-submission-read-model";
 import {
   applyO6Recovery,
+  applyO6RecoveryBatch,
   auditRangeBoundary,
   dryRunO6Recovery,
+  dryRunO6RecoveryBatch,
   listAuditLogs,
   RecoveryCoreError,
+  type BatchRecoveryApplyRequest,
+  type BatchRecoveryRequest,
   type RecoveryApplyRequest,
   type RecoveryRequest,
 } from "./audit-recovery-core";
@@ -2847,6 +2851,16 @@ function recoveryMessage(code: string): string {
     RECOVERY_DERIVED_READBACK_MISMATCH: "Recovery 後 derived readback 不一致，請停止後檢查。",
     RECOVERY_READBACK_FAILED: "Recovery authoritative readback 失敗。",
     RECOVERY_AUDIT_READBACK_FAILED: "Recovery audit readback 失敗。",
+    RECOVERY_BATCH_INPUT_INVALID: "Recovery 批次欄位不完整或超過安全上限。",
+    RECOVERY_BATCH_DUPLICATE_GROUP: "Recovery 批次包含重複群組。",
+    BATCH_GROUP_ID_MISMATCH: "Recovery 批次群組與目前 authoritative scope 不一致。",
+    BATCH_IDEMPOTENCY_PARTIAL: "Recovery 批次已有部分重送結果，沒有寫入。",
+    BATCH_IDEMPOTENCY_READBACK_FAILED: "Recovery 批次重送 readback 不一致，沒有新增寫入。",
+    BATCH_ATOMIC_APPLY_FAILED: "Recovery 批次群組未能原子套用，沒有安全確認。",
+    CANONICAL_BATCH_TOO_LARGE: "Recovery 批次超過安全上限。",
+    CANONICAL_BATCH_DUPLICATE_OPERATION: "Recovery 批次包含重複操作識別。",
+    CANONICAL_BATCH_STOCK_MUTATION_FORBIDDEN: "Recovery 批次不得包含 stock mutation。",
+    CANONICAL_BATCH_CONTEXT_MISMATCH: "Recovery 批次包含不一致的組織範圍。",
   } as Record<string, string>)[code.split(":", 1)[0]] ?? "Recovery 操作未完成，沒有安全確認。";
 }
 
@@ -2861,6 +2875,42 @@ function recoveryRequestFromBody(
   const reason = stringValue(body?.reason, 500);
   if (!targetId || !clientOperationId || !result || !completedAt || !reason) return null;
   return { environment, targetId, clientOperationId, result, completedAt, reason };
+}
+
+function recoveryBatchRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): BatchRecoveryRequest | null {
+  if (!Array.isArray(body?.targets)) return null;
+  const targets = body.targets.map((value) => recoveryRequestFromBody(
+    value && typeof value === "object" ? value as Record<string, unknown> : null,
+    environment,
+  ));
+  return targets.every((target): target is RecoveryRequest => target !== null) ? { targets } : null;
+}
+
+function recoveryBatchApplyRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): BatchRecoveryApplyRequest | null {
+  if (!Array.isArray(body?.groups)) return null;
+  const groups = body.groups.map((value) => {
+    if (!value || typeof value !== "object") return null;
+    const group = value as Record<string, unknown>;
+    if (!Array.isArray(group.targets)) return null;
+    const targets = group.targets.map((target) => recoveryRequestFromBody(
+      target && typeof target === "object" ? target as Record<string, unknown> : null,
+      environment,
+    ));
+    const groupId = stringValue(group.groupId, 200);
+    const stateFingerprint = stringValue(group.stateFingerprint, 128);
+    const dryRunToken = stringValue(group.dryRunToken, 128);
+    return groupId && stateFingerprint && dryRunToken && targets.every((target): target is RecoveryRequest => target !== null)
+      ? { groupId, targets, stateFingerprint, dryRunToken }
+      : null;
+  });
+  if (groups.some((group) => group === null)) return null;
+  return { groups: groups as BatchRecoveryApplyRequest["groups"] };
 }
 
 async function recoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -2893,6 +2943,40 @@ async function recoveryApply(request: Request, env: WebApiEnv, session: SessionR
       input,
     );
     return response(request, { recovery: result }, result.applied ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
+async function recoveryBatchDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = recoveryBatchRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Recovery 批次 Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunO6RecoveryBatch(env, { organizationId: session.organizationId }, input);
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryBatchApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = recoveryBatchApplyRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Recovery 批次 Apply 欄位不完整或無效。");
+  try {
+    const result = await applyO6RecoveryBatch(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.appliedGroupCount > 0 ? 201 : 200);
   } catch (error) {
     if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
     const rejected = canonicalWriteErrorResponse(request, error);
@@ -4158,6 +4242,8 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/pending-candidates" && request.method === "GET") return pendingCandidates(request, env, session);
     if (url.pathname === "/api/recovery/dry-run" && request.method === "POST") return recoveryDryRun(request, env, session);
     if (url.pathname === "/api/recovery/apply" && request.method === "POST") return recoveryApply(request, env, session);
+    if (url.pathname === "/api/recovery/batch-dry-run" && request.method === "POST") return recoveryBatchDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/batch-apply" && request.method === "POST") return recoveryBatchApply(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "GET") return listOperators(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "POST") return createOperator(request, env, session);
     const operatorScopeMatch = /^\/api\/operators\/([^/]+)\/scopes$/u.exec(url.pathname);

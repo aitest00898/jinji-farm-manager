@@ -1,7 +1,9 @@
 import { auditLogStatement } from "./domain";
 import {
   CanonicalWriteError,
+  persistRecordCommandsAtomically,
   persistRecordCommand,
+  type CanonicalAtomicWriteInput,
   type CanonicalWriteContext,
   type CanonicalWriteEnv,
   type CanonicalWriteResult,
@@ -126,6 +128,30 @@ export async function persistCanonicalLineage(
 ): Promise<CanonicalWriteResult> {
   const child = canonicalChildRecord(record, patch, context);
   return persistRecordCommand(env, createRecordCommand(child), context);
+}
+
+export interface CanonicalLineageBatchEntry {
+  record: Record<string, unknown>;
+  patch: CanonicalLineagePatch;
+}
+
+/**
+ * Prepare several append-only lineage children through the same canonical
+ * write boundary and commit the group in one D1 batch.  The optional callback
+ * lets the owning workflow append its own immutable audit statements to the
+ * same transaction without creating a second business authority.
+ */
+export async function persistCanonicalLineageBatch(
+  env: CanonicalWriteEnv,
+  entries: readonly CanonicalLineageBatchEntry[],
+  context: CanonicalWriteContext,
+  extraStatementsFor?: (results: readonly CanonicalWriteResult[]) => readonly D1PreparedStatement[],
+): Promise<readonly CanonicalWriteResult[]> {
+  const inputs: CanonicalAtomicWriteInput[] = entries.map(({ record, patch }) => ({
+    input: createRecordCommand(canonicalChildRecord(record, patch, context)),
+    context,
+  }));
+  return persistRecordCommandsAtomically(env, inputs, extraStatementsFor);
 }
 
 export async function persistCanonicalCorrection(
