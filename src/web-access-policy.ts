@@ -35,6 +35,8 @@ const ADMIN_GET_PATHS = new Set([
   "/api/caretakers",
   "/api/audit",
   "/api/farm-aliases",
+  "/api/investors",
+  "/api/web/auth/sessions",
 ]);
 
 const SHARED_EXACT_MUTATIONS = new Set([
@@ -49,6 +51,10 @@ const ADMIN_EXACT_MUTATIONS = new Set([
   "POST /api/caretakers",
   "POST /api/houses",
   "POST /api/operators",
+  "POST /api/investors",
+  "POST /api/finance/mutations",
+  "POST /api/web/auth/password-rotation",
+  "POST /api/web/auth/session-rotation",
 ]);
 
 function methodPath(method: string, pathname: string): string {
@@ -88,6 +94,18 @@ function isLineGroupAdminMutation(pathname: string): boolean {
 
 function isAdminEntityMutation(pathname: string): boolean {
   return /^\/api\/(farms|caretakers|houses|flocks)\/[^/]+$/u.test(pathname);
+}
+
+function isAdminEntityDelete(pathname: string): boolean {
+  return /^\/api\/(farms|houses|investors|finance\/(?:farm-investor-equity|profit-distributions|profit-distribution-allocations))\/[^/]+$/u.test(pathname);
+}
+
+function isAdminEntityRestore(pathname: string): boolean {
+  return /^\/api\/(farms|houses)\/[^/]+\/restore$/u.test(pathname);
+}
+
+function isAdminSessionMutation(pathname: string): boolean {
+  return /^\/api\/web\/auth\/sessions\/[^/]+\/revoke$/u.test(pathname);
 }
 
 function isReliabilityAdminMutation(pathname: string): boolean {
@@ -157,7 +175,10 @@ export function classifyWebRoute(pathname: string, method: string): WebAccessCla
   if (ADMIN_EXACT_MUTATIONS.has(exact)) return "ADMIN";
   if (normalizedMethod === "POST" && isSharedDomainRecoveryMutation(pathname)) return "SHARED_EDIT";
   if (normalizedMethod === "POST" && (isFarmCaretakerMutation(pathname) || isOperatorScopeMutation(pathname) || isLineGroupAdminMutation(pathname) || isReliabilityAdminMutation(pathname) || isRecoveryAdminMutation(pathname) || isAdminDomainRecoveryMutation(pathname) || isAdminAiMutation(pathname))) return "ADMIN";
+  if (normalizedMethod === "POST" && pathname === "/api/web/auth/client-close") return "SHARED_EDIT";
+  if (normalizedMethod === "POST" && (isAdminEntityRestore(pathname) || isAdminSessionMutation(pathname))) return "ADMIN";
   if (normalizedMethod === "PATCH" && (isLineGroupAdminMutation(pathname) || isAdminEntityMutation(pathname))) return "ADMIN";
+  if (normalizedMethod === "DELETE" && isAdminEntityDelete(pathname)) return "ADMIN";
   if (normalizedMethod === "POST" && isAdminEntityMutation(pathname)) return "ADMIN";
   if (normalizedMethod === "GET" && pathname === "/api/finance") return "SHARED_EDIT";
   if (normalizedMethod === "POST" && pathname === "/api/finance") return "ADMIN";

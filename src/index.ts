@@ -37,8 +37,25 @@ import {
   type ShipmentReminder,
   type StockAdjustment,
 } from "./master-data";
-import { handleWebApi } from "./web-api";
+import { financeEntityRead, handleWebApi } from "./web-api";
 import { auditLogStatement, writeAuditLog } from "./domain";
+import {
+  chapter12LineAdminUsage,
+  financePreviewText,
+  masterPreviewText,
+} from "./chapter12-line-admin";
+import {
+  FINANCE_MUTATION_FIELDS,
+  FINANCE_MUTATION_FIELD_COLUMNS,
+  FINANCE_MUTATION_TABLES,
+  financeMutationPlan,
+  financeMutationScopeFor,
+  masterBatchPreview,
+  validateFinanceMutationRequest,
+  validateFinanceMutationValues,
+  type FinanceMutationRequest,
+  type MasterBatchItem,
+} from "./chapter12-requirements";
 import {
   formatAbnormalReply,
   insertAbnormalEvent,
@@ -811,11 +828,19 @@ async function hasScopedPendingState(env: Env, groupId: string, userId: string, 
         WHERE line_group_id = ? AND line_user_id = ?
           AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
        UNION ALL
+       SELECT id FROM finance_admin_actions
+        WHERE line_group_id = ? AND line_user_id = ?
+          AND status = 'waiting_confirmation' AND expires_at > ?
+       UNION ALL
+       SELECT id FROM master_admin_actions
+        WHERE line_group_id = ? AND line_user_id = ?
+          AND status = 'waiting_confirmation' AND expires_at > ?
+       UNION ALL
        SELECT id FROM ambient_digest_candidates
         WHERE line_group_id = ? AND review_user_id = ?
           AND status = 'pending' AND review_expires_at > ?
      ) LIMIT 1`,
-  ).bind(groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now).first<{ present: number }>();
+  ).bind(groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now).first<{ present: number }>();
   if (row?.present) return true;
   const canonical = await env.DB.prepare(
     `SELECT 1 AS present
@@ -8427,6 +8452,408 @@ function lineAdminDeniedReply(accountName: string): LineTextMessage {
   return buildTextMessage(`${botName(accountName)}\n這個功能只有管理者可以使用。`);
 }
 
+type Chapter12AdminActionStatus = "waiting_confirmation" | "completed" | "cancelled" | "expired";
+
+interface Chapter12FinanceActionRow {
+  id: string;
+  lineGroupId: string;
+  lineUserId: string;
+  organizationId: string;
+  operation: "update" | "delete" | "batch";
+  payloadJson: string;
+  previewJson: string;
+  status: Chapter12AdminActionStatus;
+  expiresAt: string;
+  sourceEventId: string;
+  createdAt: string;
+}
+
+interface Chapter12MasterActionRow {
+  id: string;
+  lineGroupId: string;
+  lineUserId: string;
+  organizationId: string;
+  operation: "batch";
+  payloadJson: string;
+  previewJson: string;
+  status: Chapter12AdminActionStatus;
+  expiresAt: string;
+  sourceEventId: string;
+  createdAt: string;
+}
+
+function chapter12FinanceActionStatuses(statuses: Chapter12AdminActionStatus[]): string {
+  return statuses.map(() => "?").join(", ");
+}
+
+async function latestChapter12FinanceAction(
+  env: Env,
+  groupId: string,
+  lineUserId: string,
+  statuses: Chapter12AdminActionStatus[] = ["waiting_confirmation"],
+): Promise<Chapter12FinanceActionRow | null> {
+  return env.DB.prepare(
+    `SELECT id, line_group_id AS lineGroupId, line_user_id AS lineUserId,
+            organization_id AS organizationId, operation, payload_json AS payloadJson,
+            preview_json AS previewJson, status, expires_at AS expiresAt,
+            source_event_id AS sourceEventId, created_at AS createdAt
+       FROM finance_admin_actions
+      WHERE line_group_id = ? AND line_user_id = ? AND status IN (${chapter12FinanceActionStatuses(statuses)})
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).bind(groupId, lineUserId, ...statuses).first<Chapter12FinanceActionRow>();
+}
+
+async function latestChapter12MasterAction(
+  env: Env,
+  groupId: string,
+  lineUserId: string,
+  statuses: Chapter12AdminActionStatus[] = ["waiting_confirmation"],
+): Promise<Chapter12MasterActionRow | null> {
+  return env.DB.prepare(
+    `SELECT id, line_group_id AS lineGroupId, line_user_id AS lineUserId,
+            organization_id AS organizationId, operation, payload_json AS payloadJson,
+            preview_json AS previewJson, status, expires_at AS expiresAt,
+            source_event_id AS sourceEventId, created_at AS createdAt
+       FROM master_admin_actions
+      WHERE line_group_id = ? AND line_user_id = ? AND status IN (${chapter12FinanceActionStatuses(statuses)})
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).bind(groupId, lineUserId, ...statuses).first<Chapter12MasterActionRow>();
+}
+
+async function expireChapter12AdminActions(env: Env, groupId: string, lineUserId: string, now = new Date().toISOString()): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE finance_admin_actions SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND line_user_id = ? AND status = 'waiting_confirmation' AND expires_at <= ?`,
+    ).bind(groupId, lineUserId, now),
+    env.DB.prepare(
+      `UPDATE master_admin_actions SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE line_group_id = ? AND line_user_id = ? AND status = 'waiting_confirmation' AND expires_at <= ?`,
+    ).bind(groupId, lineUserId, now),
+  ]);
+}
+
+async function chapter12LineFinancePreview(
+  env: Env,
+  organizationId: string,
+  requests: FinanceMutationRequest[],
+): Promise<{ requests: FinanceMutationRequest[]; plans: Array<{ before: Record<string, unknown>; after: Record<string, unknown> | null; requiresWarningOverride: boolean }> } | null> {
+  const validated: FinanceMutationRequest[] = [];
+  const plans: Array<{ before: Record<string, unknown>; after: Record<string, unknown> | null; requiresWarningOverride: boolean }> = [];
+  for (const request of requests) {
+    let normalized: FinanceMutationRequest;
+    try {
+      normalized = validateFinanceMutationRequest({ ...request, confirm: true });
+    } catch {
+      return null;
+    }
+    const before = await financeEntityRead(env, organizationId, normalized.entityType, normalized.entityId);
+    if (!before) return null;
+    try {
+      validateFinanceMutationValues(normalized);
+      const plan = financeMutationPlan(normalized, before, FINANCE_MUTATION_FIELDS[normalized.entityType], { enforceWarningOverride: false });
+      validated.push({ ...normalized, confirm: false });
+      plans.push({ before: plan.before, after: plan.after, requiresWarningOverride: plan.requiresWarningOverride });
+    } catch {
+      return null;
+    }
+  }
+  return { requests: validated, plans };
+}
+
+async function startChapter12FinanceAction(
+  env: Env,
+  event: LineEvent,
+  eventId: string,
+  groupId: string,
+  organizationId: string,
+  requests: FinanceMutationRequest[],
+  accountName: string,
+): Promise<string> {
+  const lineUserId = event.source?.userId;
+  if (!lineUserId || !lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
+  const preview = await chapter12LineFinancePreview(env, organizationId, requests);
+  if (!preview) return `${botName(accountName)}\n⚠️ Finance 目標或變更無法安全驗證，沒有寫入。`;
+  const previous = await env.DB.prepare(
+    `SELECT id, status FROM finance_admin_actions WHERE source_event_id = ? LIMIT 1`,
+  ).bind(eventId).first<{ id: string; status: Chapter12AdminActionStatus }>();
+  if (previous?.status === "completed") return `${botName(accountName)}\n✅ 這筆 Finance 操作已完成，沒有重複寫入。`;
+  if (previous) {
+    const existing = await latestChapter12FinanceAction(env, groupId, lineUserId);
+    if (existing) return financePreviewText(preview.requests, preview.plans);
+  }
+  await env.DB.prepare(
+    `UPDATE finance_admin_actions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE line_group_id = ? AND line_user_id = ? AND status = 'waiting_confirmation'`,
+  ).bind(groupId, lineUserId).run();
+  const actionId = `finance-admin-action-${crypto.randomUUID()}`;
+  await env.DB.prepare(
+    `INSERT INTO finance_admin_actions
+      (id, line_group_id, line_user_id, organization_id, operation, payload_json,
+       preview_json, warning_override, status, expires_at, source_event_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting_confirmation', ?, ?)`,
+  ).bind(
+    actionId,
+    groupId,
+    lineUserId,
+    organizationId,
+    preview.requests.length === 1 ? preview.requests[0].operation : "batch",
+    JSON.stringify(preview.requests),
+    JSON.stringify(preview.plans),
+    preview.requests.some((request) => request.warningOverride) ? 1 : 0,
+    new Date(Date.now() + PENDING_TTL_MS).toISOString(),
+    eventId,
+  ).run();
+  return `${botName(accountName)}\n${financePreviewText(preview.requests, preview.plans)}`;
+}
+
+async function executeChapter12LineFinanceAction(
+  env: Env,
+  action: Chapter12FinanceActionRow,
+  accountName: string,
+): Promise<string> {
+  if (action.status !== "waiting_confirmation" || action.expiresAt <= new Date().toISOString()) {
+    if (action.status === "waiting_confirmation") {
+      await env.DB.prepare(
+        `UPDATE finance_admin_actions SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'waiting_confirmation'`,
+      ).bind(action.id).run();
+    }
+    return `${botName(accountName)}\n⚠️ Finance 預覽已失效，請重新輸入完整指令。`;
+  }
+  let requests: FinanceMutationRequest[];
+  try {
+    const value = JSON.parse(action.payloadJson) as unknown;
+    if (!Array.isArray(value)) throw new Error("invalid_payload");
+    requests = value.map((request) => validateFinanceMutationRequest({ ...(request as Record<string, unknown>), confirm: true }));
+    requests.forEach(validateFinanceMutationValues);
+  } catch {
+    return `${botName(accountName)}\n⚠️ Finance 預覽資料已失效，沒有寫入。`;
+  }
+  const preflight: Array<{ request: FinanceMutationRequest; before: Record<string, unknown>; plan: ReturnType<typeof financeMutationPlan> }> = [];
+  for (const request of requests) {
+    const before = await financeEntityRead(env, action.organizationId, request.entityType, request.entityId);
+    if (!before) return `${botName(accountName)}\n⚠️ Finance 目標已不存在或範圍已變更，沒有寫入。`;
+    try {
+      const plan = financeMutationPlan(request, before, FINANCE_MUTATION_FIELDS[request.entityType]);
+      preflight.push({ request, before, plan });
+    } catch {
+      return `${botName(accountName)}\n⚠️ Finance 預覽與目前資料不一致，沒有寫入。`;
+    }
+  }
+  const statements: D1PreparedStatement[] = [];
+  for (const { request, plan } of preflight) {
+    const table = FINANCE_MUTATION_TABLES[request.entityType];
+    const where = financeMutationScopeFor(request.entityType, request.entityId, action.organizationId);
+    const whereValues = where.values;
+    if (request.operation === "delete") {
+      statements.push(env.DB.prepare(`DELETE FROM ${table} WHERE ${where.sql}`).bind(...whereValues));
+    } else {
+      const assignments = plan.changedFields.map((field) => `${FINANCE_MUTATION_FIELD_COLUMNS[field] ?? field} = ?`).join(", ");
+      const values = plan.changedFields.map((field) => request.changes[field]);
+      const timestamp = request.entityType === "profit_distribution_allocation" ? "" : ", updated_at = CURRENT_TIMESTAMP";
+      statements.push(env.DB.prepare(`UPDATE ${table} SET ${assignments}${timestamp} WHERE ${where.sql}`).bind(...values, ...whereValues));
+    }
+  }
+  const results = await env.DB.batch(statements);
+  if (results.some((result) => result.meta.changes !== 1)) {
+    return `${botName(accountName)}\n⚠️ Finance 範圍在確認後已變更，沒有安全完成。`;
+  }
+  const readbacks: Array<{ request: FinanceMutationRequest; before: Record<string, unknown>; after: Record<string, unknown> | null; plan: ReturnType<typeof financeMutationPlan> }> = [];
+  for (const entry of preflight) {
+    const after = entry.request.operation === "delete"
+      ? await financeEntityRead(env, action.organizationId, entry.request.entityType, entry.request.entityId)
+      : await financeEntityRead(env, action.organizationId, entry.request.entityType, entry.request.entityId);
+    if (entry.request.operation === "delete" ? after : !after) return `${botName(accountName)}\n⚠️ Finance authoritative readback 失敗，請停止後續操作。`;
+    readbacks.push({ ...entry, after });
+  }
+  await env.DB.batch(readbacks.map(({ request, before, after, plan }) => auditLogStatement(env, {
+    organizationId: action.organizationId,
+    source: "line",
+    ...lineSystemAdminAuditActor(),
+    action: request.operation,
+    entityType: request.entityType,
+    entityId: request.entityId,
+    before,
+    after: after ?? undefined,
+    changedFields: plan.changedFields,
+    reason: request.reason,
+    requestId: action.sourceEventId,
+  })));
+  await env.DB.prepare(
+    `UPDATE finance_admin_actions SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'waiting_confirmation'`,
+  ).bind(action.id).run();
+  return `${botName(accountName)}\n✅ Finance 已完成 ${requests.length} 項管理變更，已寫入 Audit 並完成 authoritative readback。`;
+}
+
+function chapter12MasterField(kind: MasterBatchItem["kind"], field: string): string | null {
+  const fields: Record<MasterBatchItem["kind"], Record<string, string>> = {
+    farm: { name: "name", active: "active", siteName: "site_name" },
+    house: { name: "name", active: "active", capacity: "capacity", note: "note" },
+    flock: { breed: "breed", expectedShipmentDate: "expected_shipment_date", note: "note" },
+  };
+  return fields[kind][field] ?? null;
+}
+
+async function chapter12MasterRead(env: Env, organizationId: string, item: MasterBatchItem): Promise<Record<string, unknown> | null> {
+  if (item.kind === "farm") return env.DB.prepare("SELECT id, name, active, site_name AS siteName FROM farms WHERE id = ? AND organization_id = ? AND deleted_at IS NULL LIMIT 1").bind(item.id, organizationId).first<Record<string, unknown>>();
+  if (item.kind === "house") return env.DB.prepare("SELECT h.id, h.name, h.active, h.capacity, h.note, h.farm_id AS farmId FROM houses h JOIN farms f ON f.id = h.farm_id WHERE h.id = ? AND f.organization_id = ? AND f.deleted_at IS NULL AND h.deleted_at IS NULL LIMIT 1").bind(item.id, organizationId).first<Record<string, unknown>>();
+  return env.DB.prepare("SELECT k.id, k.breed, k.expected_shipment_date AS expectedShipmentDate, k.note, k.farm_id AS farmId FROM flocks k JOIN farms f ON f.id = k.farm_id JOIN houses h ON h.id = k.house_id WHERE k.id = ? AND f.organization_id = ? AND f.deleted_at IS NULL AND h.deleted_at IS NULL LIMIT 1").bind(item.id, organizationId).first<Record<string, unknown>>();
+}
+
+async function chapter12MasterDependenciesExist(
+  env: Env,
+  organizationId: string,
+  items: MasterBatchItem[],
+): Promise<boolean> {
+  const itemKeys = new Set(items.map((item) => `${item.kind}:${item.id}`));
+  for (const item of items) {
+    for (const dependency of item.dependsOn ?? []) {
+      if (itemKeys.has(dependency)) continue;
+      if (!dependency.startsWith("existing:")) return false;
+      const reference = dependency.slice("existing:".length);
+      const separator = reference.indexOf(":");
+      if (separator <= 0) return false;
+      const kind = reference.slice(0, separator);
+      const id = reference.slice(separator + 1);
+      if ((kind !== "farm" && kind !== "house" && kind !== "flock") || !id) return false;
+      if (!await chapter12MasterRead(env, organizationId, { kind, id, changes: {} } as MasterBatchItem)) return false;
+    }
+  }
+  return true;
+}
+
+async function startChapter12MasterAction(
+  env: Env,
+  event: LineEvent,
+  eventId: string,
+  groupId: string,
+  organizationId: string,
+  items: MasterBatchItem[],
+  accountName: string,
+): Promise<string> {
+  const lineUserId = event.source?.userId;
+  if (!lineUserId || !lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
+  const preview = masterBatchPreview(items);
+  if (!preview.safe) return `${botName(accountName)}\n⚠️ 主檔依賴或順序無法安全驗證，沒有寫入。`;
+  if (!await chapter12MasterDependenciesExist(env, organizationId, items)) return `${botName(accountName)}\n⚠️ 主檔依賴不存在或不在目前組織，沒有寫入。`;
+  for (const item of items) {
+    if (!await chapter12MasterRead(env, organizationId, item)) return `${botName(accountName)}\n⚠️ 主檔目標不存在或不在目前組織，沒有寫入。`;
+    if (Object.keys(item.changes).some((field) => !chapter12MasterField(item.kind, field))) return `${botName(accountName)}\n⚠️ 主檔變更欄位無效，沒有寫入。`;
+  }
+  await env.DB.prepare(
+    `UPDATE master_admin_actions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE line_group_id = ? AND line_user_id = ? AND status = 'waiting_confirmation'`,
+  ).bind(groupId, lineUserId).run();
+  await env.DB.prepare(
+    `INSERT INTO master_admin_actions
+      (id, line_group_id, line_user_id, organization_id, operation, payload_json,
+       preview_json, status, expires_at, source_event_id)
+     VALUES (?, ?, ?, ?, 'batch', ?, ?, 'waiting_confirmation', ?, ?)`,
+  ).bind(
+    `master-admin-action-${crypto.randomUUID()}`,
+    groupId,
+    lineUserId,
+    organizationId,
+    JSON.stringify(items),
+    JSON.stringify(preview),
+    new Date(Date.now() + PENDING_TTL_MS).toISOString(),
+    eventId,
+  ).run();
+  return `${botName(accountName)}\n${masterPreviewText(preview)}`;
+}
+
+async function executeChapter12MasterAction(env: Env, action: Chapter12MasterActionRow, accountName: string): Promise<string> {
+  if (action.status !== "waiting_confirmation" || action.expiresAt <= new Date().toISOString()) {
+    if (action.status === "waiting_confirmation") await env.DB.prepare("UPDATE master_admin_actions SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'waiting_confirmation'").bind(action.id).run();
+    return `${botName(accountName)}\n⚠️ 主檔預覽已失效，請重新輸入完整指令。`;
+  }
+  let items: MasterBatchItem[];
+  try {
+    const value = JSON.parse(action.payloadJson) as unknown;
+    const preview = masterBatchPreview(value);
+    if (!preview.safe || !Array.isArray(value)) throw new Error("invalid_payload");
+    items = value as MasterBatchItem[];
+  } catch {
+    return `${botName(accountName)}\n⚠️ 主檔預覽資料已失效，沒有寫入。`;
+  }
+  if (!await chapter12MasterDependenciesExist(env, action.organizationId, items)) return `${botName(accountName)}\n⚠️ 主檔依賴不存在或不在目前組織，沒有寫入。`;
+  const preview = masterBatchPreview(items);
+  const orderedItems = preview.executionOrder
+    .map((key) => items.find((item) => `${item.kind}:${item.id}` === key))
+    .filter((item): item is MasterBatchItem => Boolean(item));
+  if (orderedItems.length !== items.length) return `${botName(accountName)}\n⚠️ 主檔執行順序無法安全驗證，沒有寫入。`;
+  const before = await Promise.all(orderedItems.map((item) => chapter12MasterRead(env, action.organizationId, item)));
+  if (before.some((row) => !row)) return `${botName(accountName)}\n⚠️ 主檔目標已不存在或範圍已變更，沒有寫入。`;
+  const statements: D1PreparedStatement[] = [];
+  for (const item of orderedItems) {
+    const fields = Object.keys(item.changes).map((field) => [field, chapter12MasterField(item.kind, field)] as const);
+    if (fields.some(([, column]) => !column)) return `${botName(accountName)}\n⚠️ 主檔變更欄位無效，沒有寫入。`;
+    const assignments = fields.map(([, column]) => `${column} = ?`).join(", ");
+    const values = fields.map(([field]) => item.kind === "farm" && field === "active" ? (item.changes[field] === true ? 1 : 0) : item.changes[field]);
+    const table = item.kind === "farm" ? "farms" : item.kind === "house" ? "houses" : "flocks";
+    const organizationScope = item.kind === "farm" ? "organization_id = ?" : item.kind === "house" ? "farm_id IN (SELECT id FROM farms WHERE organization_id = ?)" : "farm_id IN (SELECT id FROM farms WHERE organization_id = ?)";
+    statements.push(env.DB.prepare(`UPDATE ${table} SET ${assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND ${organizationScope}`).bind(...values, item.id, action.organizationId));
+  }
+  try {
+    const results = await env.DB.batch(statements);
+    if (results.some((result) => result.meta.changes !== 1)) return `${botName(accountName)}\n⚠️ 主檔範圍在確認後已變更，沒有安全完成。`;
+  } catch {
+    return `${botName(accountName)}\n⚠️ 主檔變更未完成，沒有安全 readback。`;
+  }
+  const after = await Promise.all(orderedItems.map((item) => chapter12MasterRead(env, action.organizationId, item)));
+  if (after.some((row) => !row)) return `${botName(accountName)}\n⚠️ 主檔 authoritative readback 失敗，請停止後續操作。`;
+  await env.DB.batch(orderedItems.map((item, index) => auditLogStatement(env, {
+    organizationId: action.organizationId,
+    source: "line",
+    ...lineSystemAdminAuditActor(),
+    action: "update",
+    entityType: item.kind,
+    entityId: item.id,
+    before: before[index] ?? undefined,
+    after: after[index] ?? undefined,
+    changedFields: Object.keys(item.changes),
+    reason: "LINE admin confirmed master-data batch",
+    requestId: action.sourceEventId,
+  })));
+  await env.DB.prepare("UPDATE master_admin_actions SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'waiting_confirmation'").bind(action.id).run();
+  return `${botName(accountName)}\n✅ 主檔批次已完成 ${orderedItems.length} 項變更，已寫入 Audit 並完成 authoritative readback。`;
+}
+
+async function handleChapter12AdminPendingInput(
+  env: Env,
+  event: LineEvent,
+  command: ParsedCommand,
+  text: string,
+  eventId: string,
+  groupId: string,
+  organizationId: string,
+  accountName: string,
+): Promise<string | null> {
+  const lineUserId = event.source?.userId;
+  if (!lineUserId) return null;
+  if (command.kind === "finance_admin_usage") return chapter12LineAdminUsage("finance");
+  if (command.kind === "master_admin_usage") return chapter12LineAdminUsage("master");
+  if (command.kind === "finance_admin_preview") return startChapter12FinanceAction(env, event, eventId, groupId, organizationId, command.requests, accountName);
+  if (command.kind === "master_admin_preview") return startChapter12MasterAction(env, event, eventId, groupId, organizationId, command.items, accountName);
+  await expireChapter12AdminActions(env, groupId, lineUserId);
+  const finance = await latestChapter12FinanceAction(env, groupId, lineUserId);
+  const master = finance ? null : await latestChapter12MasterAction(env, groupId, lineUserId);
+  if (!finance && !master) return null;
+  if (!lineSystemAdminAuthorized(env, event)) return lineAdminDeniedReply(accountName).text;
+  const normalized = normalize(text);
+  if (/^(?:取消|不要|算了)$/iu.test(normalized)) {
+    if (finance) await env.DB.prepare("UPDATE finance_admin_actions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'waiting_confirmation'").bind(finance.id).run();
+    if (master) await env.DB.prepare("UPDATE master_admin_actions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'waiting_confirmation'").bind(master.id).run();
+    return `${botName(accountName)}\n✅ 已取消上一筆管理預覽，沒有寫入。`;
+  }
+  if (!/^(?:確認|確定)(?:全部)?$/iu.test(normalized)) return null;
+  return finance
+    ? executeChapter12LineFinanceAction(env, finance, accountName)
+    : executeChapter12MasterAction(env, master!, accountName);
+}
+
 function hasLineAdminIdentity(env: Env, event: LineEvent): boolean {
   return lineSystemAdminAuthorized(env, event);
 }
@@ -9087,6 +9514,20 @@ async function handleCommand(
       accountName,
     );
     if (authorizationReply) return authorizationReply;
+  }
+
+  if (state.organizationId) {
+    const chapter12AdminReply = await handleChapter12AdminPendingInput(
+      env,
+      event,
+      command,
+      event.message?.text ?? "",
+      eventId,
+      groupId,
+      state.organizationId,
+      accountName,
+    );
+    if (chapter12AdminReply) return chapter12AdminReply;
   }
 
   // Deterministic canonical LINE ingress is intentionally narrow: it owns

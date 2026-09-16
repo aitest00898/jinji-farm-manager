@@ -1,4 +1,5 @@
 import { isIsoDate, normalizedHouseName, taipeiDate } from "./master-data";
+import { parseChapter12LineAdminCommand, type ParsedChapter12LineAdminCommand } from "./chapter12-line-admin";
 
 export type OperationalIntent = "mortality" | "cull" | "feed" | "water" | "shipment";
 
@@ -67,6 +68,7 @@ export type ParsedCommand =
   | { kind: "create_flock"; farmName: string; houseName: string; batchCode: string; chickInDate: string; initialCount: number; expectedShipmentDate?: string }
   | { kind: "create_flock_usage" }
   | { kind: "test_farm_list" }
+  | ParsedChapter12LineAdminCommand
   | { kind: "unknown"; text: string };
 
 export type CommandClass =
@@ -121,6 +123,11 @@ export function classifyCommand(command: ParsedCommand): CommandClass {
     case "create_house_usage":
     case "create_flock":
     case "create_flock_usage":
+      return "ADMIN";
+    case "finance_admin_usage":
+    case "finance_admin_preview":
+    case "master_admin_usage":
+    case "master_admin_preview":
       return "ADMIN";
     case "summary":
     case "query_today_mortality":
@@ -315,6 +322,9 @@ export function parseCommand(input: string): ParsedCommand {
   if (/^待確認資料$/iu.test(text)) return { kind: "menu_pending_candidates" };
   if (/^摘要$/iu.test(text)) return { kind: "ambient_digest_now" };
   if (/^(?:取消|不要|算了)$/iu.test(text)) return { kind: "cancel" };
+
+  const chapter12AdminCommand = parseChapter12LineAdminCommand(text);
+  if (chapter12AdminCommand) return chapter12AdminCommand;
 
   if (/^(?:新增測試場|建立測試場|新增測試雞場|建立測試雞場)$/iu.test(text)) {
     return { kind: "create_test_farm_usage" };

@@ -23,7 +23,6 @@ import { normalizedFarmKey } from "./farm-resolver";
 import {
   hashWebSessionToken,
   randomWebSessionToken,
-  WEB_SESSION_TTL_MS,
   auditLogStatement,
   webSessionIsActive,
   writeAuditLog,
@@ -126,6 +125,20 @@ import {
   type ReliabilityStatus,
 } from "./reliability";
 import { classifyWebRoute, webAccessClassAllows, type WebAccessClass } from "./web-access-policy";
+import {
+  closeOnlySessionPolicy,
+  deriveOneWaterPendingBoundary,
+  FINANCE_MUTATION_FIELDS,
+  FINANCE_MUTATION_FIELD_COLUMNS,
+  FINANCE_MUTATION_TABLES,
+  financeMutationPlan,
+  financeMutationScopeFor,
+  recalculationStateFor,
+  validateFinanceMutationRequest,
+  validateFinanceMutationValues,
+  type FinanceMutationEntity,
+  type FinanceMutationRequest,
+} from "./chapter12-requirements";
 
 export interface WebApiEnv {
   DB: D1Database;
@@ -149,6 +162,7 @@ const ALLOWED_ORIGINS = new Set([
 const OPERATIONAL_INTENTS = new Set(["mortality", "cull", "feed", "water", "shipment"]);
 const UNITS = new Set(["隻", "bird", "kg", "L", "件"]);
 const MAX_PAGE_SIZE = 100;
+const WEB_SESSION_CLOSE_ONLY_EXPIRY = "9999-12-31T23:59:59.999Z";
 
 export type OperationalEnvironment = "production" | "test";
 export const DEFAULT_OPERATIONAL_ENVIRONMENT: OperationalEnvironment = "production";
@@ -404,8 +418,14 @@ function ambientCandidateSummary(candidate: AmbientCandidate): Record<string, un
 interface SessionRow {
   id: string;
   organizationId: string;
+  createdAt?: string;
   expiresAt: string;
+  lastUsedAt?: string;
   revokedAt: string | null;
+  clientClosedAt?: string | null;
+  clientIpHash?: string | null;
+  clientUserAgentHash?: string | null;
+  deviceHint?: string | null;
   accessClass?: WebAccessClass;
 }
 
@@ -424,6 +444,7 @@ interface FarmRow {
   playerGroupEquityFraction: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
 
 interface HouseRow {
@@ -437,6 +458,7 @@ interface HouseRow {
   version: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
 
 interface FlockRow {
@@ -481,7 +503,7 @@ function corsHeaders(request: Request): Headers {
   }
   headers.set("vary", "Origin");
   headers.set("access-control-allow-headers", "Authorization, Content-Type, X-Request-Id");
-  headers.set("access-control-allow-methods", "GET, POST, PATCH, OPTIONS");
+  headers.set("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
   return headers;
 }
 
@@ -561,6 +583,7 @@ function toFarm(row: FarmRow): Record<string, unknown> {
     playerGroupEquityFraction: row.playerGroupEquityFraction,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    deletedAt: row.deletedAt,
   };
 }
 
@@ -593,6 +616,7 @@ function toHouse(row: HouseRow): Record<string, unknown> {
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    deletedAt: row.deletedAt,
   };
 }
 
@@ -633,6 +657,28 @@ function authClientAddress(request: Request): string {
   if (cloudflareAddress) return cloudflareAddress;
   const forwardedAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return forwardedAddress || "unknown";
+}
+
+function authClientUserAgent(request: Request): string {
+  return request.headers.get("user-agent")?.trim() || "unknown";
+}
+
+function sessionDeviceHint(userAgent: string): string {
+  if (/mobile|android|iphone|ipad/iu.test(userAgent)) return "mobile";
+  if (/safari/iu.test(userAgent) && !/chrome|chromium/iu.test(userAgent)) return "safari";
+  if (/firefox/iu.test(userAgent)) return "firefox";
+  if (/chrome|chromium/iu.test(userAgent)) return "chromium";
+  return "other";
+}
+
+async function sessionClientMetadata(request: Request): Promise<{ clientIpHash: string; clientUserAgentHash: string; deviceHint: string }> {
+  const address = authClientAddress(request);
+  const userAgent = authClientUserAgent(request);
+  return {
+    clientIpHash: await hashWebSessionToken(`web-session-ip:${address}`),
+    clientUserAgentHash: await hashWebSessionToken(`web-session-ua:${userAgent}`),
+    deviceHint: sessionDeviceHint(userAgent),
+  };
 }
 
 async function authAttemptScope(request: Request, accessClass: Exclude<WebAccessClass, "PUBLIC">): Promise<string> {
@@ -689,8 +735,12 @@ async function sessionFor(request: Request, env: WebApiEnv): Promise<SessionRow 
   let session: SessionRow | null;
   try {
     session = await env.DB.prepare(
-      `SELECT s.id, s.organization_id AS organizationId, s.expires_at AS expiresAt,
-              s.revoked_at AS revokedAt, s.access_class AS accessClass
+      `SELECT s.id, s.organization_id AS organizationId, s.created_at AS createdAt,
+              s.expires_at AS expiresAt, s.last_used_at AS lastUsedAt,
+              s.revoked_at AS revokedAt, s.client_closed_at AS clientClosedAt,
+              s.client_ip_hash AS clientIpHash,
+              s.client_user_agent_hash AS clientUserAgentHash,
+              s.device_hint AS deviceHint, s.access_class AS accessClass
          FROM web_admin_sessions s
         WHERE s.token_hash = ?
         LIMIT 1`,
@@ -699,14 +749,15 @@ async function sessionFor(request: Request, env: WebApiEnv): Promise<SessionRow 
     // Admin sessions remain readable during the migration-first transition;
     // a shared session cannot be created without the new column.
     session = await env.DB.prepare(
-      `SELECT s.id, s.organization_id AS organizationId, s.expires_at AS expiresAt,
+      `SELECT s.id, s.organization_id AS organizationId, s.created_at AS createdAt,
+              s.expires_at AS expiresAt, s.last_used_at AS lastUsedAt,
               s.revoked_at AS revokedAt
          FROM web_admin_sessions s
         WHERE s.token_hash = ?
         LIMIT 1`,
     ).bind(tokenHash).first<SessionRow>();
   }
-  if (!session || session.revokedAt || !webSessionIsActive(session.expiresAt)) return null;
+  if (!session || session.revokedAt || session.clientClosedAt || !webSessionIsActive(session.expiresAt)) return null;
   await env.DB.prepare(
     `UPDATE web_admin_sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL`,
   ).bind(session.id).run();
@@ -727,12 +778,15 @@ async function createWebSession(
   const rawToken = randomWebSessionToken();
   const tokenHash = await hashWebSessionToken(rawToken);
   const id = `web-session-${crypto.randomUUID()}`;
-  const expiresAt = new Date(Date.now() + WEB_SESSION_TTL_MS).toISOString();
+  const expiresAt = WEB_SESSION_CLOSE_ONLY_EXPIRY;
+  const metadata = await sessionClientMetadata(request);
   try {
     await env.DB.prepare(
-      `INSERT INTO web_admin_sessions (id, organization_id, token_hash, expires_at, access_class)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).bind(id, organization.id, tokenHash, expiresAt, accessClass).run();
+      `INSERT INTO web_admin_sessions
+        (id, organization_id, token_hash, expires_at, access_class,
+         client_ip_hash, client_user_agent_hash, device_hint)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(id, organization.id, tokenHash, expiresAt, accessClass, metadata.clientIpHash, metadata.clientUserAgentHash, metadata.deviceHint).run();
   } catch {
     if (accessClass !== "ADMIN") throw new Error("web_shared_access_schema_unavailable");
     await env.DB.prepare(
@@ -748,7 +802,7 @@ async function createWebSession(
     action: "login",
     entityType: "web_session",
     entityId: id,
-    after: { accessClass },
+    after: { accessClass, sessionPolicy: "page_or_browser_close", clientMetadataCaptured: true },
     requestId: requestId(request),
   });
   return response(request, { authenticated: true, token: rawToken, expiresAt, accessClass, organization });
@@ -820,6 +874,18 @@ async function authLogout(request: Request, env: WebApiEnv, session: SessionRow)
   await env.DB.prepare(
     `UPDATE web_admin_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL`,
   ).bind(session.id).run();
+  await writeAuditLog(env, {
+    organizationId: session.organizationId,
+    source: "web",
+    actorType: "web_session",
+    actorId: session.id,
+    action: closeOnlySessionPolicy("logout").auditAction,
+    entityType: "web_session",
+    entityId: session.id,
+    before: { revokedAt: session.revokedAt },
+    after: { revoked: true, sessionPolicy: "page_or_browser_close" },
+    requestId: requestId(request),
+  });
   return response(request, { authenticated: false });
 }
 
@@ -829,10 +895,110 @@ async function authSession(request: Request, env: WebApiEnv): Promise<Response> 
   const org = await activeOrganization(env);
   return response(request, {
     authenticated: true,
+    sessionId: session.id,
     expiresAt: session.expiresAt,
     accessClass: sessionAccessClass(session),
+    sessionPolicy: "page_or_browser_close",
     organization: org,
   });
+}
+
+async function clientCloseSession(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const result = await env.DB.prepare(
+    `UPDATE web_admin_sessions
+        SET client_closed_at = CURRENT_TIMESTAMP,
+            revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+      WHERE id = ? AND revoked_at IS NULL`,
+  ).bind(session.id).run();
+  if (result.meta.changes) {
+    await writeAuditLog(env, {
+      organizationId: session.organizationId,
+      source: "web",
+      actorType: "web_session",
+      actorId: session.id,
+      action: closeOnlySessionPolicy("pagehide").auditAction,
+      entityType: "web_session",
+      entityId: session.id,
+      before: { revokedAt: session.revokedAt, clientClosedAt: session.clientClosedAt ?? null },
+      after: { revoked: true, clientClosed: true, sessionPolicy: "page_or_browser_close" },
+      requestId: requestId(request),
+    });
+  }
+  return response(request, { authenticated: false, closed: true, changed: Boolean(result.meta.changes) });
+}
+
+async function listWebSessions(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT id, access_class AS accessClass, created_at AS createdAt,
+            last_used_at AS lastUsedAt, expires_at AS expiresAt,
+            revoked_at AS revokedAt, client_closed_at AS clientClosedAt,
+            device_hint AS deviceHint
+       FROM web_admin_sessions
+      WHERE organization_id = ?
+      ORDER BY created_at DESC, id DESC LIMIT ?`,
+  ).bind(session.organizationId, MAX_PAGE_SIZE).all<Record<string, unknown>>();
+  return response(request, {
+    sessionPolicy: "page_or_browser_close",
+    sessions: rows.results.map((row) => ({
+      id: row.id,
+      accessClass: row.accessClass,
+      createdAt: row.createdAt,
+      lastUsedAt: row.lastUsedAt,
+      expiresAt: row.expiresAt,
+      revokedAt: row.revokedAt ?? null,
+      clientClosedAt: row.clientClosedAt ?? null,
+      deviceHint: row.deviceHint ?? null,
+      active: !row.revokedAt && !row.clientClosedAt,
+    })),
+  });
+}
+
+async function revokeWebSession(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "撤銷 session 前需要明確確認。");
+  const reason = stringValue(body?.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "撤銷 session 需要原因。");
+  const target = await env.DB.prepare(
+    `SELECT id, access_class AS accessClass, revoked_at AS revokedAt,
+            client_closed_at AS clientClosedAt
+       FROM web_admin_sessions WHERE id = ? AND organization_id = ? LIMIT 1`,
+  ).bind(id, session.organizationId).first<{ id: string; accessClass: string; revokedAt: string | null; clientClosedAt: string | null }>();
+  if (!target) return errorResponse(request, 404, "not_found", "找不到指定 session。");
+  const result = await env.DB.prepare(
+    `UPDATE web_admin_sessions SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+      WHERE id = ? AND organization_id = ? AND revoked_at IS NULL`,
+  ).bind(id, session.organizationId).run();
+  if (result.meta.changes) {
+    await writeAuditLog(env, {
+      organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+      action: closeOnlySessionPolicy("admin_revoke").auditAction, entityType: "web_session", entityId: id,
+      before: { accessClass: target.accessClass, revokedAt: target.revokedAt, clientClosedAt: target.clientClosedAt },
+      after: { revoked: true }, reason, requestId: requestId(request),
+    });
+  }
+  return response(request, { changed: Boolean(result.meta.changes), sessionId: id, revoked: true });
+}
+
+async function rotateWebCredentialSessions(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "輪替登入憑證前需要明確確認。");
+  const targetAccessClass = body?.accessClass === "SHARED_EDIT" ? "SHARED_EDIT" : body?.accessClass === "ADMIN" ? "ADMIN" : null;
+  const reason = stringValue(body?.reason, 500);
+  if (!targetAccessClass || !reason) return errorResponse(request, 400, "invalid_rotation", "登入憑證輪替欄位無效。");
+  const keepCurrent = targetAccessClass === "ADMIN";
+  const result = await env.DB.prepare(
+    `UPDATE web_admin_sessions
+        SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+      WHERE organization_id = ? AND access_class = ? AND revoked_at IS NULL
+        AND (? = 0 OR id <> ?)`,
+  ).bind(session.organizationId, targetAccessClass, keepCurrent ? 1 : 0, session.id).run();
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "password_rotation", entityType: "web_credential", entityId: `web-credential-${targetAccessClass.toLowerCase()}`,
+    after: { accessClass: targetAccessClass, revokedSessionCount: result.meta.changes, currentSessionPreserved: keepCurrent },
+    reason, requestId: requestId(request),
+  });
+  return response(request, { accessClass: targetAccessClass, revokedSessionCount: result.meta.changes, currentSessionPreserved: keepCurrent, credentialValueChanged: false });
 }
 
 async function publicReadSession(env: WebApiEnv): Promise<SessionRow | null> {
@@ -847,13 +1013,13 @@ async function publicReadSession(env: WebApiEnv): Promise<SessionRow | null> {
 }
 
 async function farmById(env: WebApiEnv, organizationId: string, id: string, activeOnly = false): Promise<FarmRow | null> {
-  const activeClause = activeOnly ? " AND active = 1" : "";
+  const activeClause = activeOnly ? " AND active = 1 AND deleted_at IS NULL" : "";
   return env.DB.prepare(
     `SELECT id, organization_id AS organizationId, name, site_name AS siteName,
             latitude, longitude,
             active, environment, farm_structure_mode AS structureMode, note, version,
             player_group_equity_fraction AS playerGroupEquityFraction,
-            created_at AS createdAt, updated_at AS updatedAt
+            created_at AS createdAt, updated_at AS updatedAt, deleted_at AS deletedAt
        FROM farms WHERE id = ? AND organization_id = ?${activeClause} LIMIT 1`,
   ).bind(id, organizationId).first<FarmRow>();
 }
@@ -862,7 +1028,8 @@ async function houseById(env: WebApiEnv, organizationId: string, id: string): Pr
   return env.DB.prepare(
     `SELECT h.id, h.farm_id AS farmId, h.name, h.normalized_name AS normalizedName,
             h.capacity, h.active, h.note, h.version, h.created_at AS createdAt,
-            h.updated_at AS updatedAt, f.name AS farmName, f.environment AS farmEnvironment
+            h.updated_at AS updatedAt, h.deleted_at AS deletedAt,
+            f.name AS farmName, f.environment AS farmEnvironment
        FROM houses h JOIN farms f ON f.id = h.farm_id
       WHERE h.id = ? AND f.organization_id = ? LIMIT 1`,
   ).bind(id, organizationId).first<HouseRow & { farmName?: string; farmEnvironment?: string }>();
@@ -882,7 +1049,8 @@ async function flockById(env: WebApiEnv, organizationId: string, id: string): Pr
 
 async function farmMatchesEnvironment(env: WebApiEnv, organizationId: string, farmId: string, environment: OperationalEnvironment): Promise<boolean> {
   const row = await env.DB.prepare(
-    `SELECT id FROM farms WHERE id = ? AND organization_id = ? AND environment = ? LIMIT 1`,
+    `SELECT id FROM farms WHERE id = ? AND organization_id = ? AND environment = ?
+       AND active = 1 AND deleted_at IS NULL LIMIT 1`,
   ).bind(farmId, organizationId, environment).first<{ id: string }>();
   return Boolean(row);
 }
@@ -899,7 +1067,8 @@ async function houseMatchesEnvironment(
   const row = await env.DB.prepare(
     `SELECT h.id
        FROM houses h JOIN farms f ON f.id = h.farm_id
-      WHERE h.id = ? AND f.organization_id = ? AND f.environment = ?${farmClause}
+      WHERE h.id = ? AND f.organization_id = ? AND f.environment = ?
+        AND f.active = 1 AND f.deleted_at IS NULL AND h.active = 1 AND h.deleted_at IS NULL${farmClause}
       LIMIT 1`,
   ).bind(...bindings).first<{ id: string }>();
   return Boolean(row);
@@ -909,11 +1078,13 @@ async function listFarms(request: Request, env: WebApiEnv, session: SessionRow):
   const url = new URL(request.url);
   const environment = operationalEnvironmentFor(url);
   const active = url.searchParams.get("active");
+  const includeHistory = url.searchParams.get("history") === "1" && sessionAccessClass(session) === "ADMIN";
   const publicRead = sessionAccessClass(session) === "PUBLIC";
   const clauses = ["organization_id = ?"];
   const bindings: unknown[] = [session.organizationId];
   clauses.push("environment = ?");
   bindings.push(environment);
+  if (!includeHistory) clauses.push("deleted_at IS NULL");
   if (publicRead || active === "true" || active === "false") {
     clauses.push("active = ?");
     bindings.push(publicRead || active === "true" ? 1 : 0);
@@ -923,10 +1094,10 @@ async function listFarms(request: Request, env: WebApiEnv, session: SessionRow):
             latitude, longitude,
             active, environment, farm_structure_mode AS structureMode, note, version,
             player_group_equity_fraction AS playerGroupEquityFraction,
-            created_at AS createdAt, updated_at AS updatedAt
+            created_at AS createdAt, updated_at AS updatedAt, deleted_at AS deletedAt
        FROM farms WHERE ${clauses.join(" AND ")} ORDER BY environment, name`,
   ).bind(...bindings).all<FarmRow>();
-  return response(request, { farms: rows.results.map(publicRead ? publicFarmPayload : toFarm) });
+  return response(request, { history: includeHistory, farms: rows.results.map(publicRead ? publicFarmPayload : toFarm) });
 }
 
 async function createFarm(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -1005,6 +1176,54 @@ async function updateFarm(request: Request, env: WebApiEnv, session: SessionRow,
     before: toFarm(farm), after: after ? toFarm(after) : undefined, changedFields: changes, requestId: requestId(request),
   });
   return response(request, { farm: after ? toFarm(after) : null });
+}
+
+async function deleteFarm(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
+  const farm = await farmById(env, session.organizationId, id);
+  if (!farm) return errorResponse(request, 404, "not_found", "找不到雞場。");
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "刪除雞場前需要明確確認。");
+  const reason = stringValue(body?.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "刪除雞場需要原因。");
+  if (farm.deletedAt) return response(request, { deleted: false, alreadyDeleted: true, farm: toFarm(farm) });
+  const activeFlocks = await env.DB.prepare("SELECT COUNT(*) AS count FROM flocks WHERE farm_id = ? AND status = 'active'").bind(id).first<{ count: number }>();
+  if ((activeFlocks?.count ?? 0) > 0) return errorResponse(request, 409, "active_flock_dependency", "仍有進行中批次，請先完成批次後再刪除雞場。");
+  const result = await env.DB.prepare(
+    `UPDATE farms SET active = 0, deleted_at = CURRENT_TIMESTAMP,
+            version = version + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND organization_id = ? AND deleted_at IS NULL`,
+  ).bind(id, session.organizationId).run();
+  if (!result.meta.changes) return response(request, { deleted: false, alreadyDeleted: true });
+  const after = await farmById(env, session.organizationId, id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "delete", entityType: "farm", entityId: id, before: toFarm(farm), after: after ? toFarm(after) : undefined,
+    changedFields: ["active", "deletedAt"], reason, requestId: requestId(request),
+  });
+  return response(request, { deleted: true, farm: after ? toFarm(after) : null });
+}
+
+async function restoreFarm(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
+  const farm = await farmById(env, session.organizationId, id);
+  if (!farm) return errorResponse(request, 404, "not_found", "找不到雞場。");
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "還原雞場前需要明確確認。");
+  const reason = stringValue(body?.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "還原雞場需要原因。");
+  if (!farm.deletedAt) return response(request, { restored: false, alreadyActive: farm.active === 1, farm: toFarm(farm) });
+  const result = await env.DB.prepare(
+    `UPDATE farms SET active = 1, deleted_at = NULL,
+            version = version + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND organization_id = ? AND deleted_at IS NOT NULL`,
+  ).bind(id, session.organizationId).run();
+  if (!result.meta.changes) return errorResponse(request, 409, "stale_write", "雞場狀態已變更，請重新載入。");
+  const after = await farmById(env, session.organizationId, id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "restore", entityType: "farm", entityId: id, before: toFarm(farm), after: after ? toFarm(after) : undefined,
+    changedFields: ["active", "deletedAt"], reason, requestId: requestId(request),
+  });
+  return response(request, { restored: true, farm: after ? toFarm(after) : null });
 }
 
 async function listCaretakers(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -1342,21 +1561,24 @@ async function listHouses(request: Request, env: WebApiEnv, session: SessionRow)
   const farmId = stringValue(rawFarmId, 160);
   if (rawFarmId !== null && !farmId) return errorResponse(request, 400, "invalid_scope", "雞場範圍無效。");
   const environment = operationalEnvironmentFor(url);
+  const includeHistory = url.searchParams.get("history") === "1" && sessionAccessClass(session) === "ADMIN";
   if (farmId && !(await farmMatchesEnvironment(env, session.organizationId, farmId, environment))) {
     return errorResponse(request, 400, "invalid_scope", "雞場不在目前資料範圍。");
   }
   const clauses = ["f.organization_id = ?", "f.environment = ?"];
   const bindings: unknown[] = [session.organizationId, environment];
+  if (!includeHistory) clauses.push("f.deleted_at IS NULL", "h.deleted_at IS NULL");
   if (sessionAccessClass(session) === "PUBLIC") clauses.push("f.active = 1", "h.active = 1");
   if (farmId) { clauses.push("h.farm_id = ?"); bindings.push(farmId); }
   const rows = await env.DB.prepare(
     `SELECT h.id, h.farm_id AS farmId, h.name, h.normalized_name AS normalizedName,
             h.capacity, h.active, h.note, h.version, h.created_at AS createdAt, h.updated_at AS updatedAt,
+            h.deleted_at AS deletedAt,
             f.name AS farmName, f.environment AS farmEnvironment
        FROM houses h JOIN farms f ON f.id = h.farm_id
       WHERE ${clauses.join(" AND ")} ORDER BY f.environment, f.name, h.normalized_name`,
   ).bind(...bindings).all<Record<string, unknown>>();
-  return response(request, { houses: rows.results.map((row) => ({ ...row, active: Number(row.active) === 1 })) });
+  return response(request, { history: includeHistory, houses: rows.results.map((row) => ({ ...row, active: Number(row.active) === 1 })) });
 }
 
 async function createHouse(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -1394,12 +1616,65 @@ async function updateHouse(request: Request, env: WebApiEnv, session: SessionRow
   }
   const result = await env.DB.prepare(
     `UPDATE houses SET name = ?, normalized_name = ?, capacity = ?, note = ?, active = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND version = ?`,
-  ).bind(name, normalizedHouseName(name), capacity, note ?? null, active, id, version).run();
+      WHERE id = ? AND version = ?
+        AND farm_id IN (SELECT id FROM farms WHERE organization_id = ?)`,
+  ).bind(name, normalizedHouseName(name), capacity, note ?? null, active, id, version, session.organizationId).run();
   if (!result.meta.changes) return errorResponse(request, 409, "stale_write", "資料已更新，請重新載入後再試。");
   const after = await houseById(env, session.organizationId, id);
   await writeAuditLog(env, { organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id, action: active === 0 ? "archive" : "update", entityType: "house", entityId: id, before: toHouse(house), after: after ? toHouse(after) : undefined, requestId: requestId(request) });
   return response(request, { house: after ? toHouse(after) : null });
+}
+
+async function deleteHouse(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
+  const house = await houseById(env, session.organizationId, id);
+  if (!house) return errorResponse(request, 404, "not_found", "找不到雞舍。");
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "刪除雞舍前需要明確確認。");
+  const reason = stringValue(body?.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "刪除雞舍需要原因。");
+  if (house.deletedAt) return response(request, { deleted: false, alreadyDeleted: true, house: toHouse(house) });
+  const activeFlocks = await env.DB.prepare("SELECT COUNT(*) AS count FROM flocks WHERE house_id = ? AND status = 'active'").bind(id).first<{ count: number }>();
+  if ((activeFlocks?.count ?? 0) > 0) return errorResponse(request, 409, "active_flock_dependency", "仍有進行中批次，請先完成批次後再刪除雞舍。");
+  const result = await env.DB.prepare(
+    `UPDATE houses SET active = 0, deleted_at = CURRENT_TIMESTAMP,
+            version = version + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NULL
+        AND farm_id IN (SELECT id FROM farms WHERE organization_id = ?)`,
+  ).bind(id, session.organizationId).run();
+  if (!result.meta.changes) return response(request, { deleted: false, alreadyDeleted: true });
+  const after = await houseById(env, session.organizationId, id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "delete", entityType: "house", entityId: id, before: toHouse(house), after: after ? toHouse(after) : undefined,
+    changedFields: ["active", "deletedAt"], reason, requestId: requestId(request),
+  });
+  return response(request, { deleted: true, house: after ? toHouse(after) : null });
+}
+
+async function restoreHouse(request: Request, env: WebApiEnv, session: SessionRow, id: string): Promise<Response> {
+  const house = await houseById(env, session.organizationId, id);
+  if (!house) return errorResponse(request, 404, "not_found", "找不到雞舍。");
+  const body = await bodyJson(request);
+  if (body?.confirm !== true) return errorResponse(request, 400, "confirmation_required", "還原雞舍前需要明確確認。");
+  const reason = stringValue(body?.reason, 500);
+  if (!reason) return errorResponse(request, 400, "reason_required", "還原雞舍需要原因。");
+  if (!house.deletedAt) return response(request, { restored: false, alreadyActive: house.active === 1, house: toHouse(house) });
+  const farm = await farmById(env, session.organizationId, house.farmId);
+  if (!farm || farm.deletedAt) return errorResponse(request, 409, "farm_deleted", "請先還原所屬雞場。");
+  const result = await env.DB.prepare(
+    `UPDATE houses SET active = 1, deleted_at = NULL,
+            version = version + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NOT NULL
+        AND farm_id IN (SELECT id FROM farms WHERE organization_id = ?)`,
+  ).bind(id, session.organizationId).run();
+  if (!result.meta.changes) return errorResponse(request, 409, "stale_write", "雞舍狀態已變更，請重新載入。");
+  const after = await houseById(env, session.organizationId, id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "restore", entityType: "house", entityId: id, before: toHouse(house), after: after ? toHouse(after) : undefined,
+    changedFields: ["active", "deletedAt"], reason, requestId: requestId(request),
+  });
+  return response(request, { restored: true, house: after ? toHouse(after) : null });
 }
 
 async function listFlocks(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -1416,7 +1691,7 @@ async function listFlocks(request: Request, env: WebApiEnv, session: SessionRow)
   if (houseId && !(await houseMatchesEnvironment(env, session.organizationId, houseId, environment, farmId))) {
     return errorResponse(request, 400, "invalid_scope", "雞舍不在目前資料範圍。");
   }
-  const clauses = ["f.organization_id = ?", "f.environment = ?"];
+  const clauses = ["f.organization_id = ?", "f.environment = ?", "f.deleted_at IS NULL", "h.deleted_at IS NULL"];
   const bindings: unknown[] = [session.organizationId, environment];
   if (sessionAccessClass(session) === "PUBLIC") clauses.push("f.active = 1", "h.active = 1", "k.status = 'active'");
   if (farmId) { clauses.push("k.farm_id = ?"); bindings.push(farmId); }
@@ -1471,8 +1746,9 @@ async function updateFlock(request: Request, env: WebApiEnv, session: SessionRow
   if (!status || (body?.expectedShipmentDate !== undefined && body.expectedShipmentDate !== null && !expectedShipmentDate) || (body?.actualShipmentDate !== undefined && body.actualShipmentDate !== null && !actualShipmentDate)) return errorResponse(request, 400, "invalid_flock", "批次資料無效。");
   const result = await env.DB.prepare(
     `UPDATE flocks SET breed = ?, expected_shipment_date = ?, actual_shipment_date = ?, status = ?, note = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND version = ?`,
-  ).bind(breed ?? null, expectedShipmentDate, actualShipmentDate, status, note ?? null, id, version).run();
+      WHERE id = ? AND version = ?
+        AND farm_id IN (SELECT id FROM farms WHERE organization_id = ?)`,
+  ).bind(breed ?? null, expectedShipmentDate, actualShipmentDate, status, note ?? null, id, version, session.organizationId).run();
   if (!result.meta.changes) return errorResponse(request, 409, "stale_write", "資料已更新，請重新載入後再試。");
   const after = await flockById(env, session.organizationId, id);
   await writeAuditLog(env, { organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id, action: "update", entityType: "flock", entityId: id, before: toFlock(flock), after: after ? toFlock(after) : undefined, requestId: requestId(request) });
@@ -1863,6 +2139,10 @@ type CanonicalReadSummary = ReturnType<typeof deriveCanonicalLifecycleSummary> &
   labSubmission: CanonicalLabSubmissionSummary;
   feedEstimate: FeedEstimateResult;
   shipments: CanonicalShipmentProjection[];
+  oneWaterPendingBoundary: ReturnType<typeof deriveOneWaterPendingBoundary>;
+  recalculationState: ReturnType<typeof recalculationStateFor>;
+  resultsFinal: boolean;
+  recalculationNotice: string | null;
 };
 
 function lifecycleFactRow(row: CanonicalLifecycleFactRow): CanonicalLifecycleFact {
@@ -1959,21 +2239,24 @@ async function canonicalLifecycleSummaries(
     env.DB.prepare(
       `SELECT f.id, f.name, f.environment
          FROM farms f
-        WHERE f.organization_id = ? AND f.environment = ? AND f.active = 1${farmClause}
+        WHERE f.organization_id = ? AND f.environment = ? AND f.active = 1
+          AND f.deleted_at IS NULL${farmClause}
         ORDER BY f.name, f.id`,
     ).bind(...farmBindings).all<CanonicalLifecycleFarmRow>(),
     env.DB.prepare(
       `SELECT h.id, h.farm_id AS farmId, h.name
          FROM houses h JOIN farms f ON f.id = h.farm_id
-        WHERE f.organization_id = ? AND f.environment = ? AND h.active = 1${houseClause}
+        WHERE f.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
+          AND h.active = 1 AND h.deleted_at IS NULL${houseClause}
         ORDER BY h.farm_id, h.name, h.id`,
     ).bind(...houseBindings).all<CanonicalLifecycleHouseRow>(),
     env.DB.prepare(
       `SELECT k.id, k.farm_id AS farmId, k.house_id AS houseId, k.batch_code AS batchCode,
               k.chick_in_date AS chickInDate, k.initial_count AS initialCount,
               k.status, k.created_at AS createdAt
-         FROM flocks k JOIN farms f ON f.id = k.farm_id
-        WHERE f.organization_id = ? AND f.environment = ? AND k.status <> 'cancelled'${flockClause}
+         FROM flocks k JOIN farms f ON f.id = k.farm_id JOIN houses h ON h.id = k.house_id
+        WHERE f.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
+          AND h.deleted_at IS NULL AND k.status <> 'cancelled'${flockClause}
         ORDER BY k.farm_id, k.house_id, k.chick_in_date DESC, k.created_at DESC, k.id DESC`,
     ).bind(...flockBindings).all<CanonicalLifecycleFlockRow>(),
     env.DB.prepare(
@@ -1985,7 +2268,8 @@ async function canonicalLifecycleSummaries(
               NULL AS reversedAt, e.correction_of_id AS correctionOfId,
               e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
          FROM recording_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ? AND e.taxonomy_id = 'O1'${factFarmClause}
+        WHERE e.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
+          AND e.taxonomy_id = 'O1'${factFarmClause}
        UNION ALL
        SELECT e.id, COALESCE(e.taxonomy_id, CASE WHEN e.intent IN ('shipment') THEN 'O3' ELSE 'O9' END) AS taxonomyId,
               e.farm_id AS farmId, e.house_id AS houseId, e.flock_id AS flockId,
@@ -1996,7 +2280,7 @@ async function canonicalLifecycleSummaries(
               e.reversed_at AS reversedAt, e.correction_of_event_id AS correctionOfId,
               e.reversal_of_event_id AS reversalOfId, NULL AS replacementOfId
          FROM operational_events e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
+        WHERE e.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
           AND (e.taxonomy_id IN ('O3', 'O9') OR e.intent IN ('shipment', 'mortality', 'cull'))${factFarmClause}
        UNION ALL
        SELECT e.id, 'O7' AS taxonomyId, e.farm_id AS farmId, e.house_id AS houseId,
@@ -2007,7 +2291,7 @@ async function canonicalLifecycleSummaries(
               NULL AS reversedAt, e.correction_of_id AS correctionOfId,
               e.reversal_of_id AS reversalOfId, e.replacement_of_id AS replacementOfId
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-       WHERE e.organization_id = ? AND f.environment = ?
+       WHERE e.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
           AND e.taxonomy_id = 'O7' AND e.subtype = 'disinfection'${factFarmClause}`,
     ).bind(...factBindings, ...factBindings, ...factBindings).all<CanonicalLifecycleFactRow>(),
     env.DB.prepare(
@@ -2019,7 +2303,7 @@ async function canonicalLifecycleSummaries(
               e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
               e.replacement_of_id AS replacementOfId
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
+        WHERE e.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
           AND e.taxonomy_id = 'O6' AND e.subtype = 'lab_test'${factFarmClause}`,
     ).bind(...factBindings).all<CanonicalLabSubmissionFactRow>(),
     env.DB.prepare(
@@ -2029,7 +2313,7 @@ async function canonicalLifecycleSummaries(
               e.correction_of_id AS correctionOfId, e.reversal_of_id AS reversalOfId,
               e.replacement_of_id AS replacementOfId
          FROM operational_actions e JOIN farms f ON f.id = e.farm_id
-        WHERE e.organization_id = ? AND f.environment = ?
+        WHERE e.organization_id = ? AND f.environment = ? AND f.deleted_at IS NULL
           AND e.taxonomy_id = 'O5' AND e.subtype = 'feed_order'${factFarmClause}`,
     ).bind(...factBindings).all<CanonicalFeedFactRow>(),
   ]);
@@ -2101,7 +2385,28 @@ async function canonicalLifecycleSummaries(
           ...feedFactRows.filter((fact) => fact.farmId === farm.id),
         ],
       });
-      summaries.push({ ...lifecycle, labSubmission, feedEstimate, shipments: shipmentModel.projections });
+      const pendingBoundary = deriveOneWaterPendingBoundary({
+        stock: lifecycle.effectiveStock,
+        lifecycleStatus: lifecycle.lifecycleStatus,
+        unresolvedPendingCount: labSubmission.pendingSubmissionCount,
+        pendingReminderCount: labSubmission.pendingSubmissionCount,
+      });
+      const recalculationState = recalculationStateFor(
+        factRows.filter((fact) => fact.farmId === farm.id).length
+          + labFactRows.filter((fact) => fact.farmId === farm.id).length
+          + feedFactRows.filter((fact) => fact.farmId === farm.id).length,
+      );
+      const resultsFinal = recalculationState === "STABLE";
+      summaries.push({
+        ...lifecycle,
+        labSubmission,
+        feedEstimate,
+        shipments: shipmentModel.projections,
+        oneWaterPendingBoundary: pendingBoundary,
+        recalculationState,
+        resultsFinal,
+        recalculationNotice: resultsFinal ? null : "資料重新計算中；目前結果不是最終值。",
+      });
     }
   }
   return summaries;
@@ -2633,6 +2938,159 @@ async function financeSummary(request: Request, env: WebApiEnv, session: Session
       ORDER BY f.name, i.name LIMIT ?`,
   ).bind(session.organizationId, MAX_PAGE_SIZE).all<Record<string, unknown>>();
   return response(request, { totals: totals ?? { allocated: 0, expense: 0, net: 0, gross: 0 }, investors: investors.results, farms: farms.results, distributions: distributions.results, allocations: allocations.results, farmInvestorEquity: farmInvestorEquity.results });
+}
+
+type FinanceEntityRow = Record<string, unknown>;
+
+export async function financeEntityRead(
+  env: WebApiEnv,
+  organizationId: string,
+  entityType: FinanceMutationEntity,
+  entityId: string,
+): Promise<FinanceEntityRow | null> {
+  const query = entityType === "investor"
+    ? `SELECT id, name, active, created_at AS createdAt, updated_at AS updatedAt
+         FROM investors WHERE id = ? AND organization_id = ? LIMIT 1`
+    : entityType === "farm_investor_equity"
+      ? `SELECT e.id, e.farm_id AS farmId, e.investor_id AS investorId,
+                e.equity_fraction AS equityFraction, e.source, e.effective_date AS effectiveDate,
+                f.name AS farmName, i.name AS investorName
+           FROM farm_investor_equity e JOIN farms f ON f.id = e.farm_id
+           JOIN investors i ON i.id = e.investor_id
+          WHERE e.id = ? AND f.organization_id = ? AND i.organization_id = ? LIMIT 1`
+      : entityType === "profit_distribution"
+        ? `SELECT d.id, d.farm_id AS farmId, d.distribution_date AS distributionDate,
+                  d.source_date_roc AS sourceDateRoc, d.gross_profit_loss AS grossProfitLoss,
+                  d.allocated_profit_loss AS allocatedProfitLoss, d.expense, d.net_income AS netIncome,
+                  d.note, d.source_dataset AS sourceDataset, d.source_row_key AS sourceRowKey,
+                  f.name AS farmName
+             FROM profit_distributions d JOIN farms f ON f.id = d.farm_id
+            WHERE d.id = ? AND d.organization_id = ? AND f.organization_id = ? LIMIT 1`
+        : `SELECT a.id, a.distribution_id AS distributionId, a.investor_id AS investorId,
+                  a.amount, d.farm_id AS farmId, i.name AS investorName
+             FROM profit_distribution_allocations a
+             JOIN profit_distributions d ON d.id = a.distribution_id
+             JOIN investors i ON i.id = a.investor_id
+             JOIN farms f ON f.id = d.farm_id
+            WHERE a.id = ? AND d.organization_id = ? AND i.organization_id = ? AND f.organization_id = ? LIMIT 1`;
+  const values = entityType === "investor"
+    ? [entityId, organizationId]
+    : entityType === "farm_investor_equity" || entityType === "profit_distribution"
+      ? [entityId, organizationId, organizationId]
+      : [entityId, organizationId, organizationId, organizationId];
+  const row = await env.DB.prepare(query).bind(...values).first<FinanceEntityRow>();
+  return row ?? null;
+}
+
+async function executeFinanceMutation(
+  request: Request,
+  env: WebApiEnv,
+  session: SessionRow,
+  body: Record<string, unknown> | null,
+): Promise<Response> {
+  let input: FinanceMutationRequest;
+  try {
+    input = validateFinanceMutationRequest(body);
+    validateFinanceMutationValues(input);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "FINANCE_MUTATION_INPUT_INVALID";
+    const message = code === "FINANCE_MUTATION_CONFIRMATION_REQUIRED" ? "Finance 變更需要先預覽並明確確認。" : code === "FINANCE_MUTATION_REASON_REQUIRED" ? "Finance 變更需要原因。" : "Finance 變更欄位無效，沒有寫入。";
+    return errorResponse(request, 400, code, message);
+  }
+  const before = await financeEntityRead(env, session.organizationId, input.entityType, input.entityId);
+  if (!before) return errorResponse(request, 404, "finance_entity_not_found", "找不到 Finance 目標。");
+  let plan;
+  try {
+    plan = financeMutationPlan(input, before, FINANCE_MUTATION_FIELDS[input.entityType]);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "FINANCE_MUTATION_INVALID";
+    const message = code === "FINANCE_WARNING_OVERRIDE_REQUIRED" ? "此變更會改變財務結果，請在同一份預覽中確認警示覆寫。" : "Finance 變更未通過驗證，沒有寫入。";
+    return errorResponse(request, 400, code, message);
+  }
+  const table = FINANCE_MUTATION_TABLES[input.entityType];
+  const mutationScope = financeMutationScopeFor(input.entityType, input.entityId, session.organizationId);
+  let mutationChanges = 0;
+  if (input.operation === "delete") {
+    const result = await env.DB.prepare(`DELETE FROM ${table} WHERE ${mutationScope.sql}`)
+      .bind(...mutationScope.values)
+      .run();
+    mutationChanges = result.meta.changes;
+  } else {
+    const fields = plan.changedFields;
+    const assignments = fields.map((field) => `${FINANCE_MUTATION_FIELD_COLUMNS[field] ?? field} = ?`).join(", ");
+    const values = fields.map((field) => input.changes[field]);
+    if (!assignments) return errorResponse(request, 400, "FINANCE_MUTATION_NO_CHANGE", "沒有可套用的 Finance 變更。");
+    const timestamp = input.entityType === "profit_distribution_allocation"
+      ? ""
+      : ", updated_at = CURRENT_TIMESTAMP";
+    const result = await env.DB.prepare(
+      `UPDATE ${table} SET ${assignments}${timestamp} WHERE ${mutationScope.sql}`,
+    ).bind(...values, ...mutationScope.values).run();
+    mutationChanges = result.meta.changes;
+  }
+  if (mutationChanges !== 1) {
+    return errorResponse(request, 409, "finance_mutation_scope_mismatch", "Finance 目標未通過目前組織範圍驗證，沒有寫入。");
+  }
+  const after = await financeEntityRead(env, session.organizationId, input.entityType, input.entityId);
+  if (input.operation === "delete" ? after !== null : !after) return errorResponse(request, 409, "finance_readback_failed", "Finance 變更後無法完成 readback。");
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: input.operation, entityType: input.entityType, entityId: input.entityId,
+    before,
+    after: after ?? { deleted: true, entityType: input.entityType, entityId: input.entityId },
+    changedFields: plan.changedFields,
+    reason: input.reason,
+    requestId: requestId(request),
+  });
+  return response(request, {
+    ok: true,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    operation: input.operation,
+    warningOverride: input.warningOverride === true,
+    readback: after,
+  }, input.operation === "delete" ? 200 : 200);
+}
+
+async function financeMutation(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  return executeFinanceMutation(request, env, session, await bodyJson(request));
+}
+
+async function financeEntityDelete(request: Request, env: WebApiEnv, session: SessionRow, pathType: string, entityId: string): Promise<Response> {
+  const body = await bodyJson(request);
+  const entityType = pathType === "investors"
+    ? "investor"
+    : pathType === "farm-investor-equity"
+      ? "farm_investor_equity"
+      : pathType === "profit-distributions"
+        ? "profit_distribution"
+        : "profit_distribution_allocation";
+  return executeFinanceMutation(request, env, session, { ...(body ?? {}), entityType, entityId, operation: "delete" });
+}
+
+async function listInvestors(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT id, name, active, created_at AS createdAt, updated_at AS updatedAt
+       FROM investors WHERE organization_id = ? ORDER BY active DESC, name, id LIMIT ?`,
+  ).bind(session.organizationId, MAX_PAGE_SIZE).all<FinanceEntityRow>();
+  return response(request, { investors: rows.results });
+}
+
+async function createInvestor(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const body = await bodyJson(request);
+  const name = stringValue(body?.name, 200);
+  if (!name) return errorResponse(request, 400, "invalid_investor", "請提供投資人名稱。");
+  const duplicate = await env.DB.prepare("SELECT id FROM investors WHERE organization_id = ? AND name = ? LIMIT 1").bind(session.organizationId, name).first<{ id: string }>();
+  if (duplicate) return errorResponse(request, 409, "duplicate_investor", "已有相同投資人名稱。");
+  const id = `investor-web-${crypto.randomUUID()}`;
+  await env.DB.prepare("INSERT INTO investors (id, organization_id, name, active) VALUES (?, ?, ?, 1)").bind(id, session.organizationId, name).run();
+  const investor = await financeEntityRead(env, session.organizationId, "investor", id);
+  await writeAuditLog(env, {
+    organizationId: session.organizationId, source: "web", actorType: "web_admin", actorId: session.id,
+    action: "create", entityType: "investor", entityId: id, after: investor ?? { id, name, active: 1 },
+    changedFields: ["name", "active"], requestId: requestId(request),
+  });
+  return response(request, { investor }, 201);
 }
 
 interface DashboardPayloadInput {
@@ -4786,6 +5244,11 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
       if (session instanceof Response) return session;
       return authLogout(request, env, session);
     }
+    if (url.pathname === "/api/web/auth/client-close" && request.method === "POST") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) return session;
+      return clientCloseSession(request, env, session);
+    }
     const requiredAccess = classifyWebRoute(url.pathname, request.method);
     if (!requiredAccess) return errorResponse(request, 404, "not_found", "Not found");
     const rawEnvironment = url.searchParams.get("environment");
@@ -4904,6 +5367,9 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
         : errorResponse(request, 404, "not_found", "找不到雞場。");
     }
     if (farmMatch && request.method === "PATCH") return updateFarm(request, env, session, farmMatch[1]);
+    if (farmMatch && request.method === "DELETE") return deleteFarm(request, env, session, farmMatch[1]);
+    const farmRestoreMatch = /^\/api\/farms\/([^/]+)\/restore$/u.exec(url.pathname);
+    if (farmRestoreMatch && request.method === "POST") return restoreFarm(request, env, session, decodeURIComponent(farmRestoreMatch[1]));
     if (url.pathname === "/api/caretakers" && request.method === "GET") return listCaretakers(request, env, session);
     if (url.pathname === "/api/caretakers" && request.method === "POST") return createCaretaker(request, env, session);
     const caretakerMatch = /^\/api\/caretakers\/([^/]+)$/u.exec(url.pathname);
@@ -4912,6 +5378,9 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/houses" && request.method === "POST") return createHouse(request, env, session);
     const houseMatch = /^\/api\/houses\/([^/]+)$/u.exec(url.pathname);
     if (houseMatch && request.method === "PATCH") return updateHouse(request, env, session, houseMatch[1]);
+    if (houseMatch && request.method === "DELETE") return deleteHouse(request, env, session, houseMatch[1]);
+    const houseRestoreMatch = /^\/api\/houses\/([^/]+)\/restore$/u.exec(url.pathname);
+    if (houseRestoreMatch && request.method === "POST") return restoreHouse(request, env, session, decodeURIComponent(houseRestoreMatch[1]));
     if (url.pathname === "/api/flocks" && request.method === "GET") return listFlocks(request, env, session);
     if (url.pathname === "/api/flocks" && request.method === "POST") return createFlock(request, env, session);
     const flockMatch = /^\/api\/flocks\/([^/]+)$/u.exec(url.pathname);
@@ -4923,6 +5392,16 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     const eventCorrectMatch = /^\/api\/operational-events\/([^/]+)\/correct$/u.exec(url.pathname);
     if (eventCorrectMatch && request.method === "POST") return correctOperationalEvent(request, env, session, eventCorrectMatch[1]);
     if (url.pathname === "/api/finance" && request.method === "GET") return financeSummary(request, env, session);
+    if (url.pathname === "/api/investors" && request.method === "GET") return listInvestors(request, env, session);
+    if (url.pathname === "/api/investors" && request.method === "POST") return createInvestor(request, env, session);
+    if (url.pathname === "/api/finance/mutations" && request.method === "POST") return financeMutation(request, env, session);
+    const financeEntityMatch = /^\/api\/finance\/(investors|farm-investor-equity|profit-distributions|profit-distribution-allocations)\/([^/]+)$/u.exec(url.pathname);
+    if (financeEntityMatch && request.method === "DELETE") return financeEntityDelete(request, env, session, financeEntityMatch[1], decodeURIComponent(financeEntityMatch[2]));
+    if (url.pathname === "/api/web/auth/sessions" && request.method === "GET") return listWebSessions(request, env, session);
+    const sessionRevokeMatch = /^\/api\/web\/auth\/sessions\/([^/]+)\/revoke$/u.exec(url.pathname);
+    if (sessionRevokeMatch && request.method === "POST") return revokeWebSession(request, env, session, decodeURIComponent(sessionRevokeMatch[1]));
+    if (url.pathname === "/api/web/auth/password-rotation" && request.method === "POST") return rotateWebCredentialSessions(request, env, session);
+    if (url.pathname === "/api/web/auth/session-rotation" && request.method === "POST") return rotateWebCredentialSessions(request, env, session);
     const chartMatch = /^\/api\/charts\/([^/]+)$/u.exec(url.pathname);
     if (chartMatch && request.method === "GET") return charts(request, env, session, chartMatch[1]);
     if (url.pathname === "/api/audit" && request.method === "GET") return auditList(request, env, session);
