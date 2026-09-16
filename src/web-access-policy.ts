@@ -96,6 +96,10 @@ function isReliabilityAdminMutation(pathname: string): boolean {
     || /^\/api\/reliability\/events\/[^/]+\/(recover|resolve|record)$/u.test(pathname);
 }
 
+function isRecoveryAdminMutation(pathname: string): boolean {
+  return pathname === "/api/recovery/dry-run" || pathname === "/api/recovery/apply";
+}
+
 function isAdminAiMutation(pathname: string): boolean {
   return pathname === "/api/ai/brief" || pathname === "/api/ai/analyze";
 }
@@ -128,7 +132,7 @@ export function classifyWebRoute(pathname: string, method: string): WebAccessCla
   if (SHARED_EXACT_MUTATIONS.has(exact)) return "SHARED_EDIT";
 
   if (ADMIN_EXACT_MUTATIONS.has(exact)) return "ADMIN";
-  if (normalizedMethod === "POST" && (isFarmCaretakerMutation(pathname) || isOperatorScopeMutation(pathname) || isLineGroupAdminMutation(pathname) || isReliabilityAdminMutation(pathname) || isAdminAiMutation(pathname))) return "ADMIN";
+  if (normalizedMethod === "POST" && (isFarmCaretakerMutation(pathname) || isOperatorScopeMutation(pathname) || isLineGroupAdminMutation(pathname) || isReliabilityAdminMutation(pathname) || isRecoveryAdminMutation(pathname) || isAdminAiMutation(pathname))) return "ADMIN";
   if (normalizedMethod === "PATCH" && (isLineGroupAdminMutation(pathname) || isAdminEntityMutation(pathname))) return "ADMIN";
   if (normalizedMethod === "POST" && isAdminEntityMutation(pathname)) return "ADMIN";
   if (normalizedMethod === "GET" && pathname === "/api/finance") return "SHARED_EDIT";

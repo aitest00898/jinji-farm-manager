@@ -72,6 +72,15 @@ import {
   type CanonicalLabSubmissionSummary,
 } from "./canonical-lab-submission-read-model";
 import {
+  applyO6Recovery,
+  auditRangeBoundary,
+  dryRunO6Recovery,
+  listAuditLogs,
+  RecoveryCoreError,
+  type RecoveryApplyRequest,
+  type RecoveryRequest,
+} from "./audit-recovery-core";
+import {
   acknowledgeRetainedLineEvents,
   getReliabilityStatus,
   markRetainedLineEventManuallyRecorded,
@@ -2818,25 +2827,114 @@ async function charts(request: Request, env: WebApiEnv, session: SessionRow, met
   return errorResponse(request, 400, "invalid_metric", "不支援的圖表指標。");
 }
 
+function recoveryEnvironment(request: Request): OperationalEnvironment | null {
+  const value = new URL(request.url).searchParams.get("environment");
+  return value === "production" || value === "test" ? value : null;
+}
+
+function recoveryMessage(code: string): string {
+  return ({
+    RECOVERY_ENVIRONMENT_INVALID: "Recovery 必須明確指定 production 或 test 範圍。",
+    RECOVERY_TARGET_NOT_FOUND: "找不到指定的 O6 送驗紀錄。",
+    RECOVERY_TARGET_NOT_WAITING: "只有等待結果的 O6 送驗紀錄可以執行這項 restore。",
+    RECOVERY_TARGET_NOT_EFFECTIVE: "目標紀錄不是目前有效的 O6 lineage leaf。",
+    RECOVERY_LINEAGE_INVALID: "O6 lineage 無法安全判定，沒有寫入。",
+    RECOVERY_TARGET_ALREADY_HAS_LINEAGE_CHILD: "目標紀錄已有 lineage child，請重新 Dry Run。",
+    RECOVERY_PLAN_TOKEN_INVALID: "Recovery Dry Run 計畫無效。",
+    RECOVERY_PLAN_TOKEN_MISMATCH: "Recovery 計畫與目前操作不一致，請重新 Dry Run。",
+    STALE_STATE: "自 Dry Run 後資料已改變，Apply 已拒絕；請重新 Dry Run。",
+    RECOVERY_IDEMPOTENCY_CONFLICT: "Recovery 操作識別與既有紀錄衝突，沒有寫入。",
+    RECOVERY_DERIVED_READBACK_MISMATCH: "Recovery 後 derived readback 不一致，請停止後檢查。",
+    RECOVERY_READBACK_FAILED: "Recovery authoritative readback 失敗。",
+    RECOVERY_AUDIT_READBACK_FAILED: "Recovery audit readback 失敗。",
+  } as Record<string, string>)[code.split(":", 1)[0]] ?? "Recovery 操作未完成，沒有安全確認。";
+}
+
+function recoveryRequestFromBody(
+  body: Record<string, unknown> | null,
+  environment: OperationalEnvironment,
+): RecoveryRequest | null {
+  const targetId = stringValue(body?.targetId, 160);
+  const clientOperationId = stringValue(body?.clientOperationId, 200);
+  const result = stringValue(body?.result, 240);
+  const completedAt = stringValue(body?.completedAt, 80);
+  const reason = stringValue(body?.reason, 500);
+  if (!targetId || !clientOperationId || !result || !completedAt || !reason) return null;
+  return { environment, targetId, clientOperationId, result, completedAt, reason };
+}
+
+async function recoveryDryRun(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const input = recoveryRequestFromBody(await bodyJson(request), environment);
+  if (!input) return errorResponse(request, 400, "recovery_input_invalid", "Recovery Dry Run 欄位不完整或無效。");
+  try {
+    const result = await dryRunO6Recovery(env, { organizationId: session.organizationId }, input);
+    return response(request, { recovery: result });
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    throw error;
+  }
+}
+
+async function recoveryApply(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
+  const environment = recoveryEnvironment(request);
+  if (!environment) return errorResponse(request, 400, "recovery_environment_required", "Recovery 必須明確指定 production 或 test 範圍。");
+  const body = await bodyJson(request);
+  const base = recoveryRequestFromBody(body, environment);
+  const stateFingerprint = stringValue(body?.stateFingerprint, 128);
+  const dryRunToken = stringValue(body?.dryRunToken, 128);
+  if (!base || !stateFingerprint || !dryRunToken) return errorResponse(request, 400, "recovery_input_invalid", "Recovery Apply 欄位不完整或無效。");
+  const input: RecoveryApplyRequest = { ...base, stateFingerprint, dryRunToken };
+  try {
+    const result = await applyO6Recovery(
+      { DB: env.DB, CANONICAL_WRITE_HOLD: env.CANONICAL_WRITE_HOLD },
+      { organizationId: session.organizationId, actorId: session.id, requestId: requestId(request) },
+      input,
+    );
+    return response(request, { recovery: result }, result.applied ? 201 : 200);
+  } catch (error) {
+    if (error instanceof RecoveryCoreError) return errorResponse(request, error.status, error.code, recoveryMessage(error.code));
+    const rejected = canonicalWriteErrorResponse(request, error);
+    if (rejected) return rejected;
+    throw error;
+  }
+}
+
 async function auditList(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
   const url = new URL(request.url);
   const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
   const cursorRaw = url.searchParams.get("cursor");
   const cursor = cursorRaw ? safeJson(decodeCursor(cursorRaw), null) as { createdAt?: string; id?: string } | null : null;
-  const cursorClause = cursor?.createdAt && cursor.id ? "AND (created_at < ? OR (created_at = ? AND id < ?))" : "";
-  const bindings: unknown[] = [session.organizationId];
-  if (cursor?.createdAt && cursor.id) bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
-  const rows = await env.DB.prepare(
-    `SELECT id, source, actor_type AS actorType, actor_id AS actorId, action, entity_type AS entityType,
-            entity_id AS entityId, before_json AS beforeJson, after_json AS afterJson,
-            changed_fields_json AS changedFieldsJson, reason, request_id AS requestId, created_at AS createdAt
-       FROM audit_logs WHERE organization_id = ? ${cursorClause}
-      ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).bind(...bindings, limit + 1).all<Record<string, unknown>>();
-  const values = rows.results.slice(0, limit);
-  const last = values[values.length - 1];
-  const nextCursor = rows.results.length > limit && last ? encodeCursor(JSON.stringify({ createdAt: last.createdAt, id: last.id })) : null;
-  return response(request, { auditLogs: values.map((row) => ({ ...row, before: safeJson(row.beforeJson, null), after: safeJson(row.afterJson, null), changedFields: safeJson(row.changedFieldsJson, []) })), nextCursor });
+  const includeArchived = url.searchParams.get("includeArchived") === "true";
+  const fromRaw = url.searchParams.get("from");
+  const toRaw = url.searchParams.get("to");
+  const rangeFrom = auditRangeBoundary(fromRaw, false);
+  const rangeTo = auditRangeBoundary(toRaw, true);
+  if ((fromRaw !== null && !rangeFrom) || (toRaw !== null && !rangeTo)) {
+    return errorResponse(request, 400, "invalid_audit_range", "audit 範圍必須是 ISO 日期或時間。");
+  }
+  if (rangeFrom && rangeTo && rangeFrom >= rangeTo) {
+    return errorResponse(request, 400, "invalid_audit_range", "audit 起始時間必須早於結束時間。");
+  }
+  const result = await listAuditLogs(env, session.organizationId, {
+    limit,
+    cursor: cursor?.createdAt && cursor.id ? { createdAt: cursor.createdAt, id: cursor.id } : null,
+    includeArchived,
+    rangeFrom,
+    rangeTo,
+  });
+  return response(request, {
+    auditLogs: result.auditLogs.map((row) => ({
+      ...row,
+      before: safeJson(row.beforeJson, null),
+      after: safeJson(row.afterJson, null),
+      changedFields: safeJson(row.changedFieldsJson, []),
+    })),
+    nextCursor: result.nextCursor ? encodeCursor(JSON.stringify(result.nextCursor)) : null,
+    visibilityBoundary: result.visibilityBoundary,
+    range: result.range,
+  });
 }
 
 async function aliasList(request: Request, env: WebApiEnv, session: SessionRow): Promise<Response> {
@@ -4058,6 +4156,8 @@ export async function handleWebApi(request: Request, env: WebApiEnv): Promise<Re
     if (url.pathname === "/api/reliability/events" && request.method === "GET") return reliabilityEvents(request, env, session);
     if (url.pathname === "/api/ambient/preview" && request.method === "GET") return ambientPreview(request, env, session);
     if (url.pathname === "/api/pending-candidates" && request.method === "GET") return pendingCandidates(request, env, session);
+    if (url.pathname === "/api/recovery/dry-run" && request.method === "POST") return recoveryDryRun(request, env, session);
+    if (url.pathname === "/api/recovery/apply" && request.method === "POST") return recoveryApply(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "GET") return listOperators(request, env, session);
     if (url.pathname === "/api/operators" && request.method === "POST") return createOperator(request, env, session);
     const operatorScopeMatch = /^\/api\/operators\/([^/]+)\/scopes$/u.exec(url.pathname);

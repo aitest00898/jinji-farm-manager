@@ -10,6 +10,7 @@ import {
   sessionAccessClass,
   setLineGroupOperationalAuthorization,
 } from "./web-api";
+import { auditVisibilityFor } from "./audit-recovery-core";
 
 function authorizationDb(input: {
   organizationId: string | null;
@@ -132,6 +133,14 @@ const adminSession = {
 };
 
 describe("Web API boundary", () => {
+  it("keeps the audit visibility boundary inclusive at 120 days", () => {
+    const now = new Date("2026-09-16T00:00:00.000Z");
+    const cutoff = new Date(now.getTime() - 120 * 86_400_000);
+    expect(auditVisibilityFor(cutoff.toISOString(), now)).toEqual({ archived: false, visibility: "current" });
+    expect(auditVisibilityFor(new Date(cutoff.getTime() - 1).toISOString(), now)).toEqual({ archived: true, visibility: "archived" });
+    expect(auditVisibilityFor(new Date(cutoff.getTime() + 1).toISOString(), now)).toEqual({ archived: false, visibility: "current" });
+  });
+
   it("allows only the Pages origin and local Vite origins", () => {
     expect(isAllowedWebOrigin("https://aitest00898.github.io")).toBe(true);
     expect(isAllowedWebOrigin("http://localhost:5173")).toBe(true);

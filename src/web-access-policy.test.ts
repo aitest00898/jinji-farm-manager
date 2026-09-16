@@ -49,6 +49,8 @@ describe("Web access policy", () => {
       ["GET", "/api/data-health"],
       ["GET", "/api/line-groups"],
       ["GET", "/api/audit"],
+      ["POST", "/api/recovery/dry-run"],
+      ["POST", "/api/recovery/apply"],
       ["POST", "/api/farms"],
       ["POST", "/api/operators/operator-1/scopes"],
       ["POST", "/api/line-groups/group-1/organization-claim"],
