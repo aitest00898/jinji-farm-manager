@@ -153,7 +153,7 @@ describe("Ambient V2.2 repeated mini-suite", () => {
         processExited: 1,
       });
 
-      const ledgerText = await readFile(ledgerPath, "utf8");
+      const ledgerText = await readFile(ledgerPath, { encoding: "utf8" });
       expect(ledgerText).not.toContain("咳嗽");
       expect(ledgerText).not.toContain("腳傷");
       expect(ledgerText).not.toContain("金雞測試場");

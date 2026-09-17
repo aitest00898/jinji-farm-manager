@@ -264,7 +264,7 @@ describe("Ambient V2.2 one-call D04 fact gate", () => {
       },
     });
     try {
-      const ledgerText = await readFile(run.ledgerPath, "utf8");
+      const ledgerText = await readFile(run.ledgerPath, { encoding: "utf8" });
       expect(ledgerText).not.toContain(run.message.text);
       expect(ledgerText).not.toContain("腳傷");
       expect(ledgerText).not.toContain(AMBIENT_V2_2_SYSTEM_PROMPT);

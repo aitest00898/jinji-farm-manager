@@ -185,7 +185,7 @@ describe("Ambient V2.2 D07 convergence gate", () => {
         processStarted: 1,
         processExited: 1,
       });
-      const ledger = await readFile(ledgerPath, "utf8");
+      const ledger = await readFile(ledgerPath, { encoding: "utf8" });
       expect(ledger).not.toContain("金雞測試場");
       expect(ledger).not.toContain("咳嗽");
       expect(ledger).not.toContain("腳傷");
