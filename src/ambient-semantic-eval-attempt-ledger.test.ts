@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { PRODUCTION_AI_MODEL } from "./analysis";
 import { smokeD03 } from "./ambient-semantic-eval-fixtures";
@@ -24,7 +26,7 @@ const input = {
 };
 
 function tempLedgerPath(): string {
-  return `/private/tmp/ambient-semantic-eval-ledger-${randomUUID()}.jsonl`;
+  return join(tmpdir(), `ambient-semantic-eval-ledger-${randomUUID()}.jsonl`);
 }
 
 function successFetch() {
