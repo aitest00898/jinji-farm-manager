@@ -126,12 +126,13 @@ export function isDailyReviewCron(cron: string): boolean {
   return cron === DAILY_REVIEW_CRON;
 }
 
-export function scheduledJobForCron(cron: string): "ambient_digest" | "daily_review" | "recovery" | "unknown" {
+export function scheduledJobForCron(cron: string): "ambient_digest" | "daily_review" | "production_d1_backup" | "recovery" | "unknown" {
   // Cloudflare supplies the configured expression for each scheduled trigger.
   // The local runtime uses the same production expression so schedule drift is
   // caught by tests instead of being hidden behind an hourly sentinel.
   if (cron === AMBIENT_DIGEST_CRON) return "ambient_digest";
   if (isDailyReviewCron(cron)) return "daily_review";
+  if (cron === "0 16 * * *") return "production_d1_backup";
   if (cron === "*/2 * * * *") return "recovery";
   return "unknown";
 }
