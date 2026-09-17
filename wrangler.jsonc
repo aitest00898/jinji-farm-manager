@@ -9,12 +9,19 @@
 	"observability": {
 		"enabled": true
 	},
-	"triggers": {
+		"triggers": {
 		"crons": [
 			"0 1,4,7,10,22 * * *",
-			"0 13 * * *"
+			"0 13 * * *",
+			"0 16 * * *"
 		]
 	},
+	"kv_namespaces": [
+		{
+			"binding": "BACKUP_KV",
+			"id": "2579e3c2d23b4367ada0148e3169fb80"
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",

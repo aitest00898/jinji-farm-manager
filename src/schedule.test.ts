@@ -39,11 +39,12 @@ function sevenDates(startDate: string): string[] {
 describe("Production scheduled trigger contract", () => {
   it("keeps only the two active product triggers and no recovery trigger", () => {
     const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as { triggers: { crons: string[] } };
-    expect(wrangler.triggers.crons).toEqual([AMBIENT_DIGEST_CRON, dailyReviewCronExpression()]);
-    expect(wrangler.triggers.crons).toHaveLength(2);
+    expect(wrangler.triggers.crons).toEqual([AMBIENT_DIGEST_CRON, dailyReviewCronExpression(), "0 16 * * *"]);
+    expect(wrangler.triggers.crons).toHaveLength(3);
     expect(wrangler.triggers.crons).not.toContain("*/2 * * * *");
     expect(scheduledJobForCron(AMBIENT_DIGEST_CRON)).toBe("ambient_digest");
     expect(scheduledJobForCron(dailyReviewCronExpression())).toBe("daily_review");
+    expect(scheduledJobForCron("0 16 * * *")).toBe("production_d1_backup");
     expect(scheduledJobForCron("0 6 * * *")).toBe("unknown");
   });
 
