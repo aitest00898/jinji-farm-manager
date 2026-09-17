@@ -15,6 +15,12 @@ describe("quick record parser", () => {
     expect(parsed.items.every((item) => item.timing.reportedAt === receivedAt)).toBe(true);
   });
 
+  it("keeps Chinese, full-width, and spaced house numerals on the canonical name", () => {
+    for (const input of ["金雞測試場 測試一舍 死亡1", "金雞測試場 測試１舍 死亡1", "金雞測試場 測試 1 舍 死亡1", "金雞測試場測試1舍死亡1"]) {
+      expect(parseQuickItemsForTest(input, receivedAt).houseText).toBe("測試1舍");
+    }
+  });
+
   it("converts water tons but preserves feed bags", () => {
     const water = parseQuickItemsForTest("飲水2.3噸", receivedAt).items[0];
     const feed = parseQuickItemsForTest("飼料20包", receivedAt).items[0];
@@ -53,6 +59,16 @@ describe("quick record parser", () => {
     expect(parsed.farmOnly).toBeNull();
     expect(parsed.segments[0]).toMatchObject({ farmId: "b" });
     expect(parsed.segments[0].items[0]).toMatchObject({ intent: "mortality", quantity: 5 });
+  });
+
+  it("keeps a unique farm typo scoped to one confirmation candidate", () => {
+    const farms: QuickFarm[] = [
+      { id: "farm-test", name: "金雞測試場", environment: "test", structureMode: "whole_farm", active: 1 },
+      { id: "other", name: "洪秀美場", environment: "test", structureMode: "whole_farm", active: 1 },
+    ];
+    const parsed = parseQuickSegmentsForTest("金雞測式場死亡1", receivedAt, farms);
+    expect(parsed.segments[0]).toMatchObject({ farmId: "farm-test", requiresConfirmation: true });
+    expect(parsed.segments[0].farmCandidates).toEqual([expect.objectContaining({ farmId: "farm-test" })]);
   });
 
   it("keeps an ambiguous segment pending without stopping later segments", () => {

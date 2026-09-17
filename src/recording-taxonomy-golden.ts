@@ -28,7 +28,7 @@ const scope = "金雞測試場 測試一舍 批次A ";
 // These expected values are authored before any model experiment. They are
 // deterministic parser contract fixtures, not model-generated expectations.
 export const TAXONOMY_GOLDEN_CASES: readonly GoldenCase[] = Object.freeze([
-  { id: "O1-chick-in", text: scope + "入雛 公雞600 母雞400 良好", goldPositive: true, expected: { taxonomyId: "O1", subtype: "chick_in", recordWorthiness: "record", fields: { farmText: "金雞測試場", houseText: "測試一舍", flockText: "A", maleCount: 600, femaleCount: 400, condition: "good" } } },
+  { id: "O1-chick-in", text: scope + "入雛 公雞600 母雞400 良好", goldPositive: true, expected: { taxonomyId: "O1", subtype: "chick_in", recordWorthiness: "record", fields: { farmText: "金雞測試場", houseText: "測試1舍", flockText: "A", maleCount: 600, femaleCount: 400, condition: "good" } } },
   { id: "O2-vaccination", text: scope + "疫苗 新城雞瘟", goldPositive: true, expected: { taxonomyId: "O2", subtype: "vaccination", recordWorthiness: "record", fields: { content: "新城雞瘟" } } },
   { id: "O2-medication", text: scope + "用藥 球蟲藥", goldPositive: true, expected: { taxonomyId: "O2", subtype: "medication", recordWorthiness: "record", fields: { content: "球蟲藥" } } },
   { id: "O2-supplement", text: scope + "補充品 維生素", goldPositive: true, expected: { taxonomyId: "O2", subtype: "supplement", recordWorthiness: "record", fields: { content: "維生素" } } },
@@ -97,7 +97,7 @@ export const TAXONOMY_GOLDEN_EDGE_CASES: readonly GoldenCase[] = Object.freeze([
   { id: "yesterday-is-explicitly-recorded", text: "昨天 金雞測試場 測試一舍 批次A 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-07T00:00:00+08:00" } } },
   { id: "explicit-date-is-preserved", text: "2026-09-01 金雞測試場 測試一舍 批次A 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-01T00:00:00+08:00" } } },
   { id: "farm-only-scope-is-a-record", text: "金雞測試場 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { farmText: "金雞測試場", quantity: 5 } } },
-  { id: "farm-house-scope-without-flock", text: "金雞測試場 測試一舍 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { farmText: "金雞測試場", houseText: "測試一舍", quantity: 5 } } },
+  { id: "farm-house-scope-without-flock", text: "金雞測試場 測試一舍 死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { farmText: "金雞測試場", houseText: "測試1舍", quantity: 5 } } },
   { id: "same-quantity-is-genuinely-new", text: "今天 金雞測試場 測試一舍 批次B 新增死亡5", goldPositive: true, expected: { taxonomyId: "O9", subtype: "mortality", recordWorthiness: "record", fields: { quantity: 5, occurredAt: "2026-09-08T00:00:00+08:00" } } },
   { id: "correction-is-not-a-new-record", text: "修正 金雞測試場 測試一舍 死亡5改成3", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "correction_candidate" } },
   { id: "uncertainty-is-not-a-new-record", text: "金雞測試場 測試一舍 可能死亡5", goldPositive: false, expected: { taxonomyId: null, subtype: null, recordWorthiness: "candidate", reason: "uncertain_candidate" } },

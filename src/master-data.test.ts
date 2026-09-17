@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import {
   addIsoDays,
+  canonicalEntityKey,
+  canonicalHouseName,
   deriveCurrentStock,
   differenceInDays,
   effectiveOperationalEventPredicate,
   flockAgeDays,
   isIsoDate,
   normalizedHouseName,
+  resolveNamedMasterRecord,
   shipmentReminder,
 } from "./master-data";
 
@@ -91,6 +94,28 @@ describe("Operational Phase 2 master-data calculations", () => {
 
   it("normalizes house names without changing original message text", () => {
     expect(normalizedHouseName(" ０３ 舍 ")).toBe("3舍");
+    expect(normalizedHouseName("測試一舍")).toBe("測試1舍");
+    expect(normalizedHouseName("測試 １ 舍")).toBe("測試1舍");
+    expect(canonicalHouseName("測試一舍")).toBe("測試1舍");
     expect(normalizedHouseName("雞舍A")).toBe("雞舍A");
+  });
+
+  it("normalizes entity punctuation and resolves one bounded near-match", () => {
+    expect(canonicalEntityKey("金雞-測試場")).toBe(canonicalEntityKey("金雞測試場"));
+    const result = resolveNamedMasterRecord([
+      { id: "house-1", name: "測試1舍" },
+      { id: "house-2", name: "測試2舍" },
+    ], "測試一舍");
+    expect(result).toMatchObject({ kind: "direct", record: { id: "house-1", name: "測試1舍" } });
+  });
+
+  it("keeps collisions and marginal near-matches from becoming writes", () => {
+    const collision = resolveNamedMasterRecord([
+      { id: "house-a", name: "測試1舍" },
+      { id: "house-b", name: "測試１舍" },
+    ], "測試一舍");
+    expect(collision.kind).toBe("candidates");
+    expect(resolveNamedMasterRecord([{ id: "house-1", name: "測試1舍" }], "測試2舍").kind).toBe("candidates");
+    expect(resolveNamedMasterRecord([{ id: "house-1", name: "測試1舍" }], "完全不存在").kind).toBe("none");
   });
 });

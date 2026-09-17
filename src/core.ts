@@ -1,4 +1,4 @@
-import { isIsoDate, normalizedHouseName, taipeiDate } from "./master-data";
+import { canonicalHouseName, extractHouseNameToken, isIsoDate, normalizedHouseName, taipeiDate } from "./master-data";
 import { parseChapter12LineAdminCommand, type ParsedChapter12LineAdminCommand } from "./chapter12-line-admin";
 
 export type OperationalIntent = "mortality" | "cull" | "feed" | "water" | "shipment";
@@ -190,8 +190,7 @@ const houseName = (value: string): string => `${Number(value)}舍`;
 
 const houseFromValue = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
-  const normalized = normalizedHouseName(value);
-  return /^(?:[\p{L}\p{N}_-]{1,18})舍$/u.test(normalized) ? normalized : undefined;
+  return canonicalHouseName(value) ?? undefined;
 };
 
 const amountFromValue = (value: unknown): number | undefined => {
@@ -244,11 +243,29 @@ const QUANTITY_PATTERN = "(\\d+(?:\\.\\d+)?)\\s*(隻|只|羽|kg|公斤|千克|L|
 
 function farmAndHouse(rawFarmText: string): { farmText: string | null; rawFarmText: string | null; house?: string } {
   const value = normalize(rawFarmText);
+  const concatenatedFarmWithHouse = value.match(/^(.+[場场])([\p{L}\p{N}_-]{1,18}\s*舍)$/iu);
+  if (concatenatedFarmWithHouse && concatenatedFarmWithHouse[1].trim()) {
+    const farmText = concatenatedFarmWithHouse[1].trim();
+    return {
+      farmText,
+      rawFarmText: farmText,
+      house: canonicalHouseName(concatenatedFarmWithHouse[2]) ?? normalizedHouseName(concatenatedFarmWithHouse[2]),
+    };
+  }
+  const extractedHouse = extractHouseNameToken(value);
+  if (extractedHouse) {
+    const houseIndex = value.lastIndexOf(extractedHouse);
+    const farmText = value.slice(0, houseIndex).trim();
+    return {
+      farmText: farmText || null,
+      rawFarmText: farmText || null,
+      house: canonicalHouseName(extractedHouse) ?? normalizedHouseName(extractedHouse),
+    };
+  }
   // Prefer a complete house token after an explicit separator. The previous
   // numeric-first split treated `金雞測試場 測試1舍` as farm=`金雞測試場 測試`
   // and house=`1舍`, which downgraded an exact farm to a fuzzy candidate.
   const spacedFarmWithHouse = value.match(/^(.+?)\s+([\p{L}\p{N}_-]{1,18}\s*舍)$/iu);
-  const concatenatedFarmWithHouse = value.match(/^(.+[場场])([\p{L}\p{N}_-]{1,18}\s*舍)$/iu);
   const farmWithHouse = spacedFarmWithHouse ?? concatenatedFarmWithHouse;
   if (farmWithHouse && farmWithHouse[1].trim()) {
     const farmText = farmWithHouse[1].trim();
@@ -418,6 +435,15 @@ export function parseCommand(input: string): ParsedCommand {
     const house = inventoryQuery[1] ?? inventoryQuery[2];
     return { kind: "query_inventory", house: house ? houseName(house) : undefined };
   }
+  const tolerantFarmInventoryQuery = text.match(
+    /^(.+?)\s+(?:(?:目前|現在|现在|當前|当前)\s*)?(?:存欄|存栏|現存|现存)$/iu,
+  );
+  if (tolerantFarmInventoryQuery) {
+    const target = farmAndHouse(tolerantFarmInventoryQuery[1]);
+    if (target.farmText && target.house) {
+      return { kind: "query_inventory", farmName: target.farmText, house: target.house };
+    }
+  }
   const farmInventoryQuery = text.match(
     /^(.+?)\s+([\p{L}\p{N}_-]{1,18}\s*舍)\s+(?:(?:目前|現在|现在|當前|当前)\s*)?(?:存欄|存栏|現存|现存)$/iu,
   );
@@ -439,6 +465,13 @@ export function parseCommand(input: string): ParsedCommand {
       farmName: farmFlockAge[1].trim(),
       house: normalizedHouseName(farmFlockAge[2]),
     };
+  }
+  const tolerantFarmFlockAge = text.match(/^(.+?)\s+(?:日齡|日龄)$/iu);
+  if (tolerantFarmFlockAge) {
+    const target = farmAndHouse(tolerantFarmFlockAge[1]);
+    if (target.farmText && target.house) {
+      return { kind: "query_flock_age", farmName: target.farmText, house: target.house };
+    }
   }
   if (/^(?:下週出雞|下周出鸡|近期出雞|近期出鸡)$/iu.test(text)) return { kind: "query_upcoming_shipments" };
 

@@ -174,7 +174,7 @@ describe("recording taxonomy foundation", () => {
   it("preserves known fields and asks the minimum missing question", () => {
     const mortality = parseCanonicalRecordingText("金雞測試場 測試一舍 死亡");
     expect(mortality).toMatchObject({ taxonomyId: "O9", subtype: "mortality", recordWorthiness: "candidate", missingFields: ["quantity"] });
-    expect(mortality.fields).toMatchObject({ farmText: "金雞測試場", houseText: "測試一舍" });
+    expect(mortality.fields).toMatchObject({ farmText: "金雞測試場", houseText: "測試1舍" });
     expect(mortality.clarificationQuestion).toBe("請補充數量。");
     const foot = parseCanonicalRecordingText("金雞測試場 測試一舍 臭腳");
     expect(foot).toMatchObject({ taxonomyId: "A8", subtype: "foot_odor", recordWorthiness: "candidate", missingFields: ["extent"] });

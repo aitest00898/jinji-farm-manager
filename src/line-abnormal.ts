@@ -6,7 +6,7 @@ import {
   type AbnormalScope,
 } from "./abnormal";
 import { canonicalFarmKey, FarmResolver, normalizedFarmKey, type FarmCandidate, type FarmRecord } from "./farm-resolver";
-import { normalizedHouseName } from "./master-data";
+import { extractHouseNameToken, normalizedHouseName, resolveNamedMasterRecord } from "./master-data";
 import { requireAuthorizedLineGroup } from "./line-group-authorization";
 
 export interface LineAbnormalEnv {
@@ -79,7 +79,6 @@ interface TargetScope {
 }
 
 const PENDING_TTL_MS = 10 * 60 * 1000;
-const HOUSE_PATTERN = /([\p{L}\p{N}_-]{1,18}\s*舍)/u;
 const PERIOD_WORDS = /(?:今天|今日|昨天|昨晚|昨天下午|昨天下午|早上|上午|下午|晚上|傍晚|半夜|深夜|夜間|夜间)/gu;
 const CONTEXT_WORDS = /(?:的|那邊|那边|這邊|这边|那裡|那里|這裡|这里|有|發生|发生|開始|开始|又|了|雞|鸡|隻|只|目前|好像|似乎|今天|今日|昨天|昨晚|早上|上午|下午|晚上|傍晚|半夜|深夜)/gu;
 const ABNORMAL_WORDS = /(?:咳嗽|咳|喘|臭腳|臭脚|跛腳|跛脚|拉肚子|腹瀉|腹泻|不吃|沒精神|没精神|怪怪|異常|异常|故障|壞掉|坏掉|壞|坏|沒動|没动|停電|停电|斷電|断电|漏水|破掉|受損|受损|風吹|淹水|倒塌|水簾|水帘|風扇|风扇|屋頂|屋顶|飼料|饲料|缺料|缺水)/gu;
@@ -144,7 +143,9 @@ async function loadFarms(env: LineAbnormalEnv, organizationId: string): Promise<
 }
 
 function cleanFarmFragment(rawText: string): string {
-  let value = normalize(rawText).replace(HOUSE_PATTERN, " ");
+  const normalized = normalize(rawText);
+  const houseToken = extractHouseNameToken(normalized);
+  let value = houseToken ? normalized.replace(houseToken, " ") : normalized;
   value = value.replace(PERIOD_WORDS, " ").replace(ABNORMAL_WORDS, " ").replace(CONTEXT_WORDS, " ");
   value = value.replace(/[0-9０-９]+/gu, " ").replace(/[：:，,。！？?!]/gu, " ");
   return value.replace(/\s+/gu, " ").trim();
@@ -203,12 +204,15 @@ async function activeHouses(env: LineAbnormalEnv, farmId: string): Promise<House
   return rows.results;
 }
 
-function houseFromText(text: string, houses: HouseRow[]): { specified: boolean; house: HouseRow | null; invalid: string | null } {
-  const token = text.match(HOUSE_PATTERN)?.[1] ?? null;
-  if (!token) return { specified: false, house: null, invalid: null };
-  const normalized = normalizedHouseName(token);
-  const house = houses.find((item) => normalizedHouseName(item.name) === normalized || compact(item.name) === compact(token)) ?? null;
-  return house ? { specified: true, house, invalid: null } : { specified: true, house: null, invalid: normalized };
+function houseFromText(text: string, houses: HouseRow[]): { specified: boolean; house: HouseRow | null; candidates: Array<{ id: string; name: string }>; invalid: string | null } {
+  const token = extractHouseNameToken(text);
+  if (!token) return { specified: false, house: null, candidates: [], invalid: null };
+  const resolution = resolveNamedMasterRecord(houses, token);
+  if (resolution.kind === "direct" && resolution.record) return { specified: true, house: resolution.record, candidates: [], invalid: null };
+  if (resolution.kind === "candidates") {
+    return { specified: true, house: null, candidates: resolution.candidates.map(({ record }) => ({ id: record.id, name: record.name })), invalid: null };
+  }
+  return { specified: true, house: null, candidates: [], invalid: normalizedHouseName(token) };
 }
 
 async function scopeForFarm(env: LineAbnormalEnv, organizationId: string, farmId: string, rawText: string, contextHouseId: string | null, selectedHouseId: string | null = null): Promise<TargetScope> {
@@ -220,6 +224,7 @@ async function scopeForFarm(env: LineAbnormalEnv, organizationId: string, farmId
   const houses = await activeHouses(env, farm.id);
   const parsedHouse = houseFromText(rawText, houses);
   if (parsedHouse.invalid) return { scope: null, houseCandidates: [], invalidHouseText: parsedHouse.invalid };
+  if (parsedHouse.candidates.length) return { scope: null, houseCandidates: parsedHouse.candidates, invalidHouseText: null };
   let house = parsedHouse.house;
   if (!house && selectedHouseId) house = houses.find((item) => item.id === selectedHouseId) ?? null;
   if (!house && !parsedHouse.specified && contextHouseId) house = houses.find((item) => item.id === contextHouseId) ?? null;
@@ -390,7 +395,9 @@ export async function handleLineAbnormalPendingInput(env: LineAbnormalEnv, event
   if (pending.status === "waiting_house") {
     const houses = parseHouseCandidates(pending.candidateHousesJson);
     const number = normalized.match(/^(\d+)$/u);
-    const selected = number ? houses[Number(number[1]) - 1] : houses.find((item) => normalizedHouseName(item.name) === normalizedHouseName(normalized));
+    const selected = number
+      ? houses[Number(number[1]) - 1]
+      : resolveNamedMasterRecord(houses, normalized).record ?? null;
     if (!selected && /^(?:是|好|確認|確定)$/iu.test(normalized) && houses.length === 1) return completePending(env, event, eventId, pending, pending.farmId ?? "", houses[0].id, accountName);
     if (!selected) return `${botName(accountName)}\n請回覆舍別名稱或編號。\n${houseList(houses)}`;
     return completePending(env, event, eventId, pending, pending.farmId ?? "", selected.id, accountName);

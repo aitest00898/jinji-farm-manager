@@ -108,6 +108,22 @@ describe("UnifiedIntent AI contract", () => {
     expect(resolution.kind).toBe("direct");
   });
 
+  it("canonicalizes a Chinese house numeral in structured model output", () => {
+    const intent = parseAiUnifiedIntent(JSON.stringify({
+      intent: "record_mortality",
+      farmText: "金雞測試場",
+      houseText: "測試一舍",
+      quantity: 1,
+      unit: "bird",
+      date: "today",
+      period: null,
+      note: null,
+      confidence: 0.93,
+      needsConfirmation: true,
+    }));
+    expect(intent).toMatchObject({ houseText: "測試1舍" });
+  });
+
   it("keeps typo and homophone-like farm text in confirmation candidates", () => {
     const intent = parseAiUnifiedIntent(JSON.stringify({
       intent: "record_mortality",

@@ -124,6 +124,32 @@ describe("LINE command parser", () => {
     expect(parseCommand("近期出雞")).toEqual({ kind: "query_upcoming_shipments" });
   });
 
+  it("keeps tolerant farm and house variations on the deterministic operational path", () => {
+    for (const input of [
+      "金雞測試場 測試一舍 死亡1",
+      "金雞測試場 測試１舍 死亡1",
+      "金雞測式場 測試 1 舍 死亡1",
+    ]) {
+      expect(parseCommand(input)).toMatchObject({
+        kind: "record_operational",
+        draft: {
+          farmText: input.includes("測式") ? "金雞測式場" : "金雞測試場",
+          house: "測試1舍",
+          intent: "mortality",
+          quantity: 1,
+        },
+      });
+    }
+  });
+
+  it("canonicalizes tolerant farm-house query names before readback", () => {
+    expect(parseCommand("金雞測試場 測試 １ 舍 目前存欄")).toEqual({
+      kind: "query_inventory",
+      farmName: "金雞測試場",
+      house: "測試1舍",
+    });
+  });
+
   it("parses deterministic finance query aliases", () => {
     expect(parseCommand("雞場列表")).toEqual({ kind: "query_farm_list" });
     expect(parseCommand("各場持股")).toEqual({ kind: "query_equity" });
