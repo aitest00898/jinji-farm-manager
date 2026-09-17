@@ -809,37 +809,42 @@ function isExplicitWakeCommand(command: ParsedCommand, text = "", canonical?: Ca
     || (command.kind === "unknown" && Boolean(canonical?.taxonomyId) && canonical?.recordWorthiness !== "ignore");
 }
 
-async function hasScopedPendingState(env: Env, groupId: string, userId: string, now: string): Promise<boolean> {
+export async function hasScopedPendingState(env: Env, groupId: string, userId: string, now: string): Promise<boolean> {
   const row = await env.DB.prepare(
-    `SELECT 1 AS present FROM (
-       SELECT id FROM pending_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM abnormal_pending_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_farm', 'waiting_house') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM farm_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM operational_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM finance_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_confirmation' AND expires_at > ?
-       UNION ALL
-       SELECT id FROM master_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_confirmation' AND expires_at > ?
-       UNION ALL
-       SELECT id FROM ambient_digest_candidates
-        WHERE line_group_id = ? AND review_user_id = ?
-          AND status = 'pending' AND review_expires_at > ?
-     ) LIMIT 1`,
+    // D1's production SQLite limit rejects compound SELECTs with more than
+    // five terms. Keep the single read but express each source as EXISTS so
+    // every message can pass the interaction gate on the real Worker.
+    `SELECT CASE WHEN
+       EXISTS (
+         SELECT 1 FROM pending_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM abnormal_pending_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_farm', 'waiting_house') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM farm_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM operational_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM finance_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status = 'waiting_confirmation' AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM master_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status = 'waiting_confirmation' AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM ambient_digest_candidates
+          WHERE line_group_id = ? AND review_user_id = ?
+            AND status = 'pending' AND review_expires_at > ?
+       )
+       THEN 1 ELSE 0 END AS present`,
   ).bind(groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now).first<{ present: number }>();
   if (row?.present) return true;
   const canonical = await env.DB.prepare(
