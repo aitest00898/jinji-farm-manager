@@ -28,6 +28,7 @@ export const NAV_ITEMS = [
   { key: "audit", label: "變更紀錄", description: "修改追蹤", pageDescription: "追查 LINE、網頁與系統資料的修改歷程。", group: "data", icon: "audit", primary: true },
   { key: "health", label: "資料檢查", description: "資料異常檢查", pageDescription: "檢查主檔、批次與資料關聯的異常。", group: "system", icon: "health", primary: false },
   { key: "system", label: "系統狀態", description: "訊息處理狀態", pageDescription: "查看接收、處理、儲存與 LINE 回覆狀態。", group: "system", icon: "system", primary: true },
+  { key: "recovery", label: "Recovery", description: "資料恢復與 PIT", pageDescription: "以 server Dry Run、dependency group 與 authoritative readback 安全恢復資料。", group: "system", icon: "system", primary: false },
   { key: "lineGroups", label: "LINE 群組", description: "AI 對話開關", pageDescription: "選擇哪些已授權 LINE 群組可以使用 @助理 的 AI 對話。", group: "system", icon: "lineGroups", primary: false },
   { key: "diagnostics", label: "訊息診斷", description: "尚未整理與問題訊息", pageDescription: "查看尚未整理、已過期未完成與處理問題。", group: "system", icon: "diagnostics", primary: false },
   { key: "pendingDiagnostics", label: "待確認資料診斷", description: "來源與不一致原因", pageDescription: "查看待確認資料的來源與狀態；只查看不修改。", group: "system", icon: "pendingDiagnostics", primary: false },
@@ -43,7 +44,7 @@ export type NavKey = (typeof NAV_ITEMS)[number]["key"];
 
 const ADMIN_ONLY_NAV = new Set<NavKey>([
   "ai", "pending", "caretakers", "aliases", "audit", "health", "system",
-  "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
+  "lineGroups", "recovery", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
 ]);
 
 const SHARED_NAV = new Set<NavKey>(["finance", "equity"]);
