@@ -12,6 +12,7 @@ import {
   ambientPrompt,
   ambientPromptSourceRefsForTest,
   ambientSelectionForTest,
+  canonicalAmbientCandidatesForTest,
   estimateAmbientAiExtractionSize,
   extractAmbientCandidates,
   interactionGateDecision,
@@ -369,7 +370,8 @@ describe("ambient prefilter and candidate validation", () => {
     };
     const ignored = await extractAmbientCandidates({ DB: {} as D1Database, AI: { run: ignoredRun } as unknown as Ai }, [selectedMessage]);
     expect(ignored.validation).toBe("schema_valid");
-    expect(ignored.bundle?.candidates).toHaveLength(0);
+    expect(ignored.bundle?.candidates).toHaveLength(1);
+    expect(ignored.bundle?.candidates[0]?.items[0]?.taxonomyId).toBe("O9");
     expect(ignored.sourceCoverage?.ignoredSelectedSourceCount).toBe(1);
 
     const contextRun = vi.fn(async () => ({
@@ -512,6 +514,48 @@ describe("ambient prefilter and candidate validation", () => {
     });
     expect(unresolved?.candidates[0]?.caretakerText).toBe("林志騰");
     expect(unresolved?.candidates[0]?.items[0]?.quantity).toBeNull();
+  });
+
+  it("projects every canonical taxonomy message through the deterministic Ambient path", () => {
+    const messages = TAXONOMY_GOLDEN_CASES.map((testCase, index) => ({
+      id: `taxonomy-${index}`,
+      organizationId: "o",
+      lineGroupId: "g",
+      lineUserId: "u",
+      lineMessageId: `taxonomy-message-${index}`,
+      eventTimestamp: "2026-08-20T12:00:00.000Z",
+      text: testCase.text,
+      digestHour: "2026-08-20T20:00:00+08:00",
+    }));
+    const expected = TAXONOMY_GOLDEN_CASES.filter((testCase) => testCase.expected.recordWorthiness !== "ignore");
+    const bundle = canonicalAmbientCandidatesForTest(messages);
+    const items = bundle.candidates.flatMap((candidate) => candidate.items);
+    expect(items).toHaveLength(expected.length);
+    expect(items.every((item) => Boolean(item.taxonomyId))).toBe(true);
+    expect(new Set(bundle.sourceMessageIds).size).toBe(expected.length);
+    expect(canonicalAmbientCandidatesForTest([
+      { ...messages[0], text: "今天晚餐吃雞排" },
+      { ...messages[1], text: "我家一直咳嗽" },
+      { ...messages[2], text: "金雞測試場可能死亡2隻" },
+    ]).candidates).toHaveLength(0);
+  });
+
+  it("validates the optional canonical taxonomy marker without accepting unknown IDs", () => {
+    const valid = validateAmbientCandidateBundle({
+      candidates: [{
+        farmText: "金雞測試場",
+        conflict: false,
+        items: [{ taxonomyId: "O4", type: "abnormal", quantity: null, raw: "磅重1.8kg", confidence: "high" }],
+      }],
+    });
+    expect(valid?.candidates[0]?.items[0]?.taxonomyId).toBe("O4");
+    expect(validateAmbientCandidateBundle({
+      candidates: [{
+        farmText: "金雞測試場",
+        conflict: false,
+        items: [{ taxonomyId: "X99", type: "abnormal", quantity: null, raw: "異常", confidence: "high" }],
+      }],
+    })).toBeNull();
   });
 
   it("keeps uncertainty as a successful candidate state", () => {
