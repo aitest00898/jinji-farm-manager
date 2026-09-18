@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { API_BASE, ApiClient, aiFailurePresentation, queryString } from "./api";
-import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS } from "./navigation";
+import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, minimumAccessForNav, navAllowedForAccess } from "./navigation";
 
 describe("mobile navigation information architecture", () => {
   it("gives every page a concise Traditional Chinese label and explanation", () => {
@@ -52,6 +52,16 @@ describe("mobile navigation information architecture", () => {
       "reminders", "organization", "houses", "equity", "aliases", "health", "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
     ]);
   });
+
+  it("maps navigation visibility to the current Worker access classes", () => {
+    expect(minimumAccessForNav("dashboard")).toBe("PUBLIC");
+    expect(minimumAccessForNav("finance")).toBe("SHARED_EDIT");
+    expect(minimumAccessForNav("audit")).toBe("ADMIN");
+    expect(navAllowedForAccess("events", "SHARED_EDIT")).toBe(true);
+    expect(navAllowedForAccess("finance", "SHARED_EDIT")).toBe(true);
+    expect(navAllowedForAccess("audit", "SHARED_EDIT")).toBe(false);
+    expect(navAllowedForAccess("technical", "ADMIN")).toBe(true);
+  });
 });
 
 describe("Web management safety contract", () => {
@@ -60,6 +70,34 @@ describe("Web management safety contract", () => {
   });
   it("does not put an admin password or token in the public API base", () => {
     expect(API_BASE).not.toMatch(/FARM_ADMIN_PASSWORD_HASH|Bearer/iu);
+  });
+
+  it("uses the dedicated shared-edit login endpoint and retains the returned access class", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
+      authenticated: true,
+      token: "a".repeat(40),
+      expiresAt: "2026-09-19T12:00:00Z",
+      accessClass: "SHARED_EDIT",
+      organization: { id: "org-1", name: "金雞" },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    await client.login("shared-fixture", "SHARED_EDIT");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/web/auth/shared-login");
+    expect(client.getAccessClass()).toBe("SHARED_EDIT");
+  });
+
+  it("ports canonical records and recovery endpoints into the formal client", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ records: [], ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    await client.records({ limit: 25 });
+    await client.discoverDomainRecovery({ limit: 10 });
+    await client.dryRunDomainRecoveryBatch({ targets: [] });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls[0]).toContain("/api/records?limit=25");
+    expect(urls[1]).toContain("/api/recovery/domain-discover");
+    expect(urls[2]).toContain("/api/recovery/domain-batch-dry-run");
   });
 
   it("keeps cursors opaque while serializing chart filters", () => {

@@ -25,8 +25,9 @@ import {
   type TestToolsData,
   type TimelineItem,
   type WeatherDaily,
+  type WebAccessClass,
 } from "./api";
-import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, type NavIconName, type NavKey } from "./navigation";
+import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, navAllowedForAccess, type NavIconName, type NavKey } from "./navigation";
 
 export { NAV_GROUPS, NAV_ITEMS } from "./navigation";
 
@@ -261,8 +262,9 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   </div>;
 }
 
-function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
+function Login({ onLogin }: { onLogin: (password: string, accessClass: Exclude<WebAccessClass, "PUBLIC">) => Promise<void> }) {
   const [password, setPassword] = useState("");
+  const [accessClass, setAccessClass] = useState<Exclude<WebAccessClass, "PUBLIC">>("SHARED_EDIT");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
@@ -270,7 +272,7 @@ function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
     setBusy(true);
     setError("");
     try {
-      await onLogin(password);
+      await onLogin(password, accessClass);
       setPassword("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "登入失敗。");
@@ -281,12 +283,15 @@ function Login({ onLogin }: { onLogin: (password: string) => Promise<void> }) {
   }
   return <main className="login-shell"><section className="login-card">
     <div className="brand-mark">🐔</div><p className="eyebrow">金雞協會助理Ai</p><h1>雞場管理中心</h1>
-    <p className="muted">使用現有管理密碼登入。密碼只送往 Worker 驗證，不會保存在瀏覽器。</p>
-    <form onSubmit={submit}><label>管理密碼<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary full" disabled={busy || !password}>{busy ? "驗證中…" : "登入管理中心"}</button></form>
+    <p className="muted">依工作需要選擇共享編輯或管理者。憑證只送往 Worker 驗證，不會保存在瀏覽器。</p>
+    <div className="segmented" role="group" aria-label="登入權限">
+      <button type="button" className={accessClass === "SHARED_EDIT" ? "selected" : ""} aria-pressed={accessClass === "SHARED_EDIT"} onClick={() => setAccessClass("SHARED_EDIT")}>共享編輯</button>
+      <button type="button" className={accessClass === "ADMIN" ? "selected" : ""} aria-pressed={accessClass === "ADMIN"} onClick={() => setAccessClass("ADMIN")}>管理者</button>
+    </div>
+    <form onSubmit={submit}><label>{accessClass === "ADMIN" ? "管理密碼" : "共享編輯密碼"}<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary full" disabled={busy || !password}>{busy ? "驗證中…" : accessClass === "ADMIN" ? "登入管理中心" : "登入共享編輯"}</button></form>
     {error && <p className="error-text" role="alert">{error}</p>}
   </section></main>;
 }
-
 function ReasonModal({ title, quantityValue, correction, onSubmit, onClose }: { title: string; quantityValue?: number; correction?: boolean; onSubmit: (reason: string, nextQuantity?: number) => Promise<void>; onClose: () => void }) {
   const [reason, setReason] = useState("");
   const [nextQuantity, setNextQuantity] = useState(quantityValue === undefined ? "" : String(quantityValue));
@@ -330,6 +335,7 @@ function SimpleChart({ chart }: { chart: ChartResponse | null }) {
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
+  const [accessClass, setAccessClass] = useState<WebAccessClass | null>(null);
   const [route, setRoute] = useState<RouteLocation>(routeFromHash);
   const page = route.page;
   const pageQuery = useMemo(() => new URLSearchParams(route.query), [route.query]);
@@ -397,12 +403,41 @@ export default function App() {
   async function loadAll() {
     setBusy(true); setError(""); setAiFailure(null);
     try {
-      const [dash, orgData, farmData, caretakerData, houseData, flockData, eventData, financeData, aliasData, healthData, auditData, abnormalData, weatherData, timelineData, systemData, reliabilityData, previewData, pendingData, lineGroupData, testData, technicalData] = await Promise.all([
-        api.dashboard(), api.organizations(), api.farms(), api.caretakers(true), api.houses(), api.flocks(), api.events({ limit: 50 }), api.finance(), api.aliases(), api.dataHealth(), api.audit(), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }), api.systemStatus(), api.reliabilityEvents(), api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.testTools(), api.technicalInfo(),
+      const effectiveAccess = accessClass ?? api.getAccessClass() ?? "ADMIN";
+      const [dash, orgData, farmData, houseData, flockData, eventData, abnormalData, weatherData, timelineData] = await Promise.all([
+        api.dashboard(), api.organizations(), api.farms(), api.houses(), api.flocks(), api.events({ limit: 50 }),
+        api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }),
       ]);
-      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms); setCaretakers(caretakerData.caretakers); setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor); setFinance(financeData); setAliases(aliasData.aliases); setHealth(healthData); setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline); setSystemStatus(systemData.status); setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates); setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page); setPendingCandidateTotalPages(pendingData.totalPages); setLineGroups(lineGroupData.groups); setTestTools(testData); setTechnicalInfo(technicalData);
-    } catch (err) { if ((err as { status?: number }).status === 401) { api.setToken(null); setAuthenticated(false); } setError(err instanceof Error ? err.message : "資料載入失敗。"); }
-    finally { setBusy(false); }
+      setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms);
+      setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor);
+      setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline);
+
+      if (effectiveAccess === "SHARED_EDIT" || effectiveAccess === "ADMIN") {
+        const financeData = await api.finance();
+        setFinance(financeData);
+      } else {
+        setFinance(null);
+      }
+
+      if (effectiveAccess === "ADMIN") {
+        const [caretakerData, aliasData, healthData, auditData, systemData, reliabilityData, previewData, pendingData, lineGroupData, testData, technicalData] = await Promise.all([
+          api.caretakers(true), api.aliases(), api.dataHealth(), api.audit(), api.systemStatus(), api.reliabilityEvents(),
+          api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.testTools(), api.technicalInfo(),
+        ]);
+        setCaretakers(caretakerData.caretakers); setAliases(aliasData.aliases); setHealth(healthData);
+        setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setSystemStatus(systemData.status);
+        setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates);
+        setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page);
+        setPendingCandidateTotalPages(pendingData.totalPages); setLineGroups(lineGroupData.groups); setTestTools(testData); setTechnicalInfo(technicalData);
+      } else {
+        setCaretakers([]); setAliases([]); setHealth(null); setAudit([]); setAuditCursor(null); setSystemStatus(null);
+        setReliabilityEvents([]); setAmbientPreview(null); setPendingCandidates([]); setPendingCandidateInvalidCount(0);
+        setPendingCandidatePage(0); setPendingCandidateTotalPages(1); setLineGroups([]); setTestTools(null); setTechnicalInfo(null);
+      }
+    } catch (err) {
+      if ((err as { status?: number }).status === 401) { api.setAuth(null, null); setAuthenticated(false); setAccessClass(null); }
+      setError(err instanceof Error ? err.message : "資料載入失敗。");
+    } finally { setBusy(false); }
   }
 
   useEffect(() => {
@@ -412,7 +447,7 @@ export default function App() {
     return () => { window.removeEventListener("hashchange", handleHistory); window.removeEventListener("popstate", handleHistory); };
   }, []);
 
-  useEffect(() => { if (authenticated) void loadAll(); }, [authenticated]);
+  useEffect(() => { if (authenticated) void loadAll(); }, [authenticated, accessClass]);
 
   useEffect(() => {
     if (!authenticated || page !== "charts") return;
@@ -464,8 +499,16 @@ export default function App() {
     if (deltaY > 0 && atTop && index > 0) navigateTo(PRIMARY_NAV_ITEMS[index - 1].key);
   }
 
-  async function login(password: string) { const result = await api.login(password); api.setToken(result.token); setAuthenticated(true); }
-  async function logout() { try { await api.logout(); } finally { api.setToken(null); setAuthenticated(false); } }
+  async function login(password: string, requestedAccessClass: Exclude<WebAccessClass, "PUBLIC">) {
+    const result = await api.login(password, requestedAccessClass);
+    api.setAuth(result.token, result.accessClass);
+    setAccessClass(result.accessClass);
+    setAuthenticated(true);
+  }
+  async function logout() {
+    try { await api.logout(); }
+    finally { api.setAuth(null, null); setAccessClass(null); setAuthenticated(false); }
+  }
   async function runMutation(work: () => Promise<unknown>, successMessage = "已更新共用 D1 資料"): Promise<boolean> { setError(""); try { await work(); await loadAll(); setToast(successMessage); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
   async function loadMoreEvents() { if (!eventsCursor) return; try { const result = await api.events({ limit: 50, cursor: eventsCursor }); setEvents((currentEvents) => [...currentEvents, ...result.events]); setEventsCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "營運紀錄載入失敗。"); } }
   async function loadMoreAudit() { if (!auditCursor) return; try { const result = await api.audit({ cursor: auditCursor }); setAudit((currentAudit) => [...currentAudit, ...result.auditLogs]); setAuditCursor(result.nextCursor); } catch (err) { setError(err instanceof Error ? err.message : "Audit 載入失敗。"); } }
@@ -486,6 +529,10 @@ export default function App() {
     } finally { setAiBusy(false); }
   }
 
+  useEffect(() => {
+    if (authenticated && accessClass && !navAllowedForAccess(page, accessClass)) navigateTo("dashboard");
+  }, [authenticated, accessClass, page]);
+
   if (!authenticated) return <Login onLogin={login} />;
   return <div className="app-shell">
     {drawerOpen && <button className="drawer-backdrop" aria-label="關閉導覽選單" onClick={() => setDrawerOpen(false)} />}
@@ -494,16 +541,16 @@ export default function App() {
       <nav className="sidebar-nav" aria-label="主要功能" data-scroll-container>
         {NAV_GROUPS.map((group) => <div className="nav-group" role="group" aria-labelledby={`nav-group-${group.key}`} key={group.key}>
           <p className="nav-group-title" id={`nav-group-${group.key}`}>{group.label}</p>
-          <div className="nav-group-items">{PRIMARY_NAV_ITEMS.filter((item) => item.group === group.key).map((item) => <button data-nav-key={item.key} key={item.key} className={item.key === page ? "active" : ""} aria-current={item.key === page ? "page" : undefined} onClick={() => navigateTo(item.key)}>
+          <div className="nav-group-items">{PRIMARY_NAV_ITEMS.filter((item) => item.group === group.key && navAllowedForAccess(item.key, accessClass ?? "ADMIN")).map((item) => <button data-nav-key={item.key} key={item.key} className={item.key === page ? "active" : ""} aria-current={item.key === page ? "page" : undefined} onClick={() => navigateTo(item.key)}>
             <LineIcon name={item.icon} />
             <span className="nav-copy"><span className="nav-label">{item.label}</span><span className="nav-hint">（{item.description}）</span></span>
           </button>)}</div>
         </div>)}
       </nav>
-      <div className="sidebar-foot"><span>共用正式 D1</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
+      <div className="sidebar-foot"><span>{accessClass === "ADMIN" ? "管理者 · 共用正式 D1" : "共享編輯 · 共用正式 D1"}</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
     </aside>
     <main className="content" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
+      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">{accessClass === "ADMIN" ? "管理者" : "共享編輯"}</StatusPill><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
       {routeScope && <div className="route-context" role="status"><span>{routeScope}</span><button type="button" className="text-button" onClick={() => navigateTo(page)}>{contextFarm ? "清除雞場篩選" : "清除篩選"}</button></div>}
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}

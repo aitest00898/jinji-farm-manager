@@ -1,3 +1,5 @@
+import type { WebAccessClass } from "./api";
+
 export type NavGroupKey = "operations" | "data" | "system";
 export type NavIconName = "dashboard" | "organization" | "farms" | "caretakers" | "houses" | "flocks" | "events" | "abnormal" | "finance" | "equity" | "charts" | "ai" | "reminders" | "aliases" | "audit" | "health" | "settings" | "pending" | "system" | "diagnostics" | "pendingDiagnostics" | "testTools" | "technical" | "lineGroups" | "logout";
 
@@ -37,3 +39,22 @@ export const NAV_ITEMS = [
 export const PRIMARY_NAV_ITEMS = NAV_ITEMS.filter((item) => item.primary);
 
 export type NavKey = (typeof NAV_ITEMS)[number]["key"];
+
+
+const ADMIN_ONLY_NAV = new Set<NavKey>([
+  "ai", "pending", "caretakers", "aliases", "audit", "health", "system",
+  "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
+]);
+
+const SHARED_NAV = new Set<NavKey>(["finance", "equity"]);
+
+export function minimumAccessForNav(key: NavKey): WebAccessClass {
+  if (ADMIN_ONLY_NAV.has(key)) return "ADMIN";
+  if (SHARED_NAV.has(key)) return "SHARED_EDIT";
+  return "PUBLIC";
+}
+
+export function navAllowedForAccess(key: NavKey, actual: WebAccessClass): boolean {
+  const rank: Record<WebAccessClass, number> = { PUBLIC: 0, SHARED_EDIT: 1, ADMIN: 2 };
+  return rank[actual] >= rank[minimumAccessForNav(key)];
+}
