@@ -237,10 +237,26 @@ export interface TestToolsData {
 export interface LineGroup {
   groupId: string;
   groupIdShort: string;
+  groupName?: string | null;
+  groupNameStatus?: string;
   status: string;
   farmName: string | null;
   farmId: string | null;
+  operationalAuthorized?: boolean;
   conversationV2Enabled: boolean;
+  operatorBindings?: Array<Record<string, unknown>>;
+}
+
+export interface LineGroupClaimCandidate {
+  groupId: string;
+  groupIdShort: string;
+  groupName: string | null;
+  groupNameStatus: string;
+  status: string;
+  farmName: string | null;
+  joinedAt: string | null;
+  lastObservedAt: string | null;
+  observedEventCount: number;
 }
 
 export interface TechnicalInfo {
@@ -357,9 +373,9 @@ export class ApiClient {
   correctRecord(id: string, body: Record<string, unknown>, environment: OperationalEnvironment = "production") { return this.request(`/api/records/${encodeURIComponent(id)}/correct${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
   reverseRecord(id: string, body: Record<string, unknown> = {}, environment: OperationalEnvironment = "production") { return this.request(`/api/records/${encodeURIComponent(id)}/reverse${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
 
-  lineGroupClaimCandidates() { return this.request<{ candidates: Array<Record<string, unknown>> }>("/api/line-groups/claim-candidates"); }
-  claimLineGroupOrganization(groupId: string, reason?: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/organization-claim`, { method: "PATCH", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
-  setLineGroupOperationalAuthorization(groupId: string, authorized: boolean, reason?: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/operational-authorization`, { method: "PATCH", body: JSON.stringify({ authorized, reason: reason?.trim() || null }) }); }
+  lineGroupClaimCandidates() { return this.request<{ claimCandidates: LineGroupClaimCandidate[]; readOnly: boolean }>("/api/line-groups/claim-candidates"); }
+  claimLineGroupOrganization(groupId: string, reason: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/organization-claim`, { method: "PATCH", body: JSON.stringify({ confirm: true, reason: reason.trim() }) }); }
+  setLineGroupOperationalAuthorization(groupId: string, authorized: boolean, reason: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/operational-authorization`, { method: "PATCH", body: JSON.stringify({ authorized, confirm: true, reason: reason.trim() }) }); }
 
   discoverDomainRecovery(body: Record<string, unknown> = {}) { return this.request<Record<string, unknown>>("/api/recovery/domain-discover", { method: "POST", body: JSON.stringify(body) }); }
   dryRunDomainRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-dry-run", { method: "POST", body: JSON.stringify(body) }); }
