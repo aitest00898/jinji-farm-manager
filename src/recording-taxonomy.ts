@@ -529,8 +529,57 @@ function scopeFields(text: string): Record<string, string> {
 function numberAfter(text: string, expression: RegExp): number | undefined {
   const match = expression.exec(text);
   if (!match) return undefined;
-  const value = Number(match[1].replace(/,/gu, ""));
-  return Number.isFinite(value) ? value : undefined;
+  const value = parseNaturalNumber(match[1].replace(/,/gu, ""));
+  return value !== null && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Convert bounded colloquial wording into the existing canonical vocabulary.
+ * This is a lexical normalization seam, not a second parser: taxonomy and
+ * quick-record still decide the fields, scope, confirmation, and write path.
+ */
+export function normalizeRecordingLanguage(value: string): string {
+  let text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  text = text
+    .replace(/(?:死了|死掉|死(?!亡)|掛了|掛(?=\s*(?:\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)\s*(?:隻|只|羽)?))/gu, "死亡")
+    .replace(/(?:抓掉|抓走|淘掉)/gu, "淘汰")
+    .replace(/(?:打疫苗|做疫苗)/gu, "疫苗")
+    .replace(/(?:投藥|下藥|有用藥)/gu, "用藥")
+    .replace(/(?:拿去送驗|拿去送检|送檢|送检)/gu, "送驗")
+    .replace(/(?:秤重|磅一下|量體重|量体重)/gu, "磅重")
+    .replace(/平均\s*(\d+(?:\.\d+)?)\s*(公斤|kg)/giu, "磅重 $1 $2")
+    .replace(/(?:洗完消毒|消毒完成)/gu, "清消 完成")
+    .replace(/(?:維修|维修|修好了|修好|修理)/gu, "設備維護")
+    .replace(/(?:一直咳|咳得很明顯|咳得很明显)/gu, "咳嗽")
+    .replace(/(?:呼吸很喘|喘得厲害|喘得厉害)/gu, "喘")
+    .replace(/(?:腳(?:也)?很臭|脚(?:也)?很臭)/gu, "臭腳")
+    .replace(/(?:活動變少|活动变少|活動力變少|活动力变少)/gu, "活動力下降")
+    .replace(/生長慢/gu, "生長遲緩")
+    .replace(/叫(?=\s*(?:\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)?\s*(?:包|kg|公斤|千克)?\s*料)/giu, "叫飼料");
+  return text.replace(/\s+/gu, " ").trim();
+}
+
+export function parseNaturalNumber(value: string): number | null {
+  if (/^\d+(?:\.\d+)?$/u.test(value)) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const digits: Record<string, number> = {
+    零: 0, 〇: 0, 一: 1, 二: 2, 兩: 2, 两: 2, 三: 3, 四: 4, 五: 5,
+    六: 6, 七: 7, 八: 8, 九: 9,
+  };
+  let section = 0;
+  let number = 0;
+  for (const char of value) {
+    if (char in digits) number = digits[char];
+    else if (char === "十") { section += (number || 1) * 10; number = 0; }
+    else if (char === "百") { section += (number || 1) * 100; number = 0; }
+    else if (char === "千") { section += (number || 1) * 1000; number = 0; }
+    else if (char === "萬" || char === "万") { section = (section + number) * 10000; number = 0; }
+    else return null;
+  }
+  const result = section + number;
+  return result > 0 && Number.isFinite(result) ? result : null;
 }
 
 function unique(values: string[]): string[] {
@@ -624,7 +673,7 @@ function unknownCandidate(text: string, reason = "unknown_semantics"): Canonical
 }
 
 function abnormalMatch(text: string): { id: TaxonomyId; subtype: string } | null {
-  if (/死亡異常|死亡率異常/u.test(text)) return { id: "A1", subtype: "mortality_abnormality" };
+  if (/死亡異常|死亡率異常|死亡增加|死雞變多|死鸡变多|死很多/u.test(text)) return { id: "A1", subtype: "mortality_abnormality" };
   if (/設備|设备|風扇|风扇|水簾|水帘|發電機|发电机|照明|飼料線|饲料线|飲水線|饮水线/u.test(text)) {
     if (/其他|其它/u.test(text)) return { id: "A12", subtype: "other" };
     if (/電|电|停電|停电/u.test(text)) return { id: "A12", subtype: "electricity" };
@@ -635,18 +684,18 @@ function abnormalMatch(text: string): { id: TaxonomyId; subtype: string } | null
     if (/飲水線|饮水线|水線|水线|水泵|水泵|供水/u.test(text)) return { id: "A12", subtype: "water" };
   }
   if (/攻擊|攻击/u.test(text)) return { id: "A16", subtype: "attack" };
-  if (/感染/u.test(text)) return { id: "A16", subtype: "infection" };
-  if (/擴散|扩散|傳播|传播/u.test(text)) return { id: "A16", subtype: "spread" };
+  if (/擴散|扩散|傳播|传播|疫情擴大|疫情扩大/u.test(text)) return { id: "A16", subtype: "spread" };
+  if (/感染|疫情/u.test(text)) return { id: "A16", subtype: "infection" };
   if (/淹水|積水|积水|淹/u.test(text)) return { id: "A14", subtype: "flooding" };
-  if (/高溫|高温|氣溫高|气温高/u.test(text)) return { id: "A13", subtype: "high_temperature" };
+  if (/高溫|高温|氣溫高|气温高|太熱|太热|熱到/u.test(text)) return { id: "A13", subtype: "high_temperature" };
   if (/低溫|低温|氣溫低|气温低/u.test(text)) return { id: "A13", subtype: "low_temperature" };
-  if (/大雨|豪雨|暴雨|雨勢/u.test(text)) return { id: "A13", subtype: "heavy_rain" };
-  if (/異味|异味|臭味/u.test(text)) return { id: "A15", subtype: "odor" };
-  if (/採食|采食|吃料|食慾|食欲/u.test(text)) return { id: "A11", subtype: "feeding_abnormality" };
-  if (/飲水|饮水|喝水/u.test(text)) return { id: "A11", subtype: "water_abnormality" };
-  if (/熱緊迫|热紧迫/u.test(text)) return { id: "A10", subtype: "heat_stress" };
+  if (/大雨|豪雨|暴雨|雨勢|下大雨|雨下很大|雨勢很大/u.test(text)) return { id: "A13", subtype: "heavy_rain" };
+  if (/異味|异味|臭味|很臭|有味道/u.test(text)) return { id: "A15", subtype: "odor" };
+  if (/採食|采食|吃料|食慾|食欲|不吃料|吃料變少|吃料变少/u.test(text)) return { id: "A11", subtype: "feeding_abnormality" };
+  if (/飲水|饮水|喝水|不喝水|喝水變少|喝水变少/u.test(text)) return { id: "A11", subtype: "water_abnormality" };
+  if (/熱緊迫|热紧迫|太熱一直喘|太热一直喘/u.test(text)) return { id: "A10", subtype: "heat_stress" };
   if (/抓雞緊迫|抓鸡紧迫|抓雞|抓鸡/u.test(text)) return { id: "A10", subtype: "catching_stress" };
-  if (/發燒|发烧/u.test(text)) return { id: "A9", subtype: "fever" };
+  if (/發燒|发烧|雞很燙|鸡很烫|體溫很高|体温很高/u.test(text)) return { id: "A9", subtype: "fever" };
   if (/臭腳|臭脚/u.test(text)) return { id: "A8", subtype: "foot_odor" };
   if (/生長遲緩|生长迟缓|長不大|长不大/u.test(text)) return { id: "A7", subtype: "growth_delay" };
   if (/下痢|拉稀|腹瀉|腹泻|水便|白便|綠便|绿便|血便/u.test(text)) {
@@ -701,12 +750,16 @@ function unresolvedObservationCandidate(
 
 export function parseCanonicalRecordingText(rawText: string, now = new Date()): CanonicalTextParse {
   if (typeof rawText !== "string") return unknownCandidate(String(rawText ?? ""), "raw_text_invalid");
-  const text = rawText.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const sourceText = rawText.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (!sourceText) return ignored("empty");
+  const hasExplicitScope = /(?:雞場|鸡场|場|场|舍|批次|批)/u.test(sourceText);
+  if (/(?:我家|我家的|寵物|宠物|影片|晚餐|雞排|鸡排|價格|价格|他今天|她今天)/u.test(sourceText) && !hasExplicitScope) return ignored("ordinary_chat");
+  const text = normalizeRecordingLanguage(sourceText);
   if (!text) return ignored("empty");
   if (/[?？]/u.test(text) && /(?:請問|查詢|查询|目前|多少|幾|几|哪|是否|嗎|吗)/u.test(text)) return ignored("question_or_query");
   if (/^(?:請問|查詢|查询|目前|多少|哪裡|哪裡|哪裡有|怎麼|怎么|為什麼|为什么)/u.test(text) && !/(?:死亡|淘汰|入雛|入雏|疫苗|用藥|用药|送驗|送验|清消|消毒|維護|维护|叫飼料|叫饲料|出雞|出鸡|磅重|稱重|咳嗽|喘|異常|异常)/u.test(text)) return ignored("question_or_query");
   if (/(?:如果|假設|假设|打算|預計|预计|明天|下週|下周|以後|以后)/u.test(text)) return ignored("future_or_hypothetical");
-  if (/(?:沒有|没有|沒|未|不是|並非|并非)\s*(?:死亡|淘汰|出雞|出鸡|入雛|入雏)/u.test(text)) return ignored("negated_record");
+  if (/(?:沒有|没有|沒|未|不是|並非|并非)\s*(?:死亡|淘汰|出雞|出鸡|入雛|入雏|疫苗|用藥|用药|送驗|送验|清消|消毒|維護|维护|咳|喘|臭|異常|异常)/u.test(sourceText)) return ignored("negated_record");
   if (/(?:更正|修正|改成|記錯|记错|撤銷|撤销|取消|回滾|回滚)/u.test(text)) return unknownCandidate(text, "correction_candidate");
   if (/(?:可能|好像|好似|疑似|不確定|不确定|似乎)/u.test(text)) return unknownCandidate(text, "uncertain_candidate");
   if (/(?:重複|重复|同一筆|同一笔|不是新增|剛才那筆|刚才那笔)/u.test(text)) return unknownCandidate(text, "duplicate_or_relation_candidate");
@@ -714,6 +767,11 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
   if (/(?:第一則|第一则|第二則|第二则|多則|多则|多筆|多笔|兩則|两则|兩筆|两笔|同時|同时)/u.test(text) && /(?:死亡|淘汰|咳|喘|異常|异常|臭)/u.test(text)) return unknownCandidate(text, "multi_message_candidate");
   if (/(?:甲|乙|A|B)\s*(?:說|说|表示)/u.test(text)) return unknownCandidate(text, "multi_user_ambiguity_candidate");
   if (/(?:笑話|哈哈|開玩笑|开玩笑|晚安|早安|謝謝|谢谢)/u.test(text)) return ignored("irrelevant_chatter");
+  if (/(?:死亡|死了|死掉|死|掛了|掛|淘汰|抓掉|抓走)\s*(?:\d|[零〇一二兩两三四五六七八九十百千萬万]+)/u.test(sourceText)
+    && /(?:咳|喘|臭腳|腳(?:也)?很臭|活動變少|生長慢|異常|异常)/u.test(sourceText)
+    && /[,，、;；]|(?:而且|並且|也)/u.test(sourceText)) {
+    return ignored("bundle_delegated_to_quick_record");
+  }
 
   const scope = scopeFields(text);
   const occurredAt = occurredAtFromText(text, now);
@@ -722,8 +780,8 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   if (/入雛|入雏|進雛|进雏/u.test(text)) {
     const fields: Record<string, unknown> = { ...scope, ...dateFields };
-    const male = numberAfter(text, /(?:公雞|公鸡|雄)\s*(\d+)/u);
-    const female = numberAfter(text, /(?:母雞|母鸡|雌)\s*(\d+)/u);
+    const male = numberAfter(text, /(?:公雞|公鸡|雄)\s*(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)/u);
+    const female = numberAfter(text, /(?:母雞|母鸡|雌)\s*(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)/u);
     if (male !== undefined) fields.maleCount = male;
     if (female !== undefined) fields.femaleCount = female;
     if (/良好|正常|好/u.test(text)) fields.condition = "good";
@@ -748,7 +806,7 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   if (/出雞|出鸡|出欄|出栏|出貨|出货/u.test(text)) {
     const fields: Record<string, unknown> = { ...scope, ...dateFields };
-    const quantity = numberAfter(text, /(?:出雞|出鸡|出欄|出栏|出貨|出货)\s*(\d+)/u);
+    const quantity = numberAfter(text, /(?:出雞|出鸡|出欄|出栏|出貨|出货)\s*(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)/u);
     if (quantity !== undefined) fields.quantity = quantity;
     fields.sex = /公雞|公鸡|雄/u.test(text) ? "male" : /母雞|母鸡|雌/u.test(text) ? "female" : /混合/u.test(text) ? "mixed" : "unspecified";
     const totalWeight = numberAfter(text, /(?:總重|总重)\s*(\d+(?:\.\d+)?)\s*(?:kg|公斤)?/u);
@@ -773,13 +831,14 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   if (/叫飼料|叫饲料|叫料|訂飼料|订饲料|訂料|订料|訂購飼料|订购饲料/u.test(text)) {
     const fields: Record<string, unknown> = { ...scope, ...dateFields };
-    const weight = numberAfter(text, /(\d+(?:\.\d+)?)\s*(?:kg|公斤|包)/u);
+    const weight = numberAfter(text, /(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)\s*(?:kg|公斤|千克|包)/u);
     if (weight !== undefined) {
       fields.weight = weight;
       fields.weightUnit = /包/u.test(text) ? "bag" : "kg";
     }
-    const vendorMatch = text.match(/(?:廠商|厂商|向|跟|叫飼料|叫饲料|叫料)\s*([\p{L}\p{N}_-]{2,24})/u);
-    if (vendorMatch && !/^\d+(?:\.\d+)?(?:kg|公斤|包)$/iu.test(vendorMatch[1])) fields.vendor = vendorMatch[1];
+    const vendorMatch = text.match(/(?:廠商|厂商|向|跟)\s*([\p{L}\p{N}_-]{2,24})/u)
+      ?? text.match(/(?:叫飼料|叫饲料|叫料)\s+([\p{Script=Han}]{2,24})(?=\s+(?:\d|[零〇一二兩两三四五六七八九十百千萬万]))/u);
+    if (vendorMatch) fields.vendor = vendorMatch[1];
     return parseResult("O5", "feed_order", fields, baseMissing().concat(
       fields.vendor ? [] : ["vendor"],
       weight === undefined ? ["weight"] : [],
@@ -804,15 +863,24 @@ export function parseCanonicalRecordingText(rawText: string, now = new Date()): 
 
   if (/設備維護|設備保養|設備保养|維修|维修|保養|保养/u.test(text)) {
     const fields: Record<string, unknown> = { ...scope, ...dateFields };
-    const content = text.replace(/.*?(設備維護|設備保養|設備保养|維修|维修|保養|保养)/u, "").trim();
+    const marker = /設備維護|設備保養|設備保养|維修|维修|保養|保养/u.exec(text);
+    const after = marker ? text.slice((marker.index ?? 0) + marker[0].length).trim() : "";
+    const before = marker ? text.slice(0, marker.index).trim() : "";
+    const scopePrefix = [scope.farmText, scope.houseText, scope.flockText].filter(Boolean).join(" ");
+    const content = (after || before
+      .replace(scope.farmText ?? "", " ")
+      .replace(scope.houseText ?? "", " ")
+      .replace(/(?:批次|批)\s*[\p{L}\p{N}_-]+/gu, " ")
+      .replace(scopePrefix, " ")
+      .trim()).trim();
     if (content) fields.maintenanceContent = content;
     return parseResult("O8", "maintenance", fields, baseMissing().concat(content ? [] : ["maintenanceContent"]), "known_maintenance");
   }
 
-  if (/(?:死亡|死雞|死鸡|淘汰|掛了|挂了)/u.test(text) && !/死亡異常|死亡率異常/u.test(text)) {
+  if (/(?:死亡|死雞|死鸡|淘汰|掛了|挂了)/u.test(text) && !/死亡異常|死亡率異常|死亡增加|死雞變多|死鸡变多|死很多/u.test(text)) {
     const fields: Record<string, unknown> = { ...scope, ...dateFields };
-    const mortality = numberAfter(text, /(?:死亡|死雞|死鸡)\s*(\d+)/u);
-    const cull = numberAfter(text, /(?:淘汰|掛了|挂了)\s*(\d+)/u);
+    const mortality = numberAfter(text, /(?:死亡|死雞|死鸡)\s*(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)/u);
+    const cull = numberAfter(text, /(?:淘汰|掛了|挂了)\s*(\d+(?:\.\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)/u);
     const isCull = cull !== undefined && mortality === undefined;
     const quantity = mortality ?? cull;
     if (quantity !== undefined) fields.quantity = quantity;

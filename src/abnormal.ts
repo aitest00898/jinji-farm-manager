@@ -62,7 +62,7 @@ export interface AbnormalEnv {
   EVENTS?: { send(message: unknown): Promise<unknown> };
 }
 
-const MINIMAL_ABNORMAL_LANGUAGE = /(?:咳(?:嗽)?|喘|臭腳|臭脚|跛腳|跛脚|拉肚子|腹瀉|腹泻|不吃|沒精神|没精神|怪怪|異常|异常|故障|壞(?:掉)?|坏(?:掉)?|沒動|没动|停電|停电|斷電|断电|漏水|破掉|受損|受损|風吹|淹水|倒塌|水簾|水帘|風扇|风扇|屋頂|屋顶|飼料.+(?:晚|缺|沒到|没到)|(?:晚|延遲|延迟).+到|缺料|缺水)/u;
+const MINIMAL_ABNORMAL_LANGUAGE = /(?:咳(?:嗽)?|一直咳|咳得很明顯|咳得很明显|喘|呼吸很喘|喘得厲害|喘得厉害|臭腳|臭脚|腳很臭|脚很臭|跛腳|跛脚|拉肚子|拉白便|拉綠便|拉绿便|拉血便|白便|綠便|绿便|血便|腹瀉|腹泻|不吃|沒精神|没精神|活動變少|活动变少|活動力下降|怪怪|異常|异常|故障|壞(?:掉)?|坏(?:掉)?|沒動|没动|停電|停电|斷電|断电|漏水|破掉|受損|受损|風吹|淹水|倒塌|水簾|水帘|風扇|风扇|屋頂|屋顶|生長慢|生長遲緩|长不大|飼料.+(?:晚|缺|沒到|没到)|(?:晚|延遲|延迟).+到|缺料|缺水)/u;
 const QUESTION_LANGUAGE = /(?:怎麼辦|怎么办|如何|為什麼|为什么|可以嗎|可以吗|要不要|請問|请问|幫我|帮我|什麼藥|什么药|劑量|剂量|處方|处方)/u;
 const COMMAND_LANGUAGE = /(?:今天死亡|目前存欄|現在存欄|雞場列表|各場持股|盈虧|新增.+場|封存.+場|新增雞舍|新增批次|幫助|help|ping)/iu;
 
@@ -104,6 +104,9 @@ export function validateAbnormalRawText(value: unknown): value is string {
 export function looksLikeMinimalAbnormalText(value: string): boolean {
   const text = value.normalize("NFKC").trim();
   if (!text || text.length > 500 || COMMAND_LANGUAGE.test(text) || QUESTION_LANGUAGE.test(text)) return false;
+  if (/(?:我家|我家的|寵物|宠物|影片|晚餐|雞排|鸡排|價格|价格|他今天|她今天)/u.test(text) && !/(?:雞場|鸡场|場|场|舍|批次|批)/u.test(text)) return false;
+  if (/(?:沒有|没有|沒(?=(?:死亡|死|掛|淘汰|出雞|出鸡|咳|喘|臭|異常|异常|白便|綠便|绿便|血便))|未|不是|並非|并非|可能|好像|好似|疑似|不確定|不确定|似乎)/u.test(text)
+    && MINIMAL_ABNORMAL_LANGUAGE.test(text)) return false;
   return MINIMAL_ABNORMAL_LANGUAGE.test(text);
 }
 
@@ -140,11 +143,13 @@ export function formatAbnormalReply(rawText: string, timing: AbnormalTiming): st
 
 export function deterministicAbnormalClassification(rawText: string): AbnormalClassification | null {
   const text = rawText.normalize("NFKC");
-  if (/(?:咳|喘|臭腳|臭脚|跛腳|跛脚|拉肚子|腹瀉|腹泻|不吃|沒精神|没精神|雞怪怪|鸡怪怪)/u.test(text)) {
+  if (/(?:咳|喘|呼吸很喘|臭腳|臭脚|腳很臭|脚很臭|跛腳|跛脚|拉肚子|拉白便|拉綠便|拉绿便|拉血便|白便|綠便|绿便|血便|腹瀉|腹泻|不吃|沒精神|没精神|活動變少|活动变少|活動力下降|生長慢|生長遲緩|長不大|长不大|眼睛腫|眼腫|眼肿|雞怪怪|鸡怪怪)/u.test(text)) {
     const tags: string[] = [];
     if (/(?:咳|喘)/u.test(text)) tags.push("respiratory");
-    if (/(?:臭腳|臭脚|跛腳|跛脚)/u.test(text)) tags.push("foot");
-    if (/(?:拉肚子|腹瀉|腹泻)/u.test(text)) tags.push("digestive");
+    if (/(?:臭腳|臭脚|腳很臭|脚很臭|跛腳|跛脚)/u.test(text)) tags.push("foot");
+    if (/(?:拉肚子|拉白便|拉綠便|拉绿便|拉血便|白便|綠便|绿便|血便|腹瀉|腹泻)/u.test(text)) tags.push("digestive");
+    if (/(?:眼睛腫|眼腫|眼肿)/u.test(text)) tags.push("appearance");
+    if (/(?:活動變少|活动变少|活動力下降|生長慢|生長遲緩|長不大|长不大)/u.test(text)) tags.push("activity");
     return { category: "health", tags: tags.length ? tags : ["health_observation"], confidence: 0.98 };
   }
   if (/(?:水簾|水帘|風扇|风扇|馬達|马达|機器|机器).*(?:壞|坏|沒動|没动|故障|異常|异常)|(?:壞|坏|沒動|没动|故障).*(?:水簾|水帘|風扇|风扇|馬達|马达)/u.test(text)) {

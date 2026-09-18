@@ -3,6 +3,7 @@ import { parseAbnormalTiming, type AbnormalTiming } from "./abnormal";
 import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-resolver";
 import { canonicalHouseName, extractHouseNameToken, resolveNamedMasterRecord, taipeiDate } from "./master-data";
 import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
+import { normalizeRecordingLanguage, parseNaturalNumber } from "./recording-taxonomy";
 import type { RecordCommand } from "./record-command";
 import { assertCanonicalWritesOpen, persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
 import type { CanonicalStockMutationReceipt } from "./canonical-stock-mutation-guard";
@@ -158,27 +159,6 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
-function chineseNumber(value: string): number | null {
-  if (/^\d+(?:\.\d+)?$/u.test(value)) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  const digits: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 兩: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  let total = 0;
-  let section = 0;
-  let number = 0;
-  for (const char of value) {
-    if (char in digits) number = digits[char];
-    else if (char === "十") { section += (number || 1) * 10; number = 0; }
-    else if (char === "百") { section += (number || 1) * 100; number = 0; }
-    else if (char === "千") { section += (number || 1) * 1000; number = 0; }
-    else if (char === "萬" || char === "万") { section = (section + number) * 10000; number = 0; }
-    else return null;
-  }
-  const result = section + number;
-  return result > 0 && Number.isFinite(result) ? result : null;
-}
-
 function unitFor(intent: QuickOperationalIntent, rawUnit: string | undefined, quantity: number): { quantity: number; unit: "隻" | "kg" | "L" | "包" } | null {
   const unit = rawUnit?.toLowerCase();
   if (intent === "feed") {
@@ -215,8 +195,16 @@ function makeItem(
 }
 
 function parseQuantity(value: string): number | null {
-  const parsed = chineseNumber(value);
+  const parsed = parseNaturalNumber(value);
   return parsed !== null && parsed > 0 && parsed <= 1_000_000_000 ? parsed : null;
+}
+
+function hasOperationalScope(text: string): boolean {
+  return /(?:雞場|鸡场|場|场|舍|批次|批)/u.test(text);
+}
+
+function isConversationalNegative(text: string): boolean {
+  return /(?:我家|我家的|寵物|宠物|影片|晚餐|雞排|鸡排|價格|价格|他今天|她今天)/u.test(text);
 }
 
 function parseHouse(text: string): string | null {
@@ -247,10 +235,18 @@ function removeAll(text: string, regex: RegExp, make: (match: RegExpExecArray) =
 }
 
 function parseItems(text: string, receivedAt: string): { items: QuickItemDraft[]; remainder: string; houseText: string | null } {
-  let remainder = normalize(text);
+  const original = normalize(text);
+  if (isConversationalNegative(original) && !hasOperationalScope(original)) return { items: [], remainder: "", houseText: null };
+  if (/(?:可能|好像|好似|疑似|不確定|不确定|似乎|更正|修正|改成|記錯|记错|取消|撤銷|撤销)/u.test(original)
+    && /(?:死亡|死|掛|淘汰|抓掉|抓走|出雞|出鸡|飼料|饲料|咳|喘|臭|異常|异常)/u.test(original)) {
+    return { items: [], remainder: "", houseText: null };
+  }
+  if (/(?:沒有|没有|沒(?=(?:死亡|死|掛|淘汰|出雞|出鸡|咳|喘|臭|異常|异常|白便|綠便|绿便|血便))|未|不是|並非|并非)\s*(?:死亡|死|掛|淘汰|抓掉|抓走|出雞|出鸡|飼料|饲料|咳|喘|臭|異常|异常)/u.test(original)) {
+    return { items: [], remainder: "", houseText: null };
+  }
+  let remainder = normalizeRecordingLanguage(original);
   const houseText = parseHouse(remainder);
   const items: QuickItemDraft[] = [];
-  const original = normalize(text);
   remainder = removeAll(remainder, EVENT_RE, (match) => {
     const before = remainder.slice(0, match.index);
     if (/(?:沒有|沒|不是|非)\s*$/u.test(before)) return null;
@@ -281,7 +277,7 @@ function parseItems(text: string, receivedAt: string): { items: QuickItemDraft[]
   // Keep 雞/鸡 in the residual text. It may be part of a farm name that is
   // being resolved after item extraction (including a bounded typo/variant).
   // Context-only inputs still resolve through the existing active-farm path.
-  remainder = removeHouseToken(remainder).replace(/(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上|傍晚|半夜|深夜|的|那邊|那边|這邊|这边|有|又|了|隻|只|。|，|,|：|:)/gu, " ");
+  remainder = removeHouseToken(remainder).replace(/(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上|傍晚|半夜|深夜|的|那邊|那边|這邊|这边|有|又|了|也|很|得|明顯|明显|厲害|厉害|一直|隻|只|。|，|,|：|:)/gu, " ");
   ABNORMAL_RE.lastIndex = 0;
   const abnormalMatches = [...remainder.matchAll(ABNORMAL_RE)];
   for (let index = abnormalMatches.length - 1; index >= 0; index -= 1) {
@@ -293,13 +289,13 @@ function parseItems(text: string, receivedAt: string): { items: QuickItemDraft[]
   // A short remaining phrase can be an observation when it contains an
   // explicit anomaly cue; ordinary chat is intentionally left untouched.
   const residual = remainder.replace(/[\s、，,。！？?!]/gu, "").trim();
-  if (!items.length && residual && /(?:異常|异常|不對|不对|太熱|太热|怪|壞|坏|故障|咳|臭|冠|停電|停电|漏水|缺水|缺料)/u.test(residual)) {
+  if (!items.length && residual && /(?:異常|异常|不對|不对|太熱|太热|怪|壞|坏|故障|咳|臭|冠|停電|停电|漏水|缺水|缺料|活動力下降|生長遲緩|眼睛腫|白便|綠便|血便|淹水)/u.test(residual)) {
     items.push(makeItem("abnormal", null, residual, null, null, houseText, original, receivedAt));
   }
   // Each extractor works independently, so append order is not necessarily
   // the user's sentence order. Rebuild the order from the original text;
   // this matters for a grouped confirmation and for correction targeting.
-  const compactOriginal = compact(original);
+  const compactOriginal = compact(normalizeRecordingLanguage(original));
   const searchFromByText = new Map<string, number>();
   const ordered = items.map((item, index) => {
     const key = compact(item.rawText);
@@ -1161,8 +1157,12 @@ export async function handlePendingHousePostback(
 }
 
 export function quickRecordLooksRelevant(text: string): boolean {
-  const normalized = compact(text);
-  return /(?:死亡|死|掛|淘汰|抓掉|飼料|饲料|飲水|饮水|用水|出雞|出鸡|出欄|出栏|咳嗽|臭腳|臭脚|白冠|氣溫太高|气温太高|氣溫太低|气温太低|停電|停电|水簾|水帘|風扇|风扇|屋頂|屋顶|故障|異常|异常|缺料|缺水|精神差|採食下降|飲水異常|通風不良|通风不良|異味|積水|風災|淹水|受損)/u.test(normalized);
+  const source = normalize(text);
+  if (isConversationalNegative(source) && !hasOperationalScope(source)) return false;
+  if (/(?:沒有|没有|沒(?=(?:死亡|死|掛|淘汰|出雞|出鸡|咳|喘|臭|異常|异常|白便|綠便|绿便|血便))|未|不是|並非|并非|可能|好像|好似|疑似|不確定|不确定|似乎)/u.test(source)
+    && /(?:死亡|死|掛|淘汰|抓掉|抓走|出雞|出鸡|飼料|饲料|咳|喘|臭|異常|异常)/u.test(source)) return false;
+  const normalized = compact(normalizeRecordingLanguage(source));
+  return /(?:死亡|死|掛|淘汰|抓掉|飼料|饲料|叫料|訂飼料|订饲料|飲水|饮水|用水|出雞|出鸡|出欄|出栏|咳嗽|臭腳|臭脚|白冠|眼睛腫|白便|綠便|血便|生長遲緩|活動力下降|氣溫太高|气温太高|氣溫太低|气温太低|停電|停电|水簾|水帘|風扇|风扇|屋頂|屋顶|故障|異常|异常|缺料|缺水|精神差|採食下降|飲水異常|通風不良|通风不良|異味|積水|風災|淹水|受損)/u.test(normalized);
 }
 
 export function quickRecordTimingForTest(text: string, receivedAt: string): AbnormalTiming {
