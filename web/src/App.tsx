@@ -266,7 +266,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   </div>;
 }
 
-function Login({ onLogin }: { onLogin: (password: string, accessClass: Exclude<WebAccessClass, "PUBLIC">) => Promise<void> }) {
+function Login({ onLogin, onPublic }: { onLogin: (password: string, accessClass: Exclude<WebAccessClass, "PUBLIC">) => Promise<void>; onPublic: () => void }) {
   const [password, setPassword] = useState("");
   const [accessClass, setAccessClass] = useState<Exclude<WebAccessClass, "PUBLIC">>("SHARED_EDIT");
   const [busy, setBusy] = useState(false);
@@ -293,6 +293,7 @@ function Login({ onLogin }: { onLogin: (password: string, accessClass: Exclude<W
       <button type="button" className={accessClass === "ADMIN" ? "selected" : ""} aria-pressed={accessClass === "ADMIN"} onClick={() => setAccessClass("ADMIN")}>管理者</button>
     </div>
     <form onSubmit={submit}><label>{accessClass === "ADMIN" ? "管理密碼" : "共享編輯密碼"}<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary full" disabled={busy || !password}>{busy ? "驗證中…" : accessClass === "ADMIN" ? "登入管理中心" : "登入共享編輯"}</button></form>
+    <div className="login-public"><button type="button" className="full" onClick={onPublic}>公開唯讀瀏覽</button><p className="muted">不需要密碼；只顯示 Worker 核准的非敏感 operational current-effective 資料。</p></div>
     {error && <p className="error-text" role="alert">{error}</p>}
   </section></main>;
 }
@@ -512,8 +513,13 @@ export default function App() {
     setAccessClass(result.accessClass);
     setAuthenticated(true);
   }
+  function enterPublic() {
+    api.setAuth(null, "PUBLIC");
+    setAccessClass("PUBLIC");
+    setAuthenticated(true);
+  }
   async function logout() {
-    try { await api.logout(); }
+    try { if (accessClass !== "PUBLIC") await api.logout(); }
     finally { api.setAuth(null, null); setAccessClass(null); setAuthenticated(false); }
   }
   async function runMutation(work: () => Promise<unknown>, successMessage = "已更新共用 D1 資料"): Promise<boolean> { setError(""); try { await work(); await loadAll(); setToast(successMessage); window.setTimeout(() => setToast(""), 2800); return true; } catch (err) { setError(err instanceof Error ? err.message : "操作失敗。"); return false; } }
@@ -540,7 +546,7 @@ export default function App() {
     if (authenticated && accessClass && !navAllowedForAccess(page, accessClass)) navigateTo("dashboard");
   }, [authenticated, accessClass, page]);
 
-  if (!authenticated) return <Login onLogin={login} />;
+  if (!authenticated) return <Login onLogin={login} onPublic={enterPublic} />;
   return <div className="app-shell">
     {drawerOpen && <button className="drawer-backdrop" aria-label="關閉導覽選單" onClick={() => setDrawerOpen(false)} />}
     <aside ref={sidebarRef} className={`sidebar ${drawerOpen ? "drawer-open" : ""}`} id="primary-navigation" aria-label="管理中心導覽">
@@ -554,10 +560,10 @@ export default function App() {
           </button>)}</div>
         </div>)}
       </nav>
-      <div className="sidebar-foot"><span>{accessClass === "ADMIN" ? "管理者 · 共用正式 D1" : "共享編輯 · 共用正式 D1"}</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
+      <div className="sidebar-foot"><span>{accessClass === "ADMIN" ? "管理者 · 共用正式 D1" : accessClass === "SHARED_EDIT" ? "共享編輯 · 共用正式 D1" : "公開唯讀 · Production"}</span><button className="logout-button" onClick={() => void logout()}><LineIcon name="logout" /><span>登出</span></button></div>
     </aside>
     <main className="content" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">{accessClass === "ADMIN" ? "管理者" : "共享編輯"}</StatusPill><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
+      <header className="topbar"><div className="topbar-heading"><button ref={menuButtonRef} className="menu-button icon-button" aria-label={drawerOpen ? "關閉導覽選單" : "開啟導覽選單"} aria-expanded={drawerOpen} aria-controls="primary-navigation" onClick={() => setDrawerOpen((open) => !open)}>☰</button><div><p className="eyebrow">管理工作台</p><h1>{current.label}</h1></div></div><div className="top-actions"><StatusPill tone="good">{accessClass === "ADMIN" ? "管理者" : accessClass === "SHARED_EDIT" ? "共享編輯" : "公開唯讀"}</StatusPill><StatusPill tone="good">Worker 線上</StatusPill><button className="icon-button" title="重新整理" aria-label="重新整理" onClick={() => void loadAll()} disabled={busy}>↻</button></div></header>
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
       {routeScope && <div className="route-context" role="status"><span>{routeScope}</span><button type="button" className="text-button" onClick={() => navigateTo(page)}>{contextFarm ? "清除雞場篩選" : "清除篩選"}</button></div>}
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}
