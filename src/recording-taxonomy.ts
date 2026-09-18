@@ -1,3 +1,5 @@
+import { canonicalHouseName, extractHouseNameToken } from "./master-data";
+
 /**
  * Canonical recording vocabulary shared by the Production domain, LINE
  * extraction, Ambient candidates, Web Lab alignment, and future analytics.
@@ -511,10 +513,10 @@ function scopeFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
   const flock = /(?:批次|批|flock\s*)[:：]?\s*([\p{L}\p{N}_-]{1,40})/iu.exec(text);
   if (flock) fields.flockText = flock[1];
-  const house = /([\p{L}\p{N}_-]{1,18}\s*舍)/u.exec(text);
-  if (house) {
-    fields.houseText = house[1].replace(/\s+/gu, "");
-    const before = text.slice(0, house.index);
+  const houseText = extractHouseNameToken(text);
+  if (houseText) {
+    fields.houseText = canonicalHouseName(houseText) ?? houseText.replace(/\s+/gu, "");
+    const before = text.slice(0, text.lastIndexOf(houseText));
     const farm = /([\p{L}\p{N}_-]{2,40}(?:雞場|鸡场|場|场))/u.exec(before);
     if (farm) fields.farmText = farm[1];
   } else {

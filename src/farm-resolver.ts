@@ -1,4 +1,5 @@
 import { normalize } from "./core";
+import { canonicalEntityKey, entityVariantKeys } from "./master-data";
 
 export interface FarmRecord {
   id: string;
@@ -48,7 +49,7 @@ const CANONICAL_ORDER = [
 ];
 
 export function canonicalFarmKey(value: string): string {
-  return normalize(value).replace(/\s+/gu, "");
+  return canonicalEntityKey(value);
 }
 
 export function normalizedFarmKey(value: string): string {
@@ -136,6 +137,25 @@ export class FarmResolver {
     const normalizedMatches = activeFarms.filter((farm) => normalizedFarmKey(farm.name) === normalized);
     if (normalizedMatches.length === 1) {
       return { kind: "direct", rawFarmText: raw, normalizedFarmText: normalized, farm: normalizedMatches[0], candidates: [] };
+    }
+
+    const variantMatches = activeFarms.filter((farm) => entityVariantKeys(normalizedFarmKey(farm.name)).includes(normalized));
+    if (variantMatches.length === 1) {
+      return { kind: "direct", rawFarmText: raw, normalizedFarmText: normalized, farm: variantMatches[0], candidates: [] };
+    }
+    if (variantMatches.length > 1) {
+      return {
+        kind: "candidates",
+        rawFarmText: raw,
+        normalizedFarmText: normalized,
+        candidates: orderCandidates(variantMatches.map((farm) => ({
+          farmId: farm.id,
+          farmName: farm.name,
+          score: 0.94,
+          reason: "phonetic" as const,
+          environment: farm.environment,
+        }))),
+      };
     }
 
     const siteMatches = activeFarms.filter((farm) => {

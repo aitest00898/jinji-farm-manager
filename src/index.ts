@@ -32,6 +32,7 @@ import {
   flockAgeDays,
   isIsoDate,
   normalizedHouseName,
+  resolveNamedMasterRecord,
   shipmentReminder,
   taipeiDate,
   type ShipmentReminder,
@@ -809,37 +810,42 @@ function isExplicitWakeCommand(command: ParsedCommand, text = "", canonical?: Ca
     || (command.kind === "unknown" && Boolean(canonical?.taxonomyId) && canonical?.recordWorthiness !== "ignore");
 }
 
-async function hasScopedPendingState(env: Env, groupId: string, userId: string, now: string): Promise<boolean> {
+export async function hasScopedPendingState(env: Env, groupId: string, userId: string, now: string): Promise<boolean> {
   const row = await env.DB.prepare(
-    `SELECT 1 AS present FROM (
-       SELECT id FROM pending_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM abnormal_pending_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_farm', 'waiting_house') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM farm_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM operational_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
-       UNION ALL
-       SELECT id FROM finance_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_confirmation' AND expires_at > ?
-       UNION ALL
-       SELECT id FROM master_admin_actions
-        WHERE line_group_id = ? AND line_user_id = ?
-          AND status = 'waiting_confirmation' AND expires_at > ?
-       UNION ALL
-       SELECT id FROM ambient_digest_candidates
-        WHERE line_group_id = ? AND review_user_id = ?
-          AND status = 'pending' AND review_expires_at > ?
-     ) LIMIT 1`,
+    // D1's production SQLite limit rejects compound SELECTs with more than
+    // five terms. Keep the single read but express each source as EXISTS so
+    // every message can pass the interaction gate on the real Worker.
+    `SELECT CASE WHEN
+       EXISTS (
+         SELECT 1 FROM pending_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_farm', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM abnormal_pending_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_farm', 'waiting_house') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM farm_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM operational_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status IN ('waiting_password', 'waiting_confirmation') AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM finance_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status = 'waiting_confirmation' AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM master_admin_actions
+          WHERE line_group_id = ? AND line_user_id = ?
+            AND status = 'waiting_confirmation' AND expires_at > ?
+       ) OR EXISTS (
+         SELECT 1 FROM ambient_digest_candidates
+          WHERE line_group_id = ? AND review_user_id = ?
+            AND status = 'pending' AND review_expires_at > ?
+       )
+       THEN 1 ELSE 0 END AS present`,
   ).bind(groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now, groupId, userId, now).first<{ present: number }>();
   if (row?.present) return true;
   const canonical = await env.DB.prepare(
@@ -1648,7 +1654,6 @@ async function activeFlocks(
   house?: string,
   farmId?: string,
 ): Promise<FlockRow[]> {
-  const normalizedHouse = house ? normalizedHouseName(house) : null;
   const rows = await env.DB.prepare(
     `SELECT fl.id,
             fl.farm_id AS farmId,
@@ -1669,12 +1674,16 @@ async function activeFlocks(
       WHERE f.organization_id = ?
         AND (? IS NULL OR f.id = ?)
         AND fl.status = 'active'
-        AND (? IS NULL OR h.normalized_name = ? OR h.name = ?)
       ORDER BY f.id, h.normalized_name, fl.batch_code, fl.id`,
   )
-    .bind(organizationId, farmId ?? null, farmId ?? null, normalizedHouse, normalizedHouse, house ?? null)
+    .bind(organizationId, farmId ?? null, farmId ?? null)
     .all<FlockRow>();
-  return rows.results;
+  if (!house) return rows.results;
+  const houseRecords = [...new Map(rows.results.map((row) => [row.houseId, { id: row.houseId, name: row.houseName }])).values()];
+  const resolution = resolveNamedMasterRecord(houseRecords, house);
+  return resolution.kind === "direct" && resolution.record
+    ? rows.results.filter((row) => row.houseId === resolution.record?.id)
+    : [];
 }
 
 async function activeHousesForFarm(env: Env, farmId: string): Promise<HouseRow[]> {
@@ -2502,18 +2511,24 @@ async function startOperationalAdminAction(
   let initialCount: number | null = null;
   let expectedShipmentDate: string | null = null;
   if (command.kind === "create_house") {
-    const duplicate = await env.DB.prepare(
-      `SELECT id, name, active FROM houses
-        WHERE farm_id = ? AND normalized_name = ? LIMIT 1`,
-    ).bind(farm.id, houseName).first<{ id: string; name: string; active: number }>();
-    if (duplicate) return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 已存在舍別：${duplicate.name}（${duplicate.active ? "啟用中" : "已封存"}），不建立 duplicate。`;
+    const houses = await env.DB.prepare(
+      `SELECT id, name, active FROM houses WHERE farm_id = ? ORDER BY normalized_name, id`,
+    ).bind(farm.id).all<{ id: string; name: string; active: number }>();
+    const duplicate = resolveNamedMasterRecord(houses.results, houseName);
+    if (duplicate.kind === "direct" && duplicate.record) {
+      return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 已存在舍別：${duplicate.record.name}，不建立 duplicate。`;
+    }
+    if (duplicate.kind === "candidates") {
+      return `${botName(accountName)}\n⚠️ 舍別「${command.houseName}」與既有主檔有多個可能相符項目，沒有建立。\n${duplicate.candidates.map(({ record }, index) => `${index + 1}. ${record.name}`).join("\n")}`;
+    }
   } else {
-    const house = await env.DB.prepare(
-      `SELECT id, name FROM houses
-        WHERE farm_id = ? AND active = 1
-          AND (normalized_name = ? OR name = ?) LIMIT 1`,
-    ).bind(farm.id, houseName, command.houseName).first<{ id: string; name: string }>();
-    if (!house) return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 尚未建立 ${command.houseName} 雞舍主檔，請先建立雞舍。`;
+    const houses = await activeHousesForFarm(env, farm.id);
+    const houseResolution = resolveNamedMasterRecord(houses, command.houseName);
+    if (houseResolution.kind === "candidates") {
+      return `${botName(accountName)}\n⚠️ 無法安全唯一辨識舍別「${command.houseName}」；請使用正式舍別名稱。\n${houseResolution.candidates.map(({ record }, index) => `${index + 1}. ${record.name}`).join("\n")}`;
+    }
+    if (houseResolution.kind !== "direct" || !houseResolution.record) return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 尚未建立 ${command.houseName} 雞舍主檔，請先建立雞舍。`;
+    const house = houseResolution.record;
     houseId = house.id;
     batchCode = normalize(command.batchCode);
     chickInDate = command.chickInDate;
@@ -2525,10 +2540,12 @@ async function startOperationalAdminAction(
     if (expectedShipmentDate && (!isIsoDate(expectedShipmentDate) || expectedShipmentDate < chickInDate)) {
       return `${botName(accountName)}\n⚠️ 預計出雞日期不可早於入雛日期。`;
     }
-    const duplicate = await env.DB.prepare(
-      `SELECT id FROM flocks WHERE farm_id = ? AND batch_code = ? LIMIT 1`,
-    ).bind(farm.id, batchCode).first<{ id: string }>();
-    if (duplicate) return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 已存在批次 ${batchCode}，不建立 duplicate。`;
+    const existingFlocks = await env.DB.prepare(
+      `SELECT id, batch_code AS batchCode FROM flocks WHERE farm_id = ? ORDER BY batch_code, id`,
+    ).bind(farm.id).all<{ id: string; batchCode: string }>();
+    const duplicate = resolveNamedMasterRecord(existingFlocks.results.map((flock) => ({ id: flock.id, name: flock.batchCode })), batchCode);
+    if (duplicate.kind === "direct" && duplicate.record) return `${botName(accountName)}\n⚠️ ${farmDisplayName(farm)} 已存在批次 ${duplicate.record.name}，不建立 duplicate。`;
+    if (duplicate.kind === "candidates") return `${botName(accountName)}\n⚠️ 批次「${batchCode}」與既有主檔有多個可能相符項目，沒有建立。`;
   }
 
   const previous = await env.DB.prepare(
@@ -3363,19 +3380,15 @@ async function writeOperationalEvent(
     if (activeHouses.length === 1) requestedHouseText = activeHouses[0].name;
   }
   if (requestedHouseText) {
-    const requestedHouse = normalizedHouseName(requestedHouseText);
-    const house = await env.DB.prepare(
-      `SELECT id, name
-         FROM houses
-        WHERE farm_id = ? AND active = 1
-          AND (normalized_name = ? OR name = ?)
-        LIMIT 1`,
-    )
-      .bind(validFarm.id, requestedHouse, requestedHouseText)
-      .first<{ id: string; name: string }>();
-    if (!house) {
+    const houses = await activeHousesForFarm(env, validFarm.id);
+    const houseResolution = resolveNamedMasterRecord(houses, requestedHouseText);
+    if (houseResolution.kind === "candidates") {
+      return `${botName(accountName)}\n⚠️ 無法安全唯一辨識舍別「${requestedHouseText}」；請回覆正式舍別名稱。\n${houseResolution.candidates.map(({ record }, index) => `${index + 1}. ${record.name}`).join("\n")}\n目前沒有寫入。`;
+    }
+    if (houseResolution.kind !== "direct" || !houseResolution.record) {
       return `${botName(accountName)}\n⚠️ ${farmDisplayName(validFarm)} 尚未建立 ${requestedHouseText} 雞舍主檔，沒有寫入。`;
     }
+    const house = houseResolution.record;
     houseId = house.id;
     canonicalHouse = house.name;
     const activeFlocks = await env.DB.prepare(
@@ -3544,9 +3557,15 @@ async function handlePendingInput(
   const farmCandidate = parseStoredCandidates(pending?.candidateFarmsJson ?? "")[0];
   if (pending && houseCandidates.length && farmCandidate) {
     const number = normalized.match(/^(\d+)$/u);
+    const namedHouse = resolveNamedMasterRecord(
+      houseCandidates.map((candidate) => ({ id: candidate.houseId, name: candidate.houseName })),
+      normalized,
+    );
     const selected = number
       ? houseCandidates[Number(number[1]) - 1]
-      : houseCandidates.find((candidate) => normalizedHouseName(candidate.houseName) === normalizedHouseName(normalized));
+      : namedHouse.kind === "direct" && namedHouse.record
+        ? houseCandidates.find((candidate) => candidate.houseId === namedHouse.record?.id)
+        : undefined;
     if (selected) {
       return confirmPendingAction(env, event, eventId, pending, farmCandidate.farmId, accountName, selected.houseName);
     }
@@ -6138,14 +6157,19 @@ async function resolveCanonicalLineScope(
   let houseId: string | undefined;
   let houseName: string | null = null;
   if (houseText) {
-    const house = await env.DB.prepare(
-      `SELECT id, name
-         FROM houses
-        WHERE farm_id = ? AND active = 1
-          AND (normalized_name = ? OR name = ?)
-        LIMIT 1`,
-    ).bind(farm.id, normalizedHouseName(houseText), houseText).first<{ id: string; name: string }>();
-    if (!house) {
+    const houses = await activeHousesForFarm(env, farm.id);
+    const houseResolution = resolveNamedMasterRecord(houses, houseText);
+    if (houseResolution.kind === "candidates") {
+      return {
+        scope: null,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseName: null,
+        flockCode: null,
+        clarification: `${farm.name} 無法安全唯一辨識「${houseText}」；請選擇正式舍別。\n${houseResolution.candidates.map(({ record }, index) => `${index + 1}. ${record.name}`).join("\n")}`,
+      };
+    }
+    if (houseResolution.kind !== "direct" || !houseResolution.record) {
       return {
         scope: null,
         farmName: farm.name,
@@ -6155,6 +6179,7 @@ async function resolveCanonicalLineScope(
         clarification: `${farm.name} 尚未建立有效的「${houseText}」雞舍主檔，請改用正式舍別名稱。`,
       };
     }
+    const house = houseResolution.record;
     houseId = house.id;
     houseName = house.name;
   } else if (farm.structureMode === "multi_house") {
@@ -6183,22 +6208,32 @@ async function resolveCanonicalLineScope(
       };
     }
     const flocks = await activeFlocks(env, organizationId, houseName ?? undefined, farm.id);
-    const normalizedFlock = normalize(flockText).toLocaleLowerCase();
-    const matches = flocks.filter((flock) => normalize(flock.batchCode).toLocaleLowerCase() === normalizedFlock);
-    if (matches.length !== 1) {
+    const flockResolution = resolveNamedMasterRecord(
+      flocks.map((flock) => ({ id: flock.id, name: flock.batchCode })),
+      flockText,
+    );
+    if (flockResolution.kind === "candidates") {
       return {
         scope: null,
         farmName: farm.name,
         environment: farm.environment,
         houseName,
         flockCode: null,
-        clarification: matches.length
-          ? `「${flockText}」對應到多個有效批次，請提供更完整的批次代碼。`
-          : `${farm.name}｜${houseName} 找不到有效批次「${flockText}」，請提供正式批次代碼。`,
+        clarification: `「${flockText}」對應到多個有效批次，請提供更完整的批次代碼。\n${flockResolution.candidates.map(({ record }, index) => `${index + 1}. ${record.name}`).join("\n")}`,
       };
     }
-    flockId = matches[0].id;
-    flockCode = matches[0].batchCode;
+    if (flockResolution.kind !== "direct" || !flockResolution.record) {
+      return {
+        scope: null,
+        farmName: farm.name,
+        environment: farm.environment,
+        houseName,
+        flockCode: null,
+        clarification: `${farm.name}｜${houseName} 找不到有效批次「${flockText}」，請提供正式批次代碼。`,
+      };
+    }
+    flockId = flockResolution.record.id;
+    flockCode = flocks.find((flock) => flock.id === flockResolution.record?.id)?.batchCode ?? flockResolution.record.name;
   }
 
   const scope: ResolvedRecordingScope = {
@@ -7974,12 +8009,11 @@ async function applyAmbientCandidatePatch(
       const houses = await env.DB.prepare(
         `SELECT id, name FROM houses WHERE farm_id = ? AND active = 1 ORDER BY normalized_name, id`,
       ).bind(farmId).all<{ id: string; name: string }>();
-      const requested = normalize(value);
-      const selected = houses.results.find((house) => {
-        const name = normalize(house.name);
-        return name === requested || name.includes(requested) || requested.includes(name);
-      });
-      if (!selected) return [buildTextMessage("找不到這個舍別，請從下方選項選擇。", await ambientDigestQuickReply(env, entry.row.organizationId, entry.row.id, entry.bundle) ?? undefined)];
+      const houseResolution = resolveNamedMasterRecord(houses.results, value);
+      if (houseResolution.kind !== "direct" || !houseResolution.record) {
+        return [buildTextMessage(houseResolution.kind === "candidates" ? "無法安全唯一辨識這個舍別，請從下方選項選擇。" : "找不到這個舍別，請從下方選項選擇。", await ambientDigestQuickReply(env, entry.row.organizationId, entry.row.id, entry.bundle) ?? undefined)];
+      }
+      const selected = houseResolution.record;
       candidate.houseText = selected.name;
       candidate.flockText = null;
       candidate.resolution = {
@@ -8007,11 +8041,14 @@ async function applyAmbientCandidatePatch(
           WHERE farm_id = ? AND status = 'active'
           ORDER BY batch_code, id`,
       ).bind(farmId).all<{ id: string; batchCode: string }>();
-      const requested = normalize(value);
-      const selected = flocks.results.find((flock) => {
-        const code = normalize(flock.batchCode);
-        return code === requested || code.includes(requested) || requested.includes(code);
-      });
+      const flockResolution = resolveNamedMasterRecord(
+        flocks.results.map((flock) => ({ id: flock.id, name: flock.batchCode })),
+        value,
+      );
+      if (flockResolution.kind !== "direct" || !flockResolution.record) {
+        return [buildTextMessage(flockResolution.kind === "candidates" ? "無法安全唯一辨識這個批次，請從下方選項選擇。" : "找不到這個批次，請從下方選項選擇。", await ambientDigestQuickReply(env, entry.row.organizationId, entry.row.id, entry.bundle) ?? undefined)];
+      }
+      const selected = flocks.results.find((flock) => flock.id === flockResolution.record?.id);
       if (!selected) return [buildTextMessage("找不到這個批次，請從下方選項選擇。", await ambientDigestQuickReply(env, entry.row.organizationId, entry.row.id, entry.bundle) ?? undefined)];
       candidate.flockText = selected.batchCode;
       candidate.resolution = {

@@ -4,7 +4,7 @@ import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-reso
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
 import type { AmbientV2ResponseFormat } from "./ambient-extraction-v2";
 import { parseCanonicalRecordingText } from "./recording-taxonomy";
-import { effectiveOperationalEventPredicate } from "./master-data";
+import { canonicalEntityKey, effectiveOperationalEventPredicate, resolveNamedMasterRecord } from "./master-data";
 
 export interface AmbientEnv {
   DB: D1Database;
@@ -2688,7 +2688,7 @@ const AMBIENT_CONTINUATION_WINDOW_MS = 6 * 60 * 60 * 1000;
 const AMBIENT_CONTINUATION_PATTERN = /(?:還在|还在|沒改善|没改善|未改善|持續|持续|仍然|又在)/u;
 
 function ambientKey(value: string | null | undefined): string {
-  return normalize(value ?? "").replace(/[\s\p{P}\p{S}]+/gu, "");
+  return canonicalEntityKey(value ?? "");
 }
 
 function appendAmbientUnique(values: string[] | undefined, value: string): string[] {
@@ -2921,13 +2921,18 @@ async function resolveAmbientCandidateEntity(
     const houses = await env.DB.prepare(
       `SELECT id, name FROM houses WHERE farm_id = ? AND active = 1 ORDER BY normalized_name, id`,
     ).bind(selectedFarm.id).all<{ id: string; name: string }>();
-    const requestedHouse = candidate.houseText ? ambientKey(candidate.houseText) : "";
-    const selectedHouse = requestedHouse
-      ? houses.results.find((house) => ambientKey(house.name) === requestedHouse || ambientKey(house.name).includes(requestedHouse) || requestedHouse.includes(ambientKey(house.name)))
+    const houseResolution = candidate.houseText
+      ? resolveNamedMasterRecord(houses.results, candidate.houseText)
       : null;
-    if (selectedHouse) {
-      resolution.resolvedHouseId = selectedHouse.id;
-      next.houseText = selectedHouse.name;
+    if (houseResolution?.kind === "direct" && houseResolution.record) {
+      resolution.resolvedHouseId = houseResolution.record.id;
+      next.houseText = houseResolution.record.name;
+    } else if (houseResolution?.kind === "candidates") {
+      resolution.status = "ambiguous";
+      resolution.resolvedHouseId = null;
+      resolution.candidateHouseIds = houseResolution.candidates.map(({ record }) => record.id);
+      resolution.candidateHouseNames = houseResolution.candidates.map(({ record }) => record.name);
+      next.uncertainties = appendAmbientUnique(next.uncertainties, "house_not_uniquely_resolved");
     } else if (candidate.houseText) {
       resolution.status = "unresolved";
       resolution.candidateHouseIds = [];
@@ -2946,13 +2951,17 @@ async function resolveAmbientCandidateEntity(
       const flocks = await env.DB.prepare(
         `SELECT id, batch_code AS batchCode FROM flocks WHERE farm_id = ? AND house_id = ? AND status = 'active' ORDER BY id`,
       ).bind(selectedFarm.id, resolution.resolvedHouseId).all<{ id: string; batchCode: string }>();
-      const requestedFlock = candidate.flockText ? ambientKey(candidate.flockText) : "";
-      const selectedFlock = requestedFlock
-        ? flocks.results.find((flock) => ambientKey(flock.batchCode) === requestedFlock || ambientKey(flock.batchCode).includes(requestedFlock) || requestedFlock.includes(ambientKey(flock.batchCode)))
+      const flockResolution = candidate.flockText
+        ? resolveNamedMasterRecord(flocks.results.map((flock) => ({ id: flock.id, name: flock.batchCode })), candidate.flockText)
         : null;
-      if (selectedFlock) {
-        resolution.resolvedFlockId = selectedFlock.id;
-        next.flockText = selectedFlock.batchCode;
+      if (flockResolution?.kind === "direct" && flockResolution.record) {
+        resolution.resolvedFlockId = flockResolution.record.id;
+        next.flockText = flockResolution.record.name;
+      } else if (flockResolution?.kind === "candidates") {
+        resolution.status = "ambiguous";
+        resolution.resolvedFlockId = null;
+        resolution.candidateFlockIds = flockResolution.candidates.map(({ record }) => record.id);
+        next.uncertainties = appendAmbientUnique(next.uncertainties, "flock_not_uniquely_resolved");
       } else if (candidate.flockText) {
         resolution.status = "unresolved";
         resolution.candidateFlockIds = [];

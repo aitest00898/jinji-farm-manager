@@ -12,7 +12,7 @@ describe("deterministic-first hybrid recording foundation", () => {
     expect(plan.facts[0]).toMatchObject({
       candidateTaxonomyIds: ["O9"],
       candidateSubtypes: ["mortality"],
-      knownFields: { farmText: "金雞測試場", houseText: "測試一舍", flockText: "A", quantity: 5 },
+      knownFields: { farmText: "金雞測試場", houseText: "測試1舍", flockText: "A", quantity: 5 },
       missingFields: [],
       residualText: "",
       officialWriteAllowed: false,
@@ -25,7 +25,7 @@ describe("deterministic-first hybrid recording foundation", () => {
     expect(plan.decision).toBe("AI_RESIDUAL");
     expect(plan.candidateTaxonomyIds).toEqual(["O9"]);
     expect(plan.candidateSubtypes).toEqual(["mortality"]);
-    expect(plan.knownFields).toMatchObject({ farmText: "金雞測試場", houseText: "測試一舍" });
+    expect(plan.knownFields).toMatchObject({ farmText: "金雞測試場", houseText: "測試1舍" });
     expect(plan.missingFields).toEqual(["quantity"]);
     expect(aiResidualContracts(plan)).toMatchObject([{ candidateTaxonomyIds: ["O9"], allowedMissingFields: ["quantity"], officialWriteAllowed: false }]);
   });
@@ -36,7 +36,7 @@ describe("deterministic-first hybrid recording foundation", () => {
     expect(plan.facts.map((fact) => fact.candidateTaxonomyIds)).toEqual([["O9"], ["A8"]]);
     expect(plan.facts[0]).toMatchObject({ decision: "DETERMINISTIC_CONFIRMED", knownFields: { quantity: 2 } });
     expect(plan.facts[0].knownFields.extent).toBeUndefined();
-    expect(plan.facts[1]).toMatchObject({ decision: "UNRESOLVED", clarificationQuestion: "請選擇小範圍、中範圍或大範圍。", knownFields: { farmText: "金雞測試場", houseText: "測試一舍" }, missingFields: ["extent"] });
+    expect(plan.facts[1]).toMatchObject({ decision: "UNRESOLVED", clarificationQuestion: "請選擇小範圍、中範圍或大範圍。", knownFields: { farmText: "金雞測試場", houseText: "測試1舍" }, missingFields: ["extent"] });
     expect(plan.facts[1].knownFields.quantity).toBeUndefined();
     expect(plan.officialWriteAllowed).toBe(false);
   });

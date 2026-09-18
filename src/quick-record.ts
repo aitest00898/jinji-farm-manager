@@ -1,7 +1,7 @@
 import { botName, normalize } from "./core";
 import { parseAbnormalTiming, type AbnormalTiming } from "./abnormal";
 import { FarmResolver, normalizedFarmKey, type FarmCandidate } from "./farm-resolver";
-import { normalizedHouseName, taipeiDate } from "./master-data";
+import { canonicalHouseName, extractHouseNameToken, resolveNamedMasterRecord, taipeiDate } from "./master-data";
 import { canonicalCommandForLegacyOperational } from "./recording-runtime-bridge";
 import type { RecordCommand } from "./record-command";
 import { assertCanonicalWritesOpen, persistRecordCommand, previewCanonicalStockMutations } from "./recording-write-adapter";
@@ -118,7 +118,6 @@ interface CommittedBundle {
 const QUICK_WINDOW_MS = 5 * 60 * 1000;
 const FARMISH_MIN_LENGTH = 2;
 const NUMBER_TOKEN = "(?:\\d+(?:\\.\\d+)?|[零〇一二兩两三四五六七八九十百千萬万]+)";
-const HOUSE_TOKEN = "[\\p{L}\\p{N}_-]{1,18}\\s*舍";
 const EVENT_RE = new RegExp(`(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上)?(?:死亡|死了|死|掛了|掛|死掉)\\s*(${NUMBER_TOKEN})\\s*(隻|只|羽)?`, "giu");
 const CULL_RE = new RegExp(`(?:淘汰|抓掉|抓走)\\s*(${NUMBER_TOKEN})\\s*(隻|只|羽)?`, "giu");
 const FEED_RE = new RegExp(`(?:飼料|饲料|料)(?:用了?|使用了?|進料)?\\s*(${NUMBER_TOKEN})\\s*(kg|公斤|千克|包)?`, "giu");
@@ -221,7 +220,13 @@ function parseQuantity(value: string): number | null {
 }
 
 function parseHouse(text: string): string | null {
-  return text.match(new RegExp(`(${HOUSE_TOKEN})`, "u"))?.[1]?.replace(/\s+/gu, "") ?? null;
+  const token = extractHouseNameToken(text);
+  return token ? canonicalHouseName(token) ?? token.replace(/\s+/gu, "") : null;
+}
+
+function removeHouseToken(text: string): string {
+  const token = extractHouseNameToken(text);
+  return token ? text.replace(token, " ") : text;
 }
 
 function removeAll(text: string, regex: RegExp, make: (match: RegExpExecArray) => QuickItemDraft | null, items: QuickItemDraft[], houseText: string | null, receivedAt: string): string {
@@ -273,7 +278,10 @@ function parseItems(text: string, receivedAt: string): { items: QuickItemDraft[]
     const parsed = quantity === null ? null : unitFor("shipment", match[2], quantity);
     return parsed ? makeItem("operational", "shipment", `出雞 ${parsed.quantity}`, parsed.quantity, parsed.unit, houseText, original, receivedAt) : null;
   }, items, houseText, receivedAt);
-  remainder = remainder.replace(new RegExp(HOUSE_TOKEN, "gu"), " ").replace(/(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上|傍晚|半夜|深夜|的|那邊|那边|這邊|这边|有|又|了|雞|鸡|隻|只|。|，|,|：|:)/gu, " ");
+  // Keep 雞/鸡 in the residual text. It may be part of a farm name that is
+  // being resolved after item extraction (including a bounded typo/variant).
+  // Context-only inputs still resolve through the existing active-farm path.
+  remainder = removeHouseToken(remainder).replace(/(?:今天|今日|昨天|昨晚|早上|上午|下午|晚上|傍晚|半夜|深夜|的|那邊|那边|這邊|这边|有|又|了|隻|只|。|，|,|：|:)/gu, " ");
   ABNORMAL_RE.lastIndex = 0;
   const abnormalMatches = [...remainder.matchAll(ABNORMAL_RE)];
   for (let index = abnormalMatches.length - 1; index >= 0; index -= 1) {
@@ -370,7 +378,19 @@ function buildSegments(text: string, receivedAt: string, farms: QuickFarm[], ali
         return { segments: [{ farmId: null, farmText: residual, farmCandidates: resolution.candidates, requiresConfirmation: true, items: parsed.items, houseText: parsed.houseText, suffixAssignment: false }], farmOnly: null, unresolvedFarmText: residual };
       }
       if (resolution.kind === "direct" && resolution.farm) {
-        return { segments: [{ farmId: resolution.farm.id, farmText: residual, farmCandidates: [], requiresConfirmation: true, items: parsed.items, houseText: parsed.houseText, suffixAssignment: false }], farmOnly: null, unresolvedFarmText: residual };
+        return {
+          segments: [{
+            farmId: resolution.farm.id,
+            farmText: residual,
+            farmCandidates: [{ farmId: resolution.farm.id, farmName: resolution.farm.name, score: 1, reason: "substring", environment: resolution.farm.environment }],
+            requiresConfirmation: true,
+            items: parsed.items,
+            houseText: parsed.houseText,
+            suffixAssignment: false,
+          }],
+          farmOnly: null,
+          unresolvedFarmText: residual,
+        };
       }
     }
     return { segments: [{ farmId: null, farmText: null, farmCandidates: [], requiresConfirmation: false, items: parsed.items, houseText: parsed.houseText, suffixAssignment: false }], farmOnly: null, unresolvedFarmText: null };
@@ -504,9 +524,20 @@ async function resolveScope(env: QuickRecordEnv, organizationId: string, farm: Q
   ).bind(farm.id).all<{ id: string; name: string; normalizedName: string }>();
   let house: { id: string; name: string } | null = null;
   if (requestedHouse) {
-    const wanted = normalizedHouseName(requestedHouse);
-    house = houses.results.find((row) => normalizedHouseName(row.name) === wanted) ?? null;
-    if (!house) return { farm, houseId: null, houseName: null, flockId: null, houseCandidates: [], invalidHouse: requestedHouse };
+    const resolution = resolveNamedMasterRecord(houses.results, requestedHouse);
+    if (resolution.kind === "direct" && resolution.record) house = resolution.record;
+    else if (resolution.kind === "candidates") {
+      return {
+        farm,
+        houseId: null,
+        houseName: null,
+        flockId: null,
+        houseCandidates: resolution.candidates.map(({ record }) => ({ id: record.id, name: record.name })),
+        invalidHouse: null,
+      };
+    } else {
+      return { farm, houseId: null, houseName: null, flockId: null, houseCandidates: [], invalidHouse: requestedHouse };
+    }
   } else if (fallbackHouseId) {
     house = houses.results.find((row) => row.id === fallbackHouseId) ?? null;
   }
@@ -876,7 +907,9 @@ export async function handleQuickRecordInput(
     const scope = farm ? await resolveScope(env, organizationId, farm, null, session.activeHouseId) : null;
     if (farm && scope?.houseCandidates.length) {
       const houseNumber = /^\d+$/u.exec(compact(text));
-      const selected = houseNumber ? scope.houseCandidates[Number(houseNumber[0]) - 1] : scope.houseCandidates.find((house) => normalizedHouseName(house.name) === normalizedHouseName(compact(text)));
+      const selected = houseNumber
+        ? scope.houseCandidates[Number(houseNumber[0]) - 1]
+        : resolveNamedMasterRecord(scope.houseCandidates, compact(text)).record ?? null;
       if (selected) {
         const committed = await commitForFarm(env, event, eventId, groupId, userId, organizationId, farm, currentPending.map(toDraft), selected.name, null, 0);
         if (committed.reply) return { handled: true, reply: committed.reply };

@@ -1,5 +1,6 @@
 import { normalize, parseCommand, type OperationalDraft, type ParsedCommand } from "./core";
 import { extractJsonValue } from "./ai-json";
+import { canonicalHouseName } from "./master-data";
 
 export type UnifiedIntentName =
   | "record_mortality"
@@ -251,8 +252,7 @@ function parseUnit(value: unknown): ParsedAiUnit | null | undefined {
 function parseHouse(value: unknown): string | null | undefined {
   const text = optionalText(value, 20);
   if (text === null || text === undefined) return text;
-  const match = text.match(/^(\d+)\s*舍$/iu);
-  return match ? `${Number(match[1])}舍` : undefined;
+  return canonicalHouseName(text) ?? undefined;
 }
 
 function parseDate(value: unknown): string | null | undefined {

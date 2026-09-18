@@ -87,6 +87,13 @@ describe("FarmResolver safety boundary", () => {
     ]);
     expect(siteResolver.resolve("新莊")).toMatchObject({ kind: "direct", farm: { id: "farm-site", name: "新莊合作場" } });
   });
+
+  it("resolves one controlled Chinese character variation to the canonical farm", () => {
+    const result = new FarmResolver([
+      { id: "farm-test", name: "金雞測試場", active: 1, environment: "test" },
+    ]).resolve("金雞測式場");
+    expect(result).toMatchObject({ kind: "direct", farm: { id: "farm-test", name: "金雞測試場" } });
+  });
 });
 
 describe("Operational AI contract", () => {
