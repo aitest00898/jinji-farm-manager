@@ -88,7 +88,7 @@ describe("Web management safety contract", () => {
   });
 
   it("ports canonical records and recovery endpoints into the formal client", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ records: [], ok: true }), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ records: [], ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new ApiClient();
     await client.records({ limit: 25 });
