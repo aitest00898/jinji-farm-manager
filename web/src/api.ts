@@ -2,6 +2,7 @@ export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined
   ?? "https://chicken-line-production.jinji-assistant.workers.dev";
 
 export type WebAccessClass = "PUBLIC" | "SHARED_EDIT" | "ADMIN";
+export type OperationalEnvironment = "production" | "test";
 
 export interface WebAuthResponse {
   authenticated: boolean;
@@ -312,16 +313,16 @@ export class ApiClient {
   createCaretaker(body: Record<string, unknown>) { return this.request<{ caretaker: Caretaker }>("/api/caretakers", { method: "POST", body: JSON.stringify(body) }); }
   updateCaretaker(id: string, body: Record<string, unknown>) { return this.request<{ caretaker: Caretaker }>(`/api/caretakers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
   assignCaretaker(farmId: string, body: Record<string, unknown>) { return this.request(`/api/farms/${encodeURIComponent(farmId)}/caretakers`, { method: "POST", body: JSON.stringify(body) }); }
-  houses(farmId?: string) { return this.request<{ houses: House[] }>(`/api/houses${queryString({ farmId })}`); }
+  houses(farmId?: string, environment: OperationalEnvironment = "production") { return this.request<{ houses: House[] }>(`/api/houses${queryString({ farmId, environment })}`); }
   createHouse(body: Record<string, unknown>) { return this.request<{ house: House }>("/api/houses", { method: "POST", body: JSON.stringify(body) }); }
   updateHouse(id: string, body: Record<string, unknown>) { return this.request<{ house: House }>(`/api/houses/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
-  flocks(farmId?: string) { return this.request<{ flocks: Flock[] }>(`/api/flocks${queryString({ farmId })}`); }
+  flocks(farmId?: string, environment: OperationalEnvironment = "production") { return this.request<{ flocks: Flock[] }>(`/api/flocks${queryString({ farmId, environment })}`); }
   createFlock(body: Record<string, unknown>) { return this.request<{ flock: Flock }>("/api/flocks", { method: "POST", body: JSON.stringify(body) }); }
   updateFlock(id: string, body: Record<string, unknown>) { return this.request<{ flock: Flock }>(`/api/flocks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
-  events(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ events: OperationalEvent[]; nextCursor: string | null }>(`/api/operational-events${queryString(params)}`); }
-  createEvent(body: Record<string, unknown>) { return this.request("/api/operational-events", { method: "POST", body: JSON.stringify(body) }); }
-  reverseEvent(id: string, reason?: string) { return this.request(`/api/operational-events/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
-  correctEvent(id: string, body: Record<string, unknown>) { return this.request(`/api/operational-events/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }); }
+  events(params: Record<string, string | number | null | undefined> = {}, environment: OperationalEnvironment = "production") { return this.request<{ events: OperationalEvent[]; nextCursor: string | null }>(`/api/operational-events${queryString({ environment, ...params })}`); }
+  createEvent(body: Record<string, unknown>, environment: OperationalEnvironment = "production") { return this.request(`/api/operational-events${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
+  reverseEvent(id: string, reason?: string, environment: OperationalEnvironment = "production") { return this.request(`/api/operational-events/${encodeURIComponent(id)}/reverse${queryString({ environment })}`, { method: "POST", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
+  correctEvent(id: string, body: Record<string, unknown>, environment: OperationalEnvironment = "production") { return this.request(`/api/operational-events/${encodeURIComponent(id)}/correct${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
   finance() { return this.request<FinanceData>("/api/finance"); }
   chart(metric: string, filters: Record<string, string | number | null | undefined> = {}) { return this.request<ChartResponse>(`/api/charts/${encodeURIComponent(metric)}${queryString(filters)}`); }
   audit(params: Record<string, string | number | null | undefined> = {}) { return this.request<{ auditLogs: AuditRow[]; nextCursor: string | null }>(`/api/audit${queryString({ limit: 50, ...params })}`); }
@@ -351,10 +352,10 @@ export class ApiClient {
   recordRetained(eventId: string, body: Record<string, unknown>) { return this.request<{ ok: boolean; changed: boolean; message: string; record: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/record`, { method: "POST", body: JSON.stringify(body) }); }
 
   // Canonical recording/readback contract ported from the former V14R Lab.
-  records(params: Record<string, string | number | null | undefined> = {}) { return this.request<CanonicalRecordsResponse>(`/api/records${queryString(params)}`); }
-  createRecord(body: Record<string, unknown>) { return this.request("/api/records", { method: "POST", body: JSON.stringify(body) }); }
-  correctRecord(id: string, body: Record<string, unknown>) { return this.request(`/api/records/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }); }
-  reverseRecord(id: string, body: Record<string, unknown> = {}) { return this.request(`/api/records/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify(body) }); }
+  records(params: Record<string, string | number | null | undefined> = {}, environment: OperationalEnvironment = "production") { return this.request<CanonicalRecordsResponse>(`/api/records${queryString({ environment, ...params })}`); }
+  createRecord(body: Record<string, unknown>, environment: OperationalEnvironment = "production") { return this.request(`/api/records${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
+  correctRecord(id: string, body: Record<string, unknown>, environment: OperationalEnvironment = "production") { return this.request(`/api/records/${encodeURIComponent(id)}/correct${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
+  reverseRecord(id: string, body: Record<string, unknown> = {}, environment: OperationalEnvironment = "production") { return this.request(`/api/records/${encodeURIComponent(id)}/reverse${queryString({ environment })}`, { method: "POST", body: JSON.stringify(body) }); }
 
   lineGroupClaimCandidates() { return this.request<{ candidates: Array<Record<string, unknown>> }>("/api/line-groups/claim-candidates"); }
   claimLineGroupOrganization(groupId: string, reason?: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/organization-claim`, { method: "PATCH", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
