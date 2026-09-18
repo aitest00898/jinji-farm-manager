@@ -3,7 +3,7 @@ import { normalize } from "./core";
 import { FarmResolver, type FarmAliasRecord, type FarmRecord } from "./farm-resolver";
 import { buildAmbientDevSemanticSummary, serializeAmbientDevSemanticSummary } from "./ambient-dev-semantic";
 import type { AmbientV2ResponseFormat } from "./ambient-extraction-v2";
-import { parseCanonicalRecordingText } from "./recording-taxonomy";
+import { parseCanonicalRecordingText, TAXONOMY_IDS, type CanonicalTextParse, type TaxonomyId } from "./recording-taxonomy";
 import { canonicalEntityKey, effectiveOperationalEventPredicate, resolveNamedMasterRecord } from "./master-data";
 
 export interface AmbientEnv {
@@ -19,6 +19,8 @@ export interface AmbientMentionee {
 
 export interface AmbientCandidateItem {
   type: "mortality" | "cull" | "abnormal";
+  /** Deterministic canonical taxonomy; never supplied by the model. */
+  taxonomyId?: TaxonomyId;
   quantity: number | null;
   raw: string;
   confidence: "low" | "medium" | "high";
@@ -1276,6 +1278,148 @@ function buildAmbientCandidateBundleFromDecisions(value: unknown, context: Ambie
   };
 }
 
+function ambientLegacyItemType(parsed: CanonicalTextParse): AmbientCandidateItem["type"] {
+  if (parsed.taxonomyId === "O9" && parsed.subtype === "mortality") return "mortality";
+  if (parsed.taxonomyId === "O9" && parsed.subtype === "cull") return "cull";
+  return "abnormal";
+}
+
+function ambientCanonicalCandidateForMessage(message: AmbientBufferedMessage): AmbientCandidate | null {
+  const parsed = parseCanonicalRecordingText(message.text, new Date(message.eventTimestamp));
+  if (!parsed.taxonomyId || parsed.recordWorthiness === "ignore") return null;
+  const type = ambientLegacyItemType(parsed);
+  const quantity = type === "mortality" || type === "cull"
+    ? typeof parsed.fields.quantity === "number" ? parsed.fields.quantity : null
+    : null;
+  const missing = parsed.missingFields.map((field) => `canonical_missing:${field}`);
+  const uncertainties = parsed.uncertainty === "none" ? missing : [...missing, "canonical_uncertainty"];
+  const confidence: AmbientCandidateItem["confidence"] = parsed.uncertainty === "high"
+    ? "low"
+    : parsed.recordWorthiness === "record" && parsed.missingFields.length === 0
+      ? "high"
+      : "medium";
+  const fields = parsed.fields;
+  const evidence: AmbientCandidateEvidence = {
+    evidenceType: "source_fact",
+    field: parsed.taxonomyId,
+    normalizedValue: parsed.subtype,
+    sourceRef: message.lineMessageId,
+    sourceTimestamp: message.eventTimestamp,
+    sourceUser: message.lineUserId,
+    confidence,
+    extractionSource: "deterministic",
+  };
+  return {
+    farmText: typeof fields.farmText === "string" ? fields.farmText : null,
+    houseText: typeof fields.houseText === "string" ? fields.houseText : null,
+    flockText: typeof fields.flockText === "string" ? fields.flockText : null,
+    eventType: type,
+    quantity,
+    quantityConfidence: quantity === null ? "unknown" : confidence === "high" ? "high" : "medium",
+    rawTexts: [message.text.slice(0, 2000)],
+    sourceMessageIds: [message.lineMessageId],
+    sourceTimestamps: [message.eventTimestamp],
+    sourceUsers: [message.lineUserId],
+    uncertainties: uncertainties.length ? uncertainties : undefined,
+    items: [{ taxonomyId: parsed.taxonomyId, type, quantity, raw: message.text.slice(0, 2000), confidence }],
+    conflict: parsed.uncertainty !== "none",
+    ...(parsed.uncertainty !== "none" ? { conflictText: "內容含有不確定語氣，確認前不會寫入。" } : {}),
+    evidence: [evidence],
+    state: parsed.missingFields.length || parsed.uncertainty !== "none" ? "unresolved_entity" : "new",
+  };
+}
+
+/**
+ * Deterministic Ambient projection used both as the canonical fallback and by
+ * focused tests. It delegates all classification to the existing parser and
+ * never resolves IDs or writes data.
+ */
+export function canonicalAmbientCandidatesForTest(messages: AmbientBufferedMessage[]): AmbientCandidateBundle {
+  const messageCandidates = messages
+    .map(ambientCanonicalCandidateForMessage)
+    .filter((candidate): candidate is AmbientCandidate => Boolean(candidate));
+  const grouped = new Map<string, AmbientCandidate>();
+  for (const candidate of messageCandidates) {
+    const key = [candidate.farmText, candidate.houseText, candidate.flockText]
+      .map((value) => ambientKey(value))
+      .join("\u001e");
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, candidate);
+      continue;
+    }
+    current.items.push(...candidate.items);
+    current.rawTexts = [...new Set([...(current.rawTexts ?? []), ...(candidate.rawTexts ?? [])])].slice(0, 24);
+    current.sourceMessageIds = [...new Set([...(current.sourceMessageIds ?? []), ...(candidate.sourceMessageIds ?? [])])].slice(0, 100);
+    current.sourceTimestamps = [...new Set([...(current.sourceTimestamps ?? []), ...(candidate.sourceTimestamps ?? [])])].slice(0, 100);
+    current.sourceUsers = [...new Set([...(current.sourceUsers ?? []), ...(candidate.sourceUsers ?? [])])].slice(0, 100);
+    current.uncertainties = [...new Set([...(current.uncertainties ?? []), ...(candidate.uncertainties ?? [])])].slice(0, 12);
+    current.conflict = current.conflict || candidate.conflict;
+    current.conflictText = current.conflictText ?? candidate.conflictText;
+    current.evidence = [...(current.evidence ?? []), ...(candidate.evidence ?? [])].slice(0, 48);
+    if (candidate.state !== "new") current.state = candidate.state;
+  }
+  const candidates = [...grouped.values()].slice(0, 8);
+  const sourceMessageIds = candidates.flatMap((candidate) => candidate.sourceMessageIds ?? []);
+  const sourceTimestamps = candidates.flatMap((candidate) => candidate.sourceTimestamps ?? []);
+  const sourceUsers = candidates.flatMap((candidate) => candidate.sourceUsers ?? []);
+  return {
+    candidates,
+    sourceMessageIds: [...new Set(sourceMessageIds)].slice(0, 100),
+    sourceTimestamps: [...new Set(sourceTimestamps)].slice(0, 100),
+    sourceUsers: [...new Set(sourceUsers)].slice(0, 100),
+  };
+}
+
+function mergeCanonicalAmbientBundle(
+  aiBundle: AmbientCandidateBundle | null,
+  canonicalBundle: AmbientCandidateBundle,
+): AmbientCandidateBundle | null {
+  if (!aiBundle && !canonicalBundle.candidates.length) return null;
+  const canonicalIds = new Set(canonicalBundle.sourceMessageIds ?? []);
+  const representedCanonicalIds = new Set<string>();
+  const candidates = (aiBundle?.candidates ?? []).flatMap((candidate) => {
+    const sourceIds = (candidate.sourceMessageIds ?? []).filter((sourceId) => canonicalIds.has(sourceId));
+    if (!sourceIds.length) return [candidate];
+    const scopePrefix = [candidate.farmText, candidate.houseText, candidate.flockText ? `批次${candidate.flockText}` : null]
+      .filter((value): value is string => Boolean(value))
+      .join(" ");
+    const decoratedItems = candidate.items.map((item) => {
+      if (item.taxonomyId) return item;
+      const parsed = parseCanonicalRecordingText(`${scopePrefix} ${item.raw}`.trim());
+      return parsed.taxonomyId && parsed.recordWorthiness !== "ignore"
+        ? { ...item, taxonomyId: parsed.taxonomyId }
+        : null;
+    });
+    if (!decoratedItems.length || decoratedItems.some((item) => item === null)) return [];
+    const canonicalizedItems = decoratedItems.filter((item): item is AmbientCandidateItem => item !== null);
+    sourceIds.forEach((sourceId) => representedCanonicalIds.add(sourceId));
+    return [{
+      ...candidate,
+      items: canonicalizedItems,
+    } satisfies AmbientCandidate];
+  });
+  candidates.push(...canonicalBundle.candidates.filter((candidate) =>
+    !(candidate.sourceMessageIds ?? []).some((sourceId) => representedCanonicalIds.has(sourceId))));
+  const boundedCandidates = candidates.slice(0, 8);
+  const sourceMessageIds = [...new Set([
+    ...(aiBundle?.sourceMessageIds ?? []).filter((sourceId) => !canonicalIds.has(sourceId)),
+    ...(canonicalBundle.sourceMessageIds ?? []),
+  ])].slice(0, 100);
+  return validateAmbientCandidateBundle({
+    candidates: boundedCandidates,
+    sourceMessageIds,
+    sourceTimestamps: [...new Set([
+      ...(aiBundle?.sourceTimestamps ?? []),
+      ...(canonicalBundle.sourceTimestamps ?? []),
+    ])].slice(0, 100),
+    sourceUsers: [...new Set([
+      ...(aiBundle?.sourceUsers ?? []),
+      ...(canonicalBundle.sourceUsers ?? []),
+    ])].slice(0, 100),
+  });
+}
+
 interface AmbientValidationIssue {
   code: AmbientValidationIssueCode;
   path: string;
@@ -1496,6 +1640,7 @@ function inspectAmbientCandidate(issues: AmbientValidationIssue[], value: unknow
       }
       const itemRecord = item as Record<string, unknown>;
       if (itemRecord.type !== "mortality" && itemRecord.type !== "cull" && itemRecord.type !== "abnormal") issueForValue(issues, "INVALID_ENUM", `${itemPath}.type`, "enum", itemRecord.type, index, !hasAmbientKey(itemRecord, "type"));
+      if (itemRecord.taxonomyId !== undefined && !TAXONOMY_IDS.includes(itemRecord.taxonomyId as TaxonomyId)) issueForValue(issues, "INVALID_ENUM", `${itemPath}.taxonomyId`, "enum", itemRecord.taxonomyId, index);
       if (typeof itemRecord.raw !== "string" || itemRecord.raw.trim().length < 1 || itemRecord.raw.length > 2000) issueForValue(issues, "INVALID_FIELD_TYPE", `${itemPath}.raw`, "string", itemRecord.raw, index, !hasAmbientKey(itemRecord, "raw"));
       if (!validConfidence(itemRecord.confidence)) issueForValue(issues, "INVALID_ENUM", `${itemPath}.confidence`, "enum", itemRecord.confidence, index, !hasAmbientKey(itemRecord, "confidence"));
       if (itemRecord.type === "abnormal" && itemRecord.quantity !== null) issueForValue(issues, "INVALID_FIELD_TYPE", `${itemPath}.quantity`, "null", itemRecord.quantity, index, !hasAmbientKey(itemRecord, "quantity"));
@@ -1839,6 +1984,7 @@ function validItem(value: unknown, allowUnresolvedQuantity = false): value is Am
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
   if (item.type !== "mortality" && item.type !== "cull" && item.type !== "abnormal") return false;
+  if (item.taxonomyId !== undefined && !TAXONOMY_IDS.includes(item.taxonomyId as TaxonomyId)) return false;
   if (typeof item.raw !== "string" || item.raw.trim().length < 1 || item.raw.length > 2000) return false;
   if (!validConfidence(item.confidence)) return false;
   if (item.type === "abnormal" && item.quantity !== null) return false;
@@ -2217,6 +2363,7 @@ export const AMBIENT_CANDIDATE_JSON_SCHEMA = {
               additionalProperties: false,
               properties: {
                 type: { type: "string", enum: ["mortality", "cull", "abnormal"] },
+                taxonomyId: { type: "string", enum: TAXONOMY_IDS },
                 quantity: { type: ["number", "null"] },
                 raw: { type: "string" },
                 confidence: { type: "string", enum: ["low", "medium", "high"] },
@@ -2538,7 +2685,13 @@ export async function extractAmbientCandidates(
   model = resolveModelForRole("AMBIENT_EXTRACTION"),
 ): Promise<AmbientExtractionResult> {
   const focused = ambientPrefilter(messages);
-  if (!focused.length || !env.AI) return { attempted: false, bundle: null, validation: "not_invoked" };
+  if (!focused.length) return { attempted: false, bundle: null, validation: "not_invoked" };
+  const canonicalBundle = canonicalAmbientCandidatesForTest(focused);
+  if (!env.AI) {
+    return canonicalBundle.candidates.length
+      ? { attempted: false, bundle: canonicalBundle, validation: "schema_valid" }
+      : { attempted: false, bundle: null, validation: "not_invoked" };
+  }
   try {
     const result = await runAmbientAiRequestInput(env, model, ambientAiRequestFor(messages));
     const aiText = aiResponseText(result);
@@ -2602,8 +2755,21 @@ export async function extractAmbientCandidates(
         sourceCoverage,
       };
     }
+    if (parseFailed || rawParsed === null) {
+      return {
+        attempted: true,
+        bundle: null,
+        validation: "schema_invalid",
+        errorClass: "invalid_ambient_candidate_json",
+        validationDiagnostics: ambientValidationDiagnostics(rawParsed, parsed, parseFailed, null, sourceCoverage),
+        decisionSchemaDiagnostics,
+        transportDiagnostics,
+        sourceCoverage,
+      };
+    }
     const systemEnriched = buildAmbientCandidateBundleFromDecisions(parsed, promptContext);
-    const bundle = validateAmbientCandidateBundle(systemEnriched);
+    const aiBundle = validateAmbientCandidateBundle(systemEnriched);
+    const bundle = mergeCanonicalAmbientBundle(aiBundle, canonicalBundle);
     const finalValidationDiagnostics = ambientValidationDiagnostics(rawParsed, parsed, parseFailed, bundle, sourceCoverage);
     const decisionSummaries = sourceCoverageCheck?.valid && typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
       && Array.isArray((parsed as Record<string, unknown>).decisions)
@@ -2633,10 +2799,11 @@ export async function extractAmbientCandidates(
       sourceCoverage,
       decisionSummaries,
     };
-    // A failed JSON parse is a technical extraction failure.  Never substitute
-    // a second source-text parser here: it would bypass the provider contract,
-    // selected-source accounting, strict JSON policy, and the model-owned
-    // semantic boundary.  The caller retains the retryable sources.
+    // A failed provider result can still be safely represented when the
+    // existing canonical parser identified the source as a record. The
+    // provider remains proposal-only; canonical classification is deterministic
+    // and the write adapter still performs all scope, idempotency and stock
+    // checks.
     return {
       attempted: true,
       bundle,
@@ -2648,6 +2815,14 @@ export async function extractAmbientCandidates(
       sourceCoverage,
     };
   } catch (error) {
+    if (canonicalBundle.candidates.length) {
+      return {
+        attempted: true,
+        bundle: canonicalBundle,
+        validation: "schema_valid",
+        errorClass: errorClass(error),
+      };
+    }
     return { attempted: true, bundle: null, validation: "ai_error", errorClass: errorClass(error) };
   }
 }

@@ -8217,6 +8217,87 @@ async function applyAmbientCandidateItems(
   const candidate = bundle.candidates[candidateIndex];
   if (!candidate || candidate.conflict || !candidate.items.length) return [buildTextMessage("這筆待確認紀錄目前有衝突或已處理，沒有寫入。")];
   const before = candidateWorkflowSummary(bundle);
+  const canonicalItems = candidate.items.filter((item) => Boolean(item.taxonomyId));
+  if (canonicalItems.length) {
+    // A candidate is either wholly canonical or it stays pending. Never let
+    // an item without a deterministic taxonomy fall through to the legacy
+    // quick-record writer alongside canonical items.
+    if (canonicalItems.length !== candidate.items.length) {
+      return [buildTextMessage("這筆待確認資料尚未完成 canonical 分類，沒有寫入正式資料。")];
+    }
+    const userId = event.source?.userId;
+    if (!userId) return [buildTextMessage("這筆待確認資料無法驗證操作者，沒有寫入正式資料。")];
+    const replies: string[] = [];
+    for (let itemIndex = 0; itemIndex < canonicalItems.length; itemIndex += 1) {
+      const item = canonicalItems[itemIndex];
+      const rawText = [
+        farm.name,
+        candidate.houseText,
+        candidate.flockText ? `批次${candidate.flockText}` : null,
+        item.raw,
+      ].filter((value): value is string => Boolean(value && value.trim())).join(" ");
+      const parsed = parseCanonicalRecordingText(rawText, new Date(event.timestamp ?? Date.now()));
+      if (!parsed.taxonomyId || parsed.recordWorthiness !== "record" || parsed.missingFields.length > 0 || parsed.uncertainty !== "none") {
+        return [buildTextMessage("這筆待確認資料仍缺少必要資訊或含有不確定內容，沒有寫入正式資料。")];
+      }
+      const resolved = await resolveCanonicalLineScope(env, row.organizationId, parsed, accountName);
+      if (!resolved.scope || !resolved.environment) {
+        return [buildTextMessage(resolved.clarification ?? "目前無法安全確認 canonical 範圍，沒有寫入正式資料。")];
+      }
+      const createdAt = new Date(event.timestamp ?? Date.now()).toISOString();
+      const sourceMessageId = candidate.sourceMessageIds?.[itemIndex];
+      const identity: RecordingIdentity = {
+        id: `ambient-canonical-${eventId}-${candidateIndex}-${itemIndex}`.slice(0, 240),
+        sourceChannel: "line",
+        rawText,
+        occurredAt: typeof parsed.fields.occurredAt === "string" ? parsed.fields.occurredAt : createdAt,
+        createdAt,
+        clientOperationId: `ambient-canonical-${eventId}-${candidateIndex}-${itemIndex}`.slice(0, 240),
+        ...(sourceMessageId ? { sourceMessageId } : {}),
+        actorId: userId,
+        confirmedBy: userId,
+      };
+      try {
+        const route = canonicalRouteForText(rawText, resolved.scope, identity);
+        const result = await persistRecordCommand(env, route.command, {
+          organizationId: row.organizationId,
+          actorType: "line_user",
+          actorId: userId,
+          requestId: identity.clientOperationId,
+          lineGroupId: row.lineGroupId,
+          lineUserId: userId,
+          environment: resolved.environment,
+          expectedSourceChannel: "line",
+          lineGroupAuthorizationRequired: true,
+          now: createdAt,
+        });
+        const definition = taxonomyDefinitionFor(parsed.taxonomyId);
+        replies.push([
+          `${result.created ? "✅ 已紀錄至" : "✅ 已完成，沒有重複寫入"} ${resolved.farmName ?? farm.name}`,
+          `分類：${definition.label}`,
+          ...canonicalLineDetails(parsed, route.draft, resolved),
+          ...canonicalStockReadbackLines(result.stockMutation),
+        ].join("\n"));
+      } catch (error) {
+        console.log(JSON.stringify({
+          event: "ambient_canonical_write_rejected",
+          taxonomy_id: parsed.taxonomyId,
+          error_class: error instanceof Error && error.name ? error.name : "canonical_write_error",
+        }));
+        return [buildTextMessage("這筆待確認資料無法安全寫入，沒有新增正式資料。")];
+      }
+    }
+    bundle.candidates.splice(candidateIndex, 1);
+    await updateAmbientCandidateBundle(env, row, bundle, userId);
+    await appendCandidateWorkflowHistory(env, row, {
+      action: "confirm",
+      actorId: userId,
+      before,
+      after: candidateWorkflowSummary(bundle),
+      terminalReason: bundle.candidates.length ? undefined : "confirmed",
+    });
+    return [buildTextMessage(replies.join("\n\n"), buildPostRecordActions())];
+  }
   const input = ambientCandidateInput(candidate, farm.name);
   const result = await handleQuickRecordInput(env, event, input, `${eventId}:ambient:${candidateIndex}`, row.lineGroupId, row.organizationId, accountName);
   if (!result.handled) return [buildTextMessage("這筆待確認紀錄無法安全解析，尚未寫入正式資料。")];
