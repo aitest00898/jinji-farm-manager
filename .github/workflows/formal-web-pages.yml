@@ -1,0 +1,90 @@
+name: Formal Web Pages
+
+on:
+  workflow_run:
+    workflows:
+      - Formal Web CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: formal-web-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.repository == 'aitest00898/jinji-farm-manager' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == 'aitest00898/jinji-farm-manager'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CI-tested formal source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify CI-tested SHA is current formal main
+        env:
+          CI_TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git fetch --no-tags origin main
+          CURRENT_REMOTE_MAIN_SHA="$(git rev-parse origin/main)"
+          test -n "$CURRENT_REMOTE_MAIN_SHA"
+          test "$CI_TESTED_SHA" = "$CURRENT_REMOTE_MAIN_SHA"
+          test "$(git rev-parse HEAD)" = "$CI_TESTED_SHA"
+          echo "CURRENT_REMOTE_MAIN_SHA=$CURRENT_REMOTE_MAIN_SHA" >> "$GITHUB_ENV"
+
+      - name: Build formal Web
+        working-directory: web
+        env:
+          FORMAL_WEB_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const sha = process.env.FORMAL_WEB_SOURCE_SHA;
+          if (!sha || sha !== process.env.CURRENT_REMOTE_MAIN_SHA) process.exit(1);
+          fs.writeFileSync('dist/build-info.json', JSON.stringify({
+            product: 'jinji-farm-manager',
+            role: 'formal-web',
+            repository: 'aitest00898/jinji-farm-manager',
+            sourceSha: sha,
+            pagesPath: '/jinji-farm-manager/',
+            builtAt: new Date().toISOString()
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload formal Web artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+      - name: Deploy formal Web Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
