@@ -18,6 +18,7 @@ import {
   type Flock,
   type House,
   type LineGroup,
+  type LineGroupClaimCandidate,
   type OperationalEvent,
   type PendingCandidate,
   type ReliabilityEvent,
@@ -366,6 +367,7 @@ export default function App() {
   const [pendingCandidateTotalPages, setPendingCandidateTotalPages] = useState(1);
   const [testTools, setTestTools] = useState<TestToolsData | null>(null);
   const [lineGroups, setLineGroups] = useState<LineGroup[]>([]);
+  const [lineGroupClaimCandidates, setLineGroupClaimCandidates] = useState<LineGroupClaimCandidate[]>([]);
   const [technicalInfo, setTechnicalInfo] = useState<TechnicalInfo | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
@@ -424,19 +426,19 @@ export default function App() {
       }
 
       if (effectiveAccess === "ADMIN") {
-        const [caretakerData, aliasData, healthData, auditData, systemData, reliabilityData, previewData, pendingData, lineGroupData, testData, technicalData] = await Promise.all([
+        const [caretakerData, aliasData, healthData, auditData, systemData, reliabilityData, previewData, pendingData, lineGroupData, claimData, testData, technicalData] = await Promise.all([
           api.caretakers(true), api.aliases(), api.dataHealth(), api.audit(), api.systemStatus(), api.reliabilityEvents(),
-          api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.testTools(), api.technicalInfo(),
+          api.ambientPreview(), api.pendingCandidates(), api.lineGroups(), api.lineGroupClaimCandidates(), api.testTools(), api.technicalInfo(),
         ]);
         setCaretakers(caretakerData.caretakers); setAliases(aliasData.aliases); setHealth(healthData);
         setAudit(auditData.auditLogs); setAuditCursor(auditData.nextCursor); setSystemStatus(systemData.status);
         setReliabilityEvents(reliabilityData.events); setAmbientPreview(previewData); setPendingCandidates(pendingData.candidates);
         setPendingCandidateInvalidCount(pendingData.invalidCount); setPendingCandidatePage(pendingData.page);
-        setPendingCandidateTotalPages(pendingData.totalPages); setLineGroups(lineGroupData.groups); setTestTools(testData); setTechnicalInfo(technicalData);
+        setPendingCandidateTotalPages(pendingData.totalPages); setLineGroups(lineGroupData.groups); setLineGroupClaimCandidates(claimData.claimCandidates); setTestTools(testData); setTechnicalInfo(technicalData);
       } else {
         setCaretakers([]); setAliases([]); setHealth(null); setAudit([]); setAuditCursor(null); setSystemStatus(null);
         setReliabilityEvents([]); setAmbientPreview(null); setPendingCandidates([]); setPendingCandidateInvalidCount(0);
-        setPendingCandidatePage(0); setPendingCandidateTotalPages(1); setLineGroups([]); setTestTools(null); setTechnicalInfo(null);
+        setPendingCandidatePage(0); setPendingCandidateTotalPages(1); setLineGroups([]); setLineGroupClaimCandidates([]); setTestTools(null); setTechnicalInfo(null);
       }
     } catch (err) {
       if ((err as { status?: number }).status === 401) { api.setAuth(null, null); setAuthenticated(false); setAccessClass(null); }
@@ -576,7 +578,13 @@ export default function App() {
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
       {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onNavigate={navigateTo} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
-      {page === "lineGroups" && <LineGroupsView groups={lineGroups} onToggle={(groupId, enabled) => runMutation(() => api.setLineGroupAiConversation(groupId, enabled), enabled ? "已開啟這個群組的 AI 對話。" : "已關閉這個群組的 AI 對話。")} />}
+      {page === "lineGroups" && <LineGroupsView
+        groups={lineGroups}
+        claimCandidates={lineGroupClaimCandidates}
+        onAiToggle={(groupId, enabled) => runMutation(() => api.setLineGroupAiConversation(groupId, enabled), enabled ? "已開啟這個群組的 AI 對話。" : "已關閉這個群組的 AI 對話。")}
+        onOperationalToggle={(groupId, authorized, reason) => runMutation(() => api.setLineGroupOperationalAuthorization(groupId, authorized, reason), authorized ? "已授權這個群組管理正式營運資料。" : "已撤銷這個群組的營運授權。")}
+        onClaim={(groupId, reason) => runMutation(() => api.claimLineGroupOrganization(groupId, reason), "已將這個 LINE 群組歸屬到目前協會；尚未自動授權營運操作。")}
+      />}
       {page === "diagnostics" && <MessageDiagnosticsView preview={ambientPreview} events={reliabilityEvents} onPage={(nextPage) => { void api.ambientPreview({ page: nextPage }).then(setAmbientPreview).catch((err) => setError(err instanceof Error ? err.message : "訊息診斷載入失敗。")); }} />}
       {page === "pendingDiagnostics" && <PendingCandidatesView candidates={pendingCandidates} invalidCount={pendingCandidateInvalidCount} page={pendingCandidatePage} totalPages={pendingCandidateTotalPages} onPage={loadPendingPage} onNavigate={navigateTo} diagnostic />}
       {page === "testTools" && <TestToolsView data={testTools} />}
@@ -929,20 +937,68 @@ function AuditCard({ row }: { row: AuditRow }) { return <MobileCard><div classNa
 
 function AuditView({ audit, onLoadMore, hasMore }: { audit: AuditRow[]; onLoadMore: () => Promise<void>; hasMore: boolean }) { return <section className="page"><div className="panel"><PanelTitle title="不可覆寫的變更紀錄" /><p className="muted">LINE、WEB、SYSTEM、MIGRATION 來源清楚分開；展開後可查看修改前、修改後與變更欄位。</p>{!audit.length && <EmptyState detail="目前沒有變更紀錄；日後的資料修改會依時間列在這裡。" />}<DataTable headers={["時間", "來源", "操作", "實體", "操作者", "原因", "差異"]}>{audit.map((row) => <tr key={row.id}><td>{row.createdAt}</td><td><StatusPill>{sourceLabel(row.source)}</StatusPill></td><td>{row.action}</td><td>{row.entityType}<br /><small>{row.entityId}</small></td><td>{row.actorType}<br /><small>{row.actorId ?? "—"}</small></td><td>{row.reason ?? "—"}</td><td><AuditDiff row={row} /></td></tr>)}</DataTable><div className="mobile-card-list">{audit.map((row) => <AuditCard key={row.id} row={row} />)}</div>{hasMore && <div className="load-more"><button onClick={() => void onLoadMore()}>載入更多變更紀錄</button></div>}</div></section>; }
 
-function LineGroupsView({ groups, onToggle }: { groups: LineGroup[]; onToggle: (groupId: string, enabled: boolean) => MutationResult }) {
+function LineGroupsView({
+  groups,
+  claimCandidates,
+  onAiToggle,
+  onOperationalToggle,
+  onClaim,
+}: {
+  groups: LineGroup[];
+  claimCandidates: LineGroupClaimCandidate[];
+  onAiToggle: (groupId: string, enabled: boolean) => MutationResult;
+  onOperationalToggle: (groupId: string, authorized: boolean, reason: string) => MutationResult;
+  onClaim: (groupId: string, reason: string) => MutationResult;
+}) {
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const reasonFor = (key: string) => reasons[key] ?? "";
+  const setReason = (key: string, value: string) => setReasons((current) => ({ ...current, [key]: value }));
+
   return <section className="page">
-    <div className="hero"><div><span className="hero-kicker">系統維護</span><h2>LINE 群組</h2><p>只有明確開啟的群組可以使用 @助理 的 AI 對話；其他群組維持原本的使用方式。</p></div></div>
-    <div className="notice"><strong>AI 對話設定</strong><p>這裡只控制哪個群組可以使用 AI 對話，不會修改雞場資料，也不會改變一般群組的安靜模式。</p></div>
-    {!groups.length && <EmptyState detail="目前還沒有已加入的 LINE 群組。" />}
+    <div className="hero"><div><span className="hero-kicker">系統維護</span><h2>LINE 群組</h2><p>群組的協會歸屬、正式營運授權與 AI 對話是三個不同控制；不使用 per-group farm permission。</p></div></div>
+    <div className="notice"><strong>正式授權模型</strong><p>只有 operationalAuthorized 的群組可以讀寫協會內正常營運資料。雞場／雞舍仍由每筆訊息解析；下方舊 farm 綁定僅顯示相容性資料，不代表權限範圍。</p></div>
+
+    {!groups.length && <EmptyState detail="目前協會還沒有已歸屬的 LINE 群組。" />}
     <div className="card-grid">{groups.map((group) => {
       const left = group.status === "left";
+      const operational = Boolean(group.operationalAuthorized);
+      const reasonKey = `auth:${group.groupId}`;
       return <article className="panel" key={group.groupId}>
-        <div className="panel-title"><h3>LINE 群組</h3><StatusPill tone={left ? "neutral" : group.conversationV2Enabled ? "good" : "neutral"}>{left ? "已離開" : group.conversationV2Enabled ? "AI 對話已開啟" : "AI 對話已關閉"}</StatusPill></div>
-        <dl className="mobile-fields"><div><dt>群組識別碼（部分）</dt><dd><code>{group.groupIdShort}</code></dd></div><div><dt>雞場綁定</dt><dd>{group.farmName ?? "尚未綁定特定雞場"}</dd></div></dl>
-        <p className="muted">開啟後，群組成員可以用真正的 @助理 方式提問、查詢與分析；正式資料仍由既有安全流程保護。</p>
-        <button className={group.conversationV2Enabled ? "danger-action" : "primary"} disabled={left} onClick={() => void onToggle(group.groupId, !group.conversationV2Enabled)}>{group.conversationV2Enabled ? "關閉 AI 對話" : "開啟 AI 對話"}</button>
+        <div className="panel-title"><div><span className="eyebrow">{group.groupName ?? "LINE 群組"}</span><h3>{group.groupName ?? group.groupIdShort}</h3></div><StatusPill tone={left ? "neutral" : operational ? "good" : "warn"}>{left ? "已離開" : operational ? "營運已授權" : "營運未授權"}</StatusPill></div>
+        <dl className="mobile-fields">
+          <div><dt>群組識別碼（部分）</dt><dd><code>{group.groupIdShort}</code></dd></div>
+          <div><dt>群組名稱狀態</dt><dd>{group.groupNameStatus ?? "—"}</dd></div>
+          <div><dt>AI 對話</dt><dd>{group.conversationV2Enabled ? "已開啟" : "已關閉"}</dd></div>
+          <div><dt>舊 farm 綁定（相容性）</dt><dd>{group.farmName ?? "無；正式權限不依此欄位"}</dd></div>
+        </dl>
+        <label>授權變更原因
+          <input value={reasonFor(reasonKey)} onChange={(event) => setReason(reasonKey, event.target.value)} placeholder="例如：正式營運群組已由管理者確認" />
+        </label>
+        <div className="button-row">
+          <button className={operational ? "danger-action" : "primary"} disabled={left || !reasonFor(reasonKey).trim()} onClick={() => void onOperationalToggle(group.groupId, !operational, reasonFor(reasonKey).trim())}>{operational ? "撤銷營運授權" : "授權正式營運"}</button>
+          <button disabled={left} onClick={() => void onAiToggle(group.groupId, !group.conversationV2Enabled)}>{group.conversationV2Enabled ? "關閉 AI 對話" : "開啟 AI 對話"}</button>
+        </div>
       </article>;
     })}</div>
+
+    <section className="panel">
+      <PanelTitle title="可認領的未歸屬群組" />
+      <p className="muted">只列出有 LINE event evidence 的 unbound 群組。Claim 只建立 organization 歸屬，不會自動開啟營運授權。</p>
+      {!claimCandidates.length ? <EmptyState detail="目前沒有可安全認領的未歸屬群組。" /> :
+        <div className="card-grid">{claimCandidates.map((candidate) => {
+          const key = `claim:${candidate.groupId}`;
+          return <article className="panel" key={candidate.groupId}>
+            <div className="panel-title"><h3>{candidate.groupName ?? candidate.groupIdShort}</h3><StatusPill tone="warn">未歸屬</StatusPill></div>
+            <dl className="mobile-fields">
+              <div><dt>識別碼</dt><dd><code>{candidate.groupIdShort}</code></dd></div>
+              <div><dt>最後觀察</dt><dd>{candidate.lastObservedAt ?? "—"}</dd></div>
+              <div><dt>事件證據</dt><dd>{candidate.observedEventCount} 筆</dd></div>
+            </dl>
+            <label>Claim 原因<input value={reasonFor(key)} onChange={(event) => setReason(key, event.target.value)} placeholder="例如：確認此群為金雞協會正式群組" /></label>
+            <button className="primary" disabled={!reasonFor(key).trim()} onClick={() => void onClaim(candidate.groupId, reasonFor(key).trim())}>確認歸屬目前協會</button>
+          </article>;
+        })}</div>}
+    </section>
   </section>;
 }
 
