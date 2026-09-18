@@ -1,6 +1,41 @@
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)
   ?? "https://chicken-line-production.jinji-assistant.workers.dev";
 
+export type WebAccessClass = "PUBLIC" | "SHARED_EDIT" | "ADMIN";
+
+export interface WebAuthResponse {
+  authenticated: boolean;
+  token: string;
+  expiresAt: string;
+  accessClass: Exclude<WebAccessClass, "PUBLIC">;
+  organization: { id: string; name: string };
+}
+
+export interface WebSessionResponse {
+  authenticated: boolean;
+  expiresAt?: string;
+  accessClass?: WebAccessClass;
+}
+
+export interface CanonicalRecord {
+  id: string;
+  environment?: string;
+  farmId?: string | null;
+  houseId?: string | null;
+  flockId?: string | null;
+  recordType?: string;
+  effective?: boolean;
+  reversedAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CanonicalRecordsResponse {
+  environment?: string;
+  records: CanonicalRecord[];
+  lifecycleSummaries?: Array<Record<string, unknown>>;
+  nextCursor?: string | null;
+}
+
 export interface ApiError extends Error { status: number; code?: string }
 
 export type AiFailureLayer = "context" | "provider" | "response_validation" | "persistence" | "unknown";
@@ -230,8 +265,11 @@ export function queryString(values: Record<string, string | number | null | unde
 
 export class ApiClient {
   private token: string | null = null;
-  setToken(token: string | null): void { this.token = token; }
+  private accessClass: WebAccessClass | null = null;
+  setToken(token: string | null): void { this.token = token; if (!token) this.accessClass = null; }
+  setAuth(token: string | null, accessClass: WebAccessClass | null): void { this.token = token; this.accessClass = token ? accessClass : null; }
   hasToken(): boolean { return Boolean(this.token); }
+  getAccessClass(): WebAccessClass | null { return this.accessClass; }
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("content-type", "application/json");
@@ -246,9 +284,25 @@ export class ApiClient {
     }
     return payload as T;
   }
-  login(password: string) { return this.request<{ authenticated: boolean; token: string; expiresAt: string; organization: { id: string; name: string } }>("/api/web/auth/login", { method: "POST", body: JSON.stringify({ password }) }); }
-  session() { return this.request<{ authenticated: boolean; expiresAt?: string }>("/api/web/auth/session"); }
-  logout() { return this.request<{ authenticated: boolean }>("/api/web/auth/logout", { method: "POST" }); }
+  async login(password: string, requestedAccessClass: Exclude<WebAccessClass, "PUBLIC"> = "ADMIN") {
+    const path = requestedAccessClass === "SHARED_EDIT" ? "/api/web/auth/shared-login" : "/api/web/auth/login";
+    const result = await this.request<WebAuthResponse>(path, { method: "POST", body: JSON.stringify({ password }) });
+    this.setAuth(result.token, result.accessClass);
+    return result;
+  }
+  async session() {
+    const result = await this.request<WebSessionResponse>("/api/web/auth/session");
+    if (result.authenticated && result.accessClass) this.accessClass = result.accessClass;
+    return result;
+  }
+  async logout() {
+    try { return await this.request<{ authenticated: boolean }>("/api/web/auth/logout", { method: "POST" }); }
+    finally { this.setAuth(null, null); }
+  }
+  async clientClose() {
+    try { return await this.request<{ authenticated: boolean }>("/api/web/auth/client-close", { method: "POST", body: "{}" }); }
+    finally { this.setAuth(null, null); }
+  }
   dashboard() { return this.request<Dashboard>("/api/dashboard"); }
   organizations() { return this.request<{ organizations: Array<{ id: string; name: string; active: boolean } | null> }>("/api/organizations"); }
   farms(environment?: string) { return this.request<{ farms: Farm[] }>(`/api/farms${queryString({ environment })}`); }
@@ -295,4 +349,29 @@ export class ApiClient {
   recoverRetained(eventId: string) { return this.request<{ ok: boolean; message: string; result: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/recover`, { method: "POST", body: "{}" }); }
   resolveRetained(eventId: string, action: "manual_resolve" | "force_close", reason?: string, note?: string, confirm = false) { return this.request<{ ok: boolean; changed: boolean; message: string }>(`/api/reliability/events/${encodeURIComponent(eventId)}/resolve`, { method: "POST", body: JSON.stringify({ action, reason: reason?.trim() || null, note: note?.trim() || null, confirm }) }); }
   recordRetained(eventId: string, body: Record<string, unknown>) { return this.request<{ ok: boolean; changed: boolean; message: string; record: Record<string, unknown> }>(`/api/reliability/events/${encodeURIComponent(eventId)}/record`, { method: "POST", body: JSON.stringify(body) }); }
+
+  // Canonical recording/readback contract ported from the former V14R Lab.
+  records(params: Record<string, string | number | null | undefined> = {}) { return this.request<CanonicalRecordsResponse>(`/api/records${queryString(params)}`); }
+  createRecord(body: Record<string, unknown>) { return this.request("/api/records", { method: "POST", body: JSON.stringify(body) }); }
+  correctRecord(id: string, body: Record<string, unknown>) { return this.request(`/api/records/${encodeURIComponent(id)}/correct`, { method: "POST", body: JSON.stringify(body) }); }
+  reverseRecord(id: string, body: Record<string, unknown> = {}) { return this.request(`/api/records/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify(body) }); }
+
+  lineGroupClaimCandidates() { return this.request<{ candidates: Array<Record<string, unknown>> }>("/api/line-groups/claim-candidates"); }
+  claimLineGroupOrganization(groupId: string, reason?: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/organization-claim`, { method: "PATCH", body: JSON.stringify({ reason: reason?.trim() || null }) }); }
+  setLineGroupOperationalAuthorization(groupId: string, authorized: boolean, reason?: string) { return this.request(`/api/line-groups/${encodeURIComponent(groupId)}/operational-authorization`, { method: "PATCH", body: JSON.stringify({ authorized, reason: reason?.trim() || null }) }); }
+
+  discoverDomainRecovery(body: Record<string, unknown> = {}) { return this.request<Record<string, unknown>>("/api/recovery/domain-discover", { method: "POST", body: JSON.stringify(body) }); }
+  dryRunDomainRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-dry-run", { method: "POST", body: JSON.stringify(body) }); }
+  applyDomainRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-apply", { method: "POST", body: JSON.stringify(body) }); }
+  dryRunDomainRecoveryBatch(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-batch-dry-run", { method: "POST", body: JSON.stringify(body) }); }
+  applyDomainRecoveryBatch(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-batch-apply", { method: "POST", body: JSON.stringify(body) }); }
+  discoverDomainPointInTimeRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-pit-discover", { method: "POST", body: JSON.stringify(body) }); }
+  dryRunDomainPointInTimeRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-pit-dry-run", { method: "POST", body: JSON.stringify(body) }); }
+  applyDomainPointInTimeRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/domain-pit-apply", { method: "POST", body: JSON.stringify(body) }); }
+  discoverFinanceRecovery(body: Record<string, unknown> = {}) { return this.request<Record<string, unknown>>("/api/recovery/finance-discover", { method: "POST", body: JSON.stringify(body) }); }
+  dryRunFinanceRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/finance-dry-run", { method: "POST", body: JSON.stringify(body) }); }
+  applyFinanceRecovery(body: Record<string, unknown>) { return this.request<Record<string, unknown>>("/api/recovery/finance-apply", { method: "POST", body: JSON.stringify(body) }); }
+
+  webSessions() { return this.request<{ sessions: Array<Record<string, unknown>> }>("/api/web/auth/sessions"); }
+  revokeWebSession(id: string) { return this.request(`/api/web/auth/sessions/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }); }
 }

@@ -49,7 +49,12 @@
     "ambient:semantic-kind-fix": "node scripts/ambient-semantic-eval-schema-micro.mjs --d05-only",
     "benchmark:full-taxonomy-live-ab-v1": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/full-taxonomy-live-ab-v1.mjs",
     "benchmark:full-taxonomy-live-ab-v2": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/full-taxonomy-live-ab-v2.mjs",
-    "benchmark:full-taxonomy-semantic-ab-v1": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/full-taxonomy-semantic-ab-v1.mjs"
+    "benchmark:full-taxonomy-semantic-ab-v1": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/full-taxonomy-semantic-ab-v1.mjs",
+    "web:install": "npm --prefix web ci",
+    "web:check": "npm --prefix web run check",
+    "web:test": "npm --prefix web test",
+    "web:build": "npm --prefix web run build",
+    "web:e2e": "npm --prefix web run test:e2e"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260818.1",
