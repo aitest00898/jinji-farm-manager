@@ -95,7 +95,7 @@ describe("Web management safety contract", () => {
     await client.discoverDomainRecovery({ limit: 10 });
     await client.dryRunDomainRecoveryBatch({ targets: [] });
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
-    expect(urls[0]).toContain("/api/records?limit=25");
+    expect(urls[0]).toContain("/api/records?environment=production&limit=25");
     expect(urls[1]).toContain("/api/recovery/domain-discover");
     expect(urls[2]).toContain("/api/recovery/domain-batch-dry-run");
   });
