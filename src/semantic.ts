@@ -284,9 +284,9 @@ function normalizeAiIntentName(value: unknown): UnifiedIntentName | undefined {
   return value as UnifiedIntentName;
 }
 
-const MORTALITY_LANGUAGE = /(?:死亡|死|掛(?:了)?)/u;
-const CULL_LANGUAGE = /(?:淘汰)/u;
-const FEED_LANGUAGE = /(?:飼料|饲料|餵|喂|料)/u;
+const MORTALITY_LANGUAGE = /(?:死亡|死了|死掉|死|掛(?:了)?)/u;
+const CULL_LANGUAGE = /(?:淘汰|抓掉|抓走|淘掉)/u;
+const FEED_LANGUAGE = /(?:飼料|饲料|叫料|訂飼料|订饲料|餵|喂|料)/u;
 const WATER_LANGUAGE = /(?:飲水|饮水|喝水)/u;
 const SHIPMENT_LANGUAGE = /(?:出雞|出鸡|出欄|出栏)/u;
 const QUERY_LANGUAGE = /(?:哪|多少|幾|几|最多|比較|比较|查詢|查询|統計|统计)/u;
@@ -307,7 +307,7 @@ function safeUnknownIntent(): UnifiedIntent {
 function cleanAiFarmText(value: string | null): string | null {
   if (!value) return null;
   let text = normalize(value);
-  const eventStart = text.search(/(?:死亡|死|掛|淘汰|飼料|饲料|餵|喂|料|飲水|饮水|喝水|出雞|出鸡|出欄|出栏)/u);
+  const eventStart = text.search(/(?:死亡|死|掛|淘汰|抓掉|抓走|淘掉|飼料|饲料|叫料|訂飼料|订饲料|餵|喂|料|飲水|饮水|喝水|出雞|出鸡|出欄|出栏)/u);
   if (eventStart >= 0) text = text.slice(0, eventStart);
   for (let pass = 0; pass < 3; pass += 1) {
     text = text
@@ -337,7 +337,7 @@ function stripFarmCandidate(value: string): string | null {
  */
 export function farmFragmentFromInput(input: string): string | null {
   const text = normalize(input);
-  const eventMatch = text.match(/(?:死亡|死|掛|淘汰|飼料|饲料|餵|喂|料|飲水|饮水|喝水|出雞|出鸡|出欄|出栏)/u);
+  const eventMatch = text.match(/(?:死亡|死了|死掉|死|掛|淘汰|抓掉|抓走|淘掉|飼料|饲料|叫料|訂飼料|订饲料|餵|喂|料|飲水|饮水|喝水|出雞|出鸡|出欄|出栏)/u);
   if (!eventMatch || eventMatch.index === undefined) return null;
   const before = text.slice(0, eventMatch.index).trim();
   const after = text.slice(eventMatch.index + eventMatch[0].length).trim();
@@ -529,7 +529,7 @@ export function shouldInvokeSemanticAi(input: string): boolean {
   if (deterministic && deterministic.intent !== "unknown" && !shouldPreferAiOverDeterministic(text, deterministic)) {
     return false;
   }
-  const eventWords = /(?:死亡|死|掛|淘汰|飼料|饲料|料|飲水|饮水|水|出雞|出鸡|出欄|出栏|餵|喂)/iu.test(text);
+  const eventWords = /(?:死亡|死了|死掉|死|掛|淘汰|抓掉|抓走|淘掉|飼料|饲料|叫料|訂飼料|订饲料|料|飲水|饮水|水|出雞|出鸡|出欄|出栏|餵|喂)/iu.test(text);
   const queryWords = /(?:哪|多少|幾|几|最近|近期|比較|比较|最多|統計|统计|查詢|查询|目前|現在|现在)/iu.test(text);
   const quantityWords = /(?:\d|零|一|二|兩|两|三|四|五|六|七|八|九|十|百|千)/u.test(text);
   return (eventWords && (quantityWords || text.length >= 6)) || (queryWords && text.length >= 4);
