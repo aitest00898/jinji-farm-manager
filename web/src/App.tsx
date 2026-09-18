@@ -9,6 +9,7 @@ import {
   type AmbientPreview,
   type AuditRow,
   type Caretaker,
+  type CanonicalRecord,
   type ChartResponse,
   type Dashboard,
   type DataHealth,
@@ -351,6 +352,7 @@ export default function App() {
   const [flocks, setFlocks] = useState<Flock[]>([]);
   const [events, setEvents] = useState<OperationalEvent[]>([]);
   const [eventsCursor, setEventsCursor] = useState<string | null>(null);
+  const [canonicalRecords, setCanonicalRecords] = useState<CanonicalRecord[]>([]);
   const [finance, setFinance] = useState<FinanceData | null>(null);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
@@ -404,12 +406,13 @@ export default function App() {
     setBusy(true); setError(""); setAiFailure(null);
     try {
       const effectiveAccess = accessClass ?? api.getAccessClass() ?? "ADMIN";
-      const [dash, orgData, farmData, houseData, flockData, eventData, abnormalData, weatherData, timelineData] = await Promise.all([
+      const [dash, orgData, farmData, houseData, flockData, eventData, recordData, abnormalData, weatherData, timelineData] = await Promise.all([
         api.dashboard(), api.organizations(), api.farms(), api.houses(), api.flocks(), api.events({ limit: 50 }),
-        api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }),
+        api.records({ limit: 100 }), api.abnormalEvents({ limit: 50 }), api.weather({ limit: 100 }), api.timeline({ limit: 100 }),
       ]);
       setDashboard(dash); setOrganization(orgData.organizations.find(Boolean) ?? null); setFarms(farmData.farms);
       setHouses(houseData.houses); setFlocks(flockData.flocks); setEvents(eventData.events); setEventsCursor(eventData.nextCursor);
+      setCanonicalRecords(recordData.records);
       setAbnormalEvents(abnormalData.abnormalEvents); setAbnormalCursor(abnormalData.nextCursor); setWeather(weatherData.weather); setTimeline(timelineData.timeline);
 
       if (effectiveAccess === "SHARED_EDIT" || effectiveAccess === "ADMIN") {
