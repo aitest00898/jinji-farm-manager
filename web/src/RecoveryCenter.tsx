@@ -170,7 +170,7 @@ export function RecoveryCenter({ client }: { client: ApiClient }) {
         clientOperationId: clientOperationId("web-domain-batch"),
         reason: reason.trim(),
       };
-    }).filter((value): value is AnyRecord => Boolean(value));
+    }).filter(Boolean) as AnyRecord[];
     const payload = await execute(() => client.dryRunDomainRecoveryBatch({ targets: requests }, environment));
     if (!payload) return;
     setBatchRequests(requests);
@@ -193,7 +193,7 @@ export function RecoveryCenter({ client }: { client: ApiClient }) {
           confirm: true,
           previewAcknowledged: true,
         };
-      }).filter((value): value is AnyRecord => Boolean(value));
+      }).filter(Boolean) as AnyRecord[];
       return {
         groupId: text(group.groupId, ""),
         stateFingerprint: text(group.stateFingerprint, ""),
