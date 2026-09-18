@@ -284,7 +284,10 @@ export class ApiClient {
   private token: string | null = null;
   private accessClass: WebAccessClass | null = null;
   setToken(token: string | null): void { this.token = token; if (!token) this.accessClass = null; }
-  setAuth(token: string | null, accessClass: WebAccessClass | null): void { this.token = token; this.accessClass = token ? accessClass : null; }
+  setAuth(token: string | null, accessClass: WebAccessClass | null): void {
+    this.token = token;
+    this.accessClass = accessClass === "PUBLIC" ? "PUBLIC" : token ? accessClass : null;
+  }
   hasToken(): boolean { return Boolean(this.token); }
   getAccessClass(): WebAccessClass | null { return this.accessClass; }
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
