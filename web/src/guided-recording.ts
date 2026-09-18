@@ -125,7 +125,15 @@ export function buildGuidedRecord(draft: GuidedDraft, meta: GuidedRecordMeta): R
   };
 
   for (const field of guidedFields(draft.taxonomyId, draft.values)) {
-    if (nonEmpty(draft.values[field])) record[field] = draft.values[field];
+    if (!nonEmpty(draft.values[field])) continue;
+    const value = draft.values[field];
+    if (numericField(field)) record[field] = Number(value);
+    else if (field === "completedAt" && /^\d{4}-\d{2}-\d{2}$/u.test(String(value))) record[field] = `${value}T09:30:00+08:00`;
+    else record[field] = value;
+  }
+
+  if (definition.id === "A12" && draft.subtype === "other" && !nonEmpty(record.detail)) {
+    throw new Error("GUIDED_REQUIRED_FIELD:detail");
   }
 
   if (definition.id === "O6") record.submittedAt = occurredAt;
