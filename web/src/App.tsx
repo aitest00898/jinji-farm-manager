@@ -31,6 +31,7 @@ import {
 } from "./api";
 import { NAV_GROUPS, NAV_ITEMS, PRIMARY_NAV_ITEMS, navAllowedForAccess, type NavIconName, type NavKey } from "./navigation";
 import { GuidedRecordingPanel } from "./GuidedRecordingPanel";
+import { RecoveryCenter } from "./RecoveryCenter";
 
 export { NAV_GROUPS, NAV_ITEMS } from "./navigation";
 
@@ -578,6 +579,7 @@ export default function App() {
       {page === "audit" && <AuditView audit={audit} onLoadMore={loadMoreAudit} hasMore={Boolean(auditCursor)} />}
       {page === "health" && <HealthView health={health} />}
       {page === "system" && <SystemStatusView status={systemStatus} events={reliabilityEvents} farms={farms} houses={houses} flocks={flocks} onNavigate={navigateTo} onRecover={() => void runMutation(() => api.recoverUnfinished())} onRecoverEvent={(id) => runMutation(() => api.recoverRetained(id), "已重新安排這筆訊息處理。")} onAcknowledge={() => void runMutation(() => api.acknowledgeRetained(), "已記下查看結果；尚待決定的訊息仍會保留。")} onResolve={(id, action, reason, note, confirm) => runMutation(() => api.resolveRetained(id, action, reason, note, confirm), action === "force_close" ? "這筆訊息已強制結案。" : "這筆訊息已結案。")} onRecord={(id, body) => runMutation(() => api.recordRetained(id, body), "已補登正式紀錄，這筆訊息已結案。")} />}
+       {page === "recovery" && <RecoveryCenter client={api} />}
       {page === "lineGroups" && <LineGroupsView
         groups={lineGroups}
         claimCandidates={lineGroupClaimCandidates}
