@@ -60,6 +60,7 @@ function LineIcon({ name, className = "nav-icon" }: { name: NavIconName; classNa
     case "audit": glyph = <><path d="M4 7v5h5" /><path d="M5.5 17a8 8 0 1 0-.8-9" /><path d="M12 7v5l3 2" /></>; break;
     case "pending": glyph = <><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></>; break;
     case "system": glyph = <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z" /><path d="M12 8v4l2 2" /></>; break;
+    case "recovery": glyph = <><path d="M4 7v5h5" /><path d="M5.5 17a8 8 0 1 0-.8-9" /><path d="M12 8v4" /><path d="M10 10h4" /></>; break;
     case "diagnostics": glyph = <><path d="M4 5h16v14H4z" /><path d="M7 9h10M7 13h6M7 16h3" /><circle cx="17" cy="16" r="2" /></>; break;
     case "pendingDiagnostics": glyph = <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h4" /><path d="m15 15 2 2 3-4" /></>; break;
     case "testTools": glyph = <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3" /><path d="M8 15h8" /></>; break;

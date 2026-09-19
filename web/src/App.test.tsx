@@ -23,6 +23,7 @@ describe("mobile navigation information architecture", () => {
       "變更紀錄（修改追蹤）",
       "資料檢查（資料異常檢查）",
       "系統狀態（訊息處理狀態）",
+      "Recovery（資料恢復與 PIT）",
       "LINE 群組（AI 對話開關）",
       "訊息診斷（尚未整理與問題訊息）",
       "待確認資料診斷（來源與不一致原因）",
@@ -49,7 +50,7 @@ describe("mobile navigation information architecture", () => {
     ]);
     expect(PRIMARY_NAV_ITEMS).toHaveLength(12);
     expect(NAV_ITEMS.filter((item) => !item.primary).map((item) => item.key)).toEqual([
-      "reminders", "organization", "houses", "equity", "aliases", "health", "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
+      "reminders", "organization", "houses", "equity", "aliases", "health", "recovery", "lineGroups", "diagnostics", "pendingDiagnostics", "testTools", "settings", "technical",
     ]);
   });
 
