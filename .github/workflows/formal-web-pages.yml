@@ -54,6 +54,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CI_TESTED_SHA"
           echo "CURRENT_REMOTE_MAIN_SHA=$CURRENT_REMOTE_MAIN_SHA" >> "$GITHUB_ENV"
 
+      - name: Verify repository authority
+        run: npm run check:authority
+
       - name: Build formal Web
         working-directory: web
         env:

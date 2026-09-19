@@ -54,7 +54,8 @@
     "web:check": "npm --prefix web run check",
     "web:test": "npm --prefix web test",
     "web:build": "npm --prefix web run build",
-    "web:e2e": "npm --prefix web run test:e2e"
+    "web:e2e": "npm --prefix web run test:e2e",
+    "check:authority": "node scripts/verify-repository-authority.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260818.1",
