@@ -611,7 +611,7 @@ function DashboardView({ dashboard, farms, flocks, canViewFinance, onNavigate }:
   return <section className="page">
     <div className="hero"><div><span className="hero-kicker">截至 {dashboard.asOf}</span><h2>今天，讓每一筆雞場資料都清楚可追溯。</h2><p>營運資料由 LINE 與 Web 共用；正式財務統計自動排除測試場。</p></div><button className="primary" onClick={() => onNavigate("events")}>記錄營運事件 ＋</button></div>
     <div className="metric-grid">
-      <Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} onClick={() => onNavigate("farms")} />
+      <Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms ?? 0}`} onClick={() => onNavigate("farms")} />
       <Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} onClick={() => onNavigate("flocks")} />
       <Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} onClick={() => onNavigate("events", { intent: "mortality" })} />
       <Metric title="歷史淨收入" value={dashboard.finance ? `NT${money(dashboard.finance.net)}` : "—"} detail="僅正式雞場財務" onClick={canViewFinance ? () => onNavigate("finance") : undefined} />
