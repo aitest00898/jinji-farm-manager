@@ -23,7 +23,7 @@ jobs:
     if: >-
       github.repository == 'aitest00898/jinji-farm-manager' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == 'aitest00898/jinji-farm-manager'
     environment:
