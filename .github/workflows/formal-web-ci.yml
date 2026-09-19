@@ -9,6 +9,7 @@ on:
       - 'web/**'
       - '.github/workflows/formal-web-ci.yml'
       - 'package.json'
+  workflow_dispatch:
   pull_request:
     paths:
       - 'web/**'
