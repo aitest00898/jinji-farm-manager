@@ -44,6 +44,7 @@ async function installMockApi(page: Page): Promise<MockState> {
     const url = new URL(request.url());
     const path = url.pathname;
     if (path.endsWith("/api/web/auth/login")) return fulfill(route, { authenticated: true, token: "test-session", expiresAt: "2099-01-01T00:00:00Z", accessClass: "ADMIN", organization: { id: "org-test", name: "測試組合" } });
+    if (path.endsWith("/api/web/auth/shared-login")) return fulfill(route, { authenticated: true, token: "shared-session", expiresAt: "2099-01-01T00:00:00Z", accessClass: "SHARED_EDIT", organization: { id: "org-test", name: "測試組合" } });
     if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, expiresAt: "2099-01-01T00:00:00Z", accessClass: "ADMIN" });
     if (path.endsWith("/api/web/auth/logout")) return fulfill(route, { authenticated: false });
     if (path.endsWith("/api/system-status")) return fulfill(route, { status: reliabilityStatusFixture(state) });
@@ -159,6 +160,44 @@ async function expectNoBrowserErrors(errors: BrowserErrorCapture) {
   expect(errors.pageErrors).toEqual([]);
   expect(errors.unhandledRejections).toEqual([]);
 }
+
+test.describe("formal Web access boundaries", () => {
+  test("PUBLIC enters without a token, hides mutation/admin navigation, and rejects forced admin routes", async ({ page }) => {
+    await installMockApi(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./");
+    await page.getByRole("button", { name: "公開唯讀瀏覽" }).click();
+    await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
+    await expect(page.locator(".sidebar-foot")).toContainText("公開唯讀");
+
+    await openDrawer(page);
+    await expect(page.locator('[data-nav-key="audit"]')).toHaveCount(0);
+    await expect(page.locator('[data-nav-key="finance"]')).toHaveCount(0);
+    await page.locator(".drawer-close").click();
+
+    await page.evaluate(() => { window.location.hash = "#/audit"; });
+    await expect(page).toHaveURL(/#\/dashboard$/);
+    await page.evaluate(() => { window.location.hash = "#/farms"; });
+    await expect(page.getByRole("heading", { name: "雞場", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /新增雞場/ })).toHaveCount(0);
+  });
+
+  test("SHARED_EDIT can use operational and finance views but cannot enter admin-only routes", async ({ page }) => {
+    await installMockApi(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./");
+    await page.getByLabel("共享編輯密碼").fill("shared-fixture");
+    await page.getByRole("button", { name: "登入共享編輯" }).click();
+    await expect(page.getByRole("heading", { name: "總覽", exact: true })).toBeVisible();
+    await expect(page.locator(".sidebar-foot")).toContainText("共享編輯");
+
+    await navigateByDrawer(page, "財務");
+    await expect(page.getByRole("heading", { name: "財務", exact: true })).toBeVisible();
+
+    await page.evaluate(() => { window.location.hash = "#/audit"; });
+    await expect(page).toHaveURL(/#\/dashboard$/);
+  });
+});
 
 test.describe("mobile navigation information architecture", () => {
   test.beforeEach(async ({ page }) => {
