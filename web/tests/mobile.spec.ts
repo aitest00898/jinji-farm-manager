@@ -97,8 +97,8 @@ async function login(page: Page) {
 }
 
 async function ensureAuthenticatedRoute(page: Page, heading: string) {
-  const loginButton = page.getByRole("button", { name: "登入管理中心" });
-  if (await loginButton.isVisible()) await submitLogin(page, heading);
+  const loginCard = page.locator(".login-card");
+  if (await loginCard.isVisible()) await submitLogin(page, heading);
   else await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
 }
 
