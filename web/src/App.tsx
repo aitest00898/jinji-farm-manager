@@ -568,7 +568,7 @@ export default function App() {
       <div className="page-purpose" aria-label={`${current.label}頁面說明`}><p>{current.pageDescription}</p></div>
       {routeScope && <div className="route-context" role="status"><span>{routeScope}</span><button type="button" className="text-button" onClick={() => navigateTo(page)}>{contextFarm ? "清除雞場篩選" : "清除篩選"}</button></div>}
       {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}{error && <div className="alert error-text" role="alert" data-ai-failure-layer={aiFailure?.layer}><span>{error}</span>{aiFailure && <small className="ai-error-classification">分析分類：{aiFailure.label}</small>}<button aria-label="關閉錯誤" onClick={() => { setError(""); setAiFailure(null); }}>×</button></div>}
-      {page === "dashboard" && <DashboardView dashboard={dashboard} farms={farms} flocks={flocks} onNavigate={navigateTo} />}
+      {page === "dashboard" && <DashboardView dashboard={dashboard} farms={farms} flocks={flocks} canViewFinance={accessClass !== "PUBLIC"} onNavigate={navigateTo} />}
       {page === "organization" && <OrganizationView organization={organization} farms={farms} />}
       {page === "farms" && <><FarmsView farms={farms} initialFarmId={pageQuery.get("farmId")} canAdmin={accessClass === "ADMIN"} canEdit={accessClass !== "PUBLIC"} onCreate={(body) => runMutation(() => api.createFarm(body))} onUpdate={(id, body) => runMutation(() => api.updateFarm(id, body))} onRecord={(farmId) => openAbnormalComposer({ farmId })} /><ContextNav title="場務管理" items={[{ key: "houses", label: "雞舍管理", description: "查看各雞場的舍別資料。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "flocks", label: "批次管理", description: "查看入雛、日齡與出雞資料。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "caretakers", label: "飼養者管理", description: "查看跨雞場責任指派。" }, { key: "events", label: "營運紀錄", description: "查看這個雞場的正式事件。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "abnormal", label: "異常紀錄", description: "記錄或查看現場異常。", query: contextFarm ? { farmId: contextFarm.id } : undefined }, { key: "aliases", label: "名稱解析", description: "查看別名與安全解析狀態。", query: contextFarm ? { farmId: contextFarm.id } : undefined }]} onNavigate={navigateTo} /></>}
       {page === "caretakers" && <CaretakersView caretakers={caretakers} farms={farms} onCreate={(body) => runMutation(() => api.createCaretaker(body))} onUpdate={(id, body) => runMutation(() => api.updateCaretaker(id, body))} onAssign={(farmId, body) => runMutation(() => api.assignCaretaker(farmId, body))} />}
@@ -604,7 +604,7 @@ export default function App() {
   </div>;
 }
 
-function DashboardView({ dashboard, farms, flocks, onNavigate }: { dashboard: Dashboard | null; farms: Farm[]; flocks: Flock[]; onNavigate: Navigate }) {
+function DashboardView({ dashboard, farms, flocks, canViewFinance, onNavigate }: { dashboard: Dashboard | null; farms: Farm[]; flocks: Flock[]; canViewFinance: boolean; onNavigate: Navigate }) {
   if (!dashboard) return <Loading />;
   const activeFlocks = flocks.filter((flock) => flock.status === "active").slice(0, 8);
   const activeFarms = farms.filter((farm) => farm.active);
@@ -614,7 +614,7 @@ function DashboardView({ dashboard, farms, flocks, onNavigate }: { dashboard: Da
       <Metric title="有效雞場" value={dashboard.counts.farms} detail={`正式 ${dashboard.counts.productionFarms} ／ 測試 ${dashboard.counts.testFarms}`} onClick={() => onNavigate("farms")} />
       <Metric title="目前存欄" value={`${quantity(dashboard.stock)} 隻`} detail={`${dashboard.counts.activeFlocks} 個進行中批次`} onClick={() => onNavigate("flocks")} />
       <Metric title="今日死亡" value={`${quantity(dashboard.today.mortality)} 隻`} detail={`淘汰 ${quantity(dashboard.today.cull)} 隻`} tone={dashboard.today.mortality > 0 ? "warn" : "good"} onClick={() => onNavigate("events", { intent: "mortality" })} />
-      <Metric title="歷史淨收入" value={`NT${money(dashboard.finance.net)}`} detail="僅正式雞場財務" onClick={() => onNavigate("finance")} />
+      <Metric title="歷史淨收入" value={dashboard.finance ? `NT${money(dashboard.finance.net)}` : "—"} detail="僅正式雞場財務" onClick={canViewFinance ? () => onNavigate("finance") : undefined} />
     </div>
     <div className="two-col">
       <section className="panel"><PanelTitle title="雞場概覽" action="查看全部" onClick={() => onNavigate("farms")} />{activeFarms.length ? <div className="farm-list">{activeFarms.map((farm) => <button type="button" className="farm-row dashboard-link-row" key={farm.id} onClick={() => onNavigate("farms", { farmId: farm.id })}><div className="farm-avatar">{farm.environment === "test" ? "🧪" : "🐔"}</div><div className="grow"><strong>{farm.name}</strong><span>{farm.siteName || (farm.structureMode === "multi_house" ? "多舍管理" : "全場管理")}</span></div><StatusPill tone={farm.environment === "test" ? "warn" : "good"}>{farm.environment === "test" ? "測試" : "正式"}</StatusPill></button>)}</div> : <EmptyState detail="目前沒有啟用中的雞場。" />}</section>
