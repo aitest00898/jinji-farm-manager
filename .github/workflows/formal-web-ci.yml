@@ -1,0 +1,58 @@
+name: Formal Web CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'repair/**'
+    paths:
+      - 'web/**'
+      - '.github/workflows/formal-web-ci.yml'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/formal-web-ci.yml'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm --prefix .. run check:authority
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+      - name: Run Chromium and WebKit mobile regressions
+        run: npm run test:e2e
