@@ -43,8 +43,8 @@ async function installMockApi(page: Page): Promise<MockState> {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
-    if (path.endsWith("/api/web/auth/login")) return fulfill(route, { authenticated: true, token: "test-session", expiresAt: "2099-01-01T00:00:00Z", organization: { id: "org-test", name: "測試組合" } });
-    if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, expiresAt: "2099-01-01T00:00:00Z" });
+    if (path.endsWith("/api/web/auth/login")) return fulfill(route, { authenticated: true, token: "test-session", expiresAt: "2099-01-01T00:00:00Z", accessClass: "ADMIN", organization: { id: "org-test", name: "測試組合" } });
+    if (path.endsWith("/api/web/auth/session")) return fulfill(route, { authenticated: true, expiresAt: "2099-01-01T00:00:00Z", accessClass: "ADMIN" });
     if (path.endsWith("/api/web/auth/logout")) return fulfill(route, { authenticated: false });
     if (path.endsWith("/api/system-status")) return fulfill(route, { status: reliabilityStatusFixture(state) });
     if (path.endsWith("/api/reliability/events")) return fulfill(route, { events: reliabilityEventsFixture(state) });
@@ -65,6 +65,7 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/houses")) return fulfill(route, { houses: [house] });
     if (path.endsWith("/api/flocks")) return fulfill(route, { flocks: [flock] });
     if (path.endsWith("/api/operational-events")) return fulfill(route, { events: [operationalEvent], nextCursor: null });
+    if (path.endsWith("/api/records")) return fulfill(route, { environment: "production", records: [], lifecycleSummaries: [], nextCursor: null });
     if (path.endsWith("/api/abnormal-events")) return fulfill(route, { abnormalEvents: [], nextCursor: null });
     if (path.endsWith("/api/weather")) return fulfill(route, { weather: [] });
     if (path.endsWith("/api/timeline")) return fulfill(route, { timeline: [], nextCursor: null });
@@ -75,6 +76,7 @@ async function installMockApi(page: Page): Promise<MockState> {
     if (path.endsWith("/api/ai/analyze") && request.method() === "POST") return fulfill(route, { result: { report: { currentStatus: "目前資料可供唯讀分析。", findings: ["測試資料包含一筆近期異常。"], possibleCauses: [{ text: "測試原因", evidence: "medium" }], risks: ["請持續觀察。"], recommendations: ["依現場資料持續記錄。"], limitations: ["這是瀏覽器回歸測試資料。"] }, cached: false, contextHash: "fixture-context", model: "fixture-model", createdAt: "2026-08-20T01:12:00Z" }, readOnly: true });
     if (path.endsWith("/api/line-groups/group-test/ai-conversation") && request.method() === "PATCH") { state.lineGroupEnabled = Boolean(JSON.parse(request.postData() ?? "{}").enabled); return fulfill(route, { ok: true, changed: true, enabled: state.lineGroupEnabled, message: "已更新。" }); }
     if (path.endsWith("/api/line-groups")) return fulfill(route, { groups: [{ groupId: "group-test", groupIdShort: "grou…test", status: "unbound", farmName: null, farmId: null, conversationV2Enabled: state.lineGroupEnabled }] });
+    if (path.endsWith("/api/line-groups/claim-candidates")) return fulfill(route, { claimCandidates: [], readOnly: true });
     if (path.includes("/api/charts/")) return fulfill(route, { metric: "mortality", from: "2026-07-21", to: "2026-08-20", granularity: "daily", unit: "隻", definition: "每日死亡事件數。", status: "ok", series: [{ date: "2026-08-19", value: 2 }, { date: "2026-08-20", value: 5 }] });
     return fulfill(route, {});
   });
@@ -82,6 +84,7 @@ async function installMockApi(page: Page): Promise<MockState> {
 }
 
 async function submitLogin(page: Page, expectedHeading = "總覽") {
+  await page.getByRole("button", { name: "管理者", exact: true }).click();
   await page.getByLabel("管理密碼").fill("test-only-fixture");
   await page.getByRole("button", { name: "登入管理中心" }).click();
   await expect(page.getByRole("heading", { name: expectedHeading, exact: true })).toBeVisible();
