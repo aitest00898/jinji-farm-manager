@@ -617,3 +617,10 @@ strategy and current direction only; it is not a permission to deploy or
 mutate Production. The Chapter 7/8 deployment-at-closure statements are
 historical-at-chapter-closure; their later inclusion in the Chapter 13
 Production release is the current deployment truth.
+
+## Temporary development pause — 2026-10-09
+
+The user explicitly paused further development of `aitest00898/jinji-farm-manager`.
+All Cloudflare Cron Triggers are configured off in `wrangler.jsonc` with `triggers.crons = []`.
+Do not resume feature work, runtime changes, scheduled jobs, or Chapter 23 unless the user explicitly resumes this project.
+GitHub Actions remain paused under the user's global setting.
